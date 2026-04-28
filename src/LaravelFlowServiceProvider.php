@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Padosoft$ns;
+namespace Padosoft\LaravelFlow;
 
 use Illuminate\Support\ServiceProvider;
 

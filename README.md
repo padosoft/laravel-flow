@@ -21,7 +21,7 @@ php artisan migrate
 ## Quick start
 
 ```php
-use Lopadova\LaravelFlow\Facades\Flow;
+use Padosoft\LaravelFlow\Facades\Flow;
 
 Flow::define('promotion.create')
     ->withInput(['brand', 'discount_pct', 'starts_at', 'ends_at'])

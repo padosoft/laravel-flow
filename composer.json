@@ -7,7 +7,7 @@
     "authors": [
         {
             "name": "Lorenzo Padovani",
-            "email": "lorenzo.padovani@gmail.com"
+            "email": "lorenzo.padovani@padosoft.com"
         }
     ],
     "require": {
@@ -24,18 +24,18 @@
     },
     "autoload": {
         "psr-4": {
-            "Lopadova\\LaravelFlow\\": "src/"
+            "Padosoft\\LaravelFlow\\": "src/"
         }
     },
     "autoload-dev": {
         "psr-4": {
-            "Lopadova\\LaravelFlow\\Tests\\": "tests/"
+            "Padosoft\\LaravelFlow\\Tests\\": "tests/"
         }
     },
     "extra": {
         "laravel": {
             "providers": [
-                "Lopadova\\LaravelFlow\\LaravelFlowServiceProvider"
+                "Padosoft\\LaravelFlow\\LaravelFlowServiceProvider"
             ]
         }
     },

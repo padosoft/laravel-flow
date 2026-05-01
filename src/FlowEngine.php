@@ -181,9 +181,7 @@ class FlowEngine
      */
     private function compensate(FlowDefinition $definition, FlowContext $context, array $completedSteps, FlowRun $run): void
     {
-        $strategy = (string) ($this->config['compensation_strategy'] ?? 'reverse-order');
-
-        // 'parallel' strategy is reserved for v0.2 — fall back to reverse-order.
+        // 'parallel' compensation strategy is reserved for v0.2; always reverse-order for now.
         $reversed = array_reverse($completedSteps);
 
         $compensatedAtLeastOne = false;
@@ -236,10 +234,6 @@ class FlowEngine
         if ($compensatedAtLeastOne) {
             $run->markCompensated();
         }
-
-        // 'parallel' is documented as fall-back-to-reverse-order until v0.2 ships it.
-        // Touch the variable so phpstan doesn't flag it as unused.
-        unset($strategy);
     }
 
     /**
@@ -282,15 +276,10 @@ class FlowEngine
 
     private function generateId(): string
     {
-        // Use Laravel's Str if available; fallback to a portable uuid generator.
-        if (function_exists('random_bytes')) {
-            $data = random_bytes(16);
-            $data[6] = chr((ord($data[6]) & 0x0F) | 0x40);
-            $data[8] = chr((ord($data[8]) & 0x3F) | 0x80);
+        $data = random_bytes(16);
+        $data[6] = chr((ord($data[6]) & 0x0F) | 0x40);
+        $data[8] = chr((ord($data[8]) & 0x3F) | 0x80);
 
-            return vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split(bin2hex($data), 4));
-        }
-
-        return uniqid('flow_', true);
+        return vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split(bin2hex($data), 4));
     }
 }

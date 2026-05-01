@@ -75,6 +75,7 @@ final class FlowRun
 
     public function markCompensated(): void
     {
+        $this->status = self::STATUS_COMPENSATED;
         $this->compensated = true;
     }
 

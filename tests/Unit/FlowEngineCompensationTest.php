@@ -39,7 +39,7 @@ final class FlowEngineCompensationTest extends TestCase
 
         $run = $engine->execute('flow.compensate', []);
 
-        $this->assertSame(FlowRun::STATUS_FAILED, $run->status);
+        $this->assertSame(FlowRun::STATUS_COMPENSATED, $run->status);
         $this->assertSame('third', $run->failedStep);
         $this->assertTrue($run->compensated);
         $this->assertCount(2, RecordingCompensator::$invocations);
@@ -99,7 +99,7 @@ final class FlowEngineCompensationTest extends TestCase
 
         $run = $engine->execute('flow.payload', []);
 
-        $this->assertSame(FlowRun::STATUS_FAILED, $run->status);
+        $this->assertSame(FlowRun::STATUS_COMPENSATED, $run->status);
         $this->assertCount(1, RecordingCompensator::$invocations);
         $this->assertArrayHasKey('handler', RecordingCompensator::$invocations[0]['originalOutput']);
         $this->assertArrayHasKey('flow_run_id', RecordingCompensator::$invocations[0]['originalOutput']);

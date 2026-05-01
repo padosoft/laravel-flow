@@ -1,55 +1,62 @@
-# Contributing
+# Contributing to laravel-flow
 
-Thanks for your interest in contributing!
+Thank you for your interest in contributing. The package is a community open-source project under the [Apache-2.0 license](LICENSE) and follows the Padosoft contribution conventions.
 
-## Quick start
+## Quick start for contributors
 
 ```bash
-git clone https://github.com/<owner>/<repo>.git
-cd <repo>
+git clone https://github.com/padosoft/laravel-flow.git
+cd laravel-flow
 composer install
-vendor/bin/phpunit
+vendor/bin/phpunit --testsuite Unit
+vendor/bin/phpunit --testsuite Architecture
+vendor/bin/pint --test
+vendor/bin/phpstan analyse
 ```
 
-## Branching
+The default `phpunit` invocation runs only the offline `Unit` + `Architecture` testsuites — it never makes a network call. The `Live` testsuite is opt-in (set `LARAVEL_FLOW_LIVE=1`).
 
-- `main` is protected. Open a pull request from a feature branch.
-- Branch naming: `feature/<short-description>` or `fix/<short-description>`.
+## Branching model
 
-## Commit conventions
+This is a community Padosoft repository, so PRs target `main` directly (no integration branches). Open one PR per cohesive change.
 
-We use conventional commits:
-- `feat: new feature`
-- `fix: bug fix`
-- `docs: documentation only`
-- `chore: tooling/maintenance`
-- `test: tests only`
-- `refactor: code refactor without behavior change`
+Branch-name conventions:
 
-## Pull requests
+- `feature/<topic>` — new capability, new step type, new event, new strategy.
+- `fix/<topic>` — bug fix on shipped behaviour.
+- `docs/<topic>` — README, CHANGELOG, or `docs/` updates.
+- `chore/<topic>` — dependency bumps, CI tweaks, repo hygiene.
 
-1. Fork the repo and create a feature branch from `main`.
-2. Make your changes with tests.
-3. Run `vendor/bin/phpunit` and `vendor/bin/phpstan analyse` locally.
-4. Open a PR using the provided template.
-5. Wait for CI to be green and a maintainer review.
+## Pull request expectations
 
-## Code style
+- The default `Unit` + `Architecture` suites must stay green on the full PHP 8.3 / 8.4 / 8.5 × Laravel 12 / 13 matrix.
+- Any new step handler / compensator implements the appropriate interface (`FlowStepHandler` / `FlowCompensator`) — closures are not accepted.
+- Any change to the event surface adds a corresponding test in `FlowEventEmissionTest`.
+- The standalone-agnostic invariant (`tests/Architecture/StandaloneAgnosticTest`) must keep passing — no AskMyDocs / sister-package symbols may appear under `src/`.
+- `vendor/bin/pint --test` must pass with no diffs.
+- `vendor/bin/phpstan analyse` must report zero errors at level 6.
+- The README's "Features at a glance" bullet list stays in sync with what the code does — add a bullet when you ship a feature, remove one when you remove it.
 
-- Follow PSR-12.
-- Use Laravel Pint for auto-formatting.
-- Type hints on all parameters, properties, and return types.
+## Commits
 
-## Tests
+We follow the conventional `<type>(scope): subject` shape used across all `padosoft/*` repositories — for example:
 
-- Unit tests: pure components, mocked dependencies.
-- Feature tests: HTTP/DB/queue integration where applicable.
-- New code requires tests; aim for 85%+ coverage on new code.
+```
+feat(engine): add parallel compensation strategy
+fix(builder): reject duplicate step names on register
+docs(readme): add saga compensation example for the publish step
+```
 
-## Reporting issues
+Co-Authored-By trailers for AI-assisted commits are encouraged.
 
-Use GitHub Issues. Include:
-- Steps to reproduce
-- Expected vs actual behavior
-- PHP version + Laravel version (if applicable)
-- Any relevant logs
+## Code of conduct
+
+Participation in this project is subject to the [Code of Conduct](CODE_OF_CONDUCT.md).
+
+## Security issues
+
+Do not file public issues for vulnerabilities. See [SECURITY.md](SECURITY.md) for the responsible-disclosure policy.
+
+## License
+
+By contributing, you agree your contribution is released under the [Apache-2.0 license](LICENSE).

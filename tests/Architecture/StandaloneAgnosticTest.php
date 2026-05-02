@@ -15,7 +15,7 @@ use RecursiveIteratorIterator;
 final class StandaloneAgnosticTest extends TestCase
 {
     /**
-     * @return list<string>
+     * @var list<string>
      */
     private const FORBIDDEN_SUBSTRINGS = [
         // AskMyDocs / KB symbols.

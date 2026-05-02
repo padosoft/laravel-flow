@@ -11,9 +11,11 @@ use Padosoft\LaravelFlow\Tests\Unit\Stubs\AlwaysFailsHandler;
 use Padosoft\LaravelFlow\Tests\Unit\Stubs\AlwaysSucceedsHandler;
 use Padosoft\LaravelFlow\Tests\Unit\Stubs\FirstStepCompensator;
 use Padosoft\LaravelFlow\Tests\Unit\Stubs\RecordingCompensator;
+use Padosoft\LaravelFlow\Exceptions\FlowCompensationException;
 use Padosoft\LaravelFlow\Tests\Unit\Stubs\SecondHandler;
 use Padosoft\LaravelFlow\Tests\Unit\Stubs\SecondStepCompensator;
 use Padosoft\LaravelFlow\Tests\Unit\Stubs\ThirdHandler;
+use Padosoft\LaravelFlow\Tests\Unit\Stubs\ThrowingCompensator;
 
 final class FlowEngineCompensationTest extends TestCase
 {
@@ -104,5 +106,43 @@ final class FlowEngineCompensationTest extends TestCase
         $this->assertArrayHasKey('handler', RecordingCompensator::$invocations[0]['originalOutput']);
         $this->assertArrayHasKey('flow_run_id', RecordingCompensator::$invocations[0]['originalOutput']);
         $this->assertSame($run->id, RecordingCompensator::$invocations[0]['originalOutput']['flow_run_id']);
+    }
+
+    public function test_compensation_continues_on_compensator_failure_and_aggregates_errors(): void
+    {
+        /** @var FlowEngine $engine */
+        $engine = $this->app->make(FlowEngine::class);
+
+        // Three steps with compensators; the SECOND compensator throws
+        // mid-rollback. The engine MUST still call the FIRST compensator
+        // (the one we care about most — it ran longest ago) and surface
+        // an aggregated FlowCompensationException at the end.
+        $engine->define('flow.partial-rollback')
+            ->step('first', AlwaysSucceedsHandler::class)
+            ->compensateWith(FirstStepCompensator::class)
+            ->step('second', SecondHandler::class)
+            ->compensateWith(ThrowingCompensator::class)
+            ->step('third', AlwaysFailsHandler::class)
+            ->register();
+
+        $caught = null;
+        try {
+            $engine->execute('flow.partial-rollback', []);
+        } catch (FlowCompensationException $e) {
+            $caught = $e;
+        }
+
+        $this->assertInstanceOf(
+            FlowCompensationException::class,
+            $caught,
+            'Engine should aggregate compensator failures into a FlowCompensationException.'
+        );
+        $this->assertStringContainsString('1 failed compensator', $caught->getMessage());
+        $this->assertStringContainsString('[second]', $caught->getMessage());
+
+        // The first-step compensator MUST have fired despite the second-step
+        // compensator having thrown earlier in the reverse-order walk.
+        $this->assertCount(1, RecordingCompensator::$invocations);
+        $this->assertSame('first', RecordingCompensator::$invocations[0]['originalOutput']['compensator']);
     }
 }

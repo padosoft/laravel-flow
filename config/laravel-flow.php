@@ -62,7 +62,8 @@ return [
     | - 'reverse-order' (default): walk previously-completed steps from last
     |   to first; classic saga semantics.
     | - 'parallel': fan out compensators concurrently (v0.2 — currently
-    |   unsupported, falls back to 'reverse-order' with a deprecation log).
+    |   unsupported, silently falls back to 'reverse-order'). Setting this
+    |   value before v0.2 is harmless but does not change behaviour.
     |
     */
     'compensation_strategy' => env('LARAVEL_FLOW_COMPENSATION', 'reverse-order'),

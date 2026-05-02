@@ -46,10 +46,27 @@ final class FlowDefinitionBuilder
     /**
      * Append a step to the definition.
      *
+     * Step names MUST be unique within the definition. Duplicates would
+     * collide on `FlowRun::stepResults` (keyed by step name) and
+     * compensation later would dispatch the WRONG `FlowStepResult` to
+     * the earlier-named step's compensator — silently corrupting the
+     * audit trail. Reject duplicates here so the error surfaces at
+     * definition time, before any flow ever runs.
+     *
      * @param  class-string<FlowStepHandler>  $handlerFqcn
      */
     public function step(string $name, string $handlerFqcn): self
     {
+        foreach ($this->steps as $existing) {
+            if ($existing->name === $name) {
+                throw new FlowExecutionException(sprintf(
+                    'Flow [%s] already has a step named [%s]; step names must be unique within a definition.',
+                    $this->name,
+                    $name,
+                ));
+            }
+        }
+
         $this->steps[] = new FlowStep($name, $handlerFqcn);
 
         return $this;

@@ -124,4 +124,17 @@ final class FlowDefinitionBuilderTest extends TestCase
             $engine->definition('flow.agg')->aggregateCompensatorFqcn,
         );
     }
+
+    public function test_step_rejects_duplicate_name_within_same_definition(): void
+    {
+        /** @var FlowEngine $engine */
+        $engine = $this->app->make(FlowEngine::class);
+
+        $this->expectException(FlowExecutionException::class);
+        $this->expectExceptionMessageMatches('/already has a step named \[validate\]/');
+
+        $engine->define('flow.duplicate')
+            ->step('validate', AlwaysSucceedsHandler::class)
+            ->step('validate', SecondHandler::class);
+    }
 }

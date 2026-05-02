@@ -186,6 +186,9 @@ class FlowEngine
 
         $compensatedAtLeastOne = false;
 
+        /** @var list<array{step:string,error:Throwable}> $compensationErrors */
+        $compensationErrors = [];
+
         foreach ($reversed as $step) {
             if ($step->compensatorFqcn === null) {
                 continue;
@@ -199,32 +202,35 @@ class FlowEngine
             try {
                 $compensator = $this->container->make($step->compensatorFqcn);
             } catch (Throwable $e) {
-                throw new FlowCompensationException(sprintf(
-                    'Cannot resolve compensator [%s] for step [%s]: %s',
-                    $step->compensatorFqcn,
-                    $step->name,
-                    $e->getMessage(),
-                ), previous: $e);
+                // Record the failure but KEEP GOING — the whole point of saga
+                // compensation is best-effort rollback of every prior step. An
+                // early throw here would leave the FIRST steps unapplied for
+                // rollback exactly when partial-failure rollback matters most.
+                $compensationErrors[] = ['step' => $step->name, 'error' => $e];
+
+                continue;
             }
 
             if (! $compensator instanceof FlowCompensator) {
-                throw new FlowCompensationException(sprintf(
-                    'Compensator [%s] for step [%s] does not implement %s.',
-                    $step->compensatorFqcn,
-                    $step->name,
-                    FlowCompensator::class,
-                ));
+                $compensationErrors[] = [
+                    'step' => $step->name,
+                    'error' => new FlowCompensationException(sprintf(
+                        'Compensator [%s] for step [%s] does not implement %s.',
+                        $step->compensatorFqcn,
+                        $step->name,
+                        FlowCompensator::class,
+                    )),
+                ];
+
+                continue;
             }
 
             try {
                 $compensator->compensate($context, $stepResult);
             } catch (Throwable $e) {
-                throw new FlowCompensationException(sprintf(
-                    'Compensator [%s] threw while reverting step [%s]: %s',
-                    $step->compensatorFqcn,
-                    $step->name,
-                    $e->getMessage(),
-                ), previous: $e);
+                $compensationErrors[] = ['step' => $step->name, 'error' => $e];
+
+                continue;
             }
 
             $this->dispatch(new FlowCompensated($run->id, $definition->name, $step->name, $context->dryRun));
@@ -233,6 +239,24 @@ class FlowEngine
 
         if ($compensatedAtLeastOne) {
             $run->markCompensated();
+        }
+
+        if ($compensationErrors !== []) {
+            $summary = implode('; ', array_map(
+                static fn (array $entry): string => sprintf(
+                    '[%s] %s',
+                    $entry['step'],
+                    $entry['error']->getMessage(),
+                ),
+                $compensationErrors,
+            ));
+
+            throw new FlowCompensationException(sprintf(
+                'Flow [%s] compensation completed with %d failed compensator(s): %s',
+                $definition->name,
+                count($compensationErrors),
+                $summary,
+            ), previous: $compensationErrors[0]['error']);
         }
     }
 

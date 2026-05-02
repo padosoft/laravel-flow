@@ -40,9 +40,11 @@
   - document the GraphQL Copilot fallback in the file that `AGENTS.md` references
   - keep point-in-time workspace notes out of `docs/LESSON.md`
   - remove stale pre-PR next steps from durable progress docs
+- Pushed `f16e4ed` to address the 5 comments and requested a fresh Copilot review.
+- Review-thread polling showed 4 threads outdated and 1 still attached to a duplicated `docs/LESSON.md` fallback line, so that line was removed and the fallback now lives only in the operating instructions/skill.
 
 ## Current Remote Status
 
 - PR #4 remains open: `task/agent-docs-bootstrap` -> `task/agent-operating-system`.
 - Remote CI is unavailable for PR #4 because the workflow is currently scoped to PRs targeting `main`.
-- The current work item is addressing Copilot's 5 documentation comments, then pushing a follow-up commit and requesting a fresh review.
+- The current work item is pushing the final documentation-thread cleanup, then requesting another Copilot review.

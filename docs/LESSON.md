@@ -43,6 +43,7 @@
 - Model-level audit immutability is not enough because Eloquent query builders bypass instance `save()`/`delete()` overrides; append-only audit models need a custom builder that rejects bulk `update()`, `delete()`, and `forceDelete()`.
 - Repository update/upsert methods must strip immutable identity fields from caller-supplied attribute payloads; method arguments such as run id and step name are the source of truth.
 - Persistence schema nullability must match public repository contracts; if a repository requires a run id, the column should be non-nullable unless run-less records are intentionally documented and tested.
+- Keep persistence JSON-field redaction mapping centralized so run, step, and future repository fields do not drift when redaction rules evolve.
 - Public README examples should avoid Laravel dump-and-die or other debug helpers; use normal variable assignment or assertions so docs do not teach debug output patterns.
 - When `composer validate --strict --no-check-publish` is a hard CI/PR gate, list it explicitly in contributor quick starts and PR expectation checklists, not only in CI or PR templates.
 - README comparison updates must stay factual. If a feature only reaches parity with a competitor, document parity rather than implying an advantage.

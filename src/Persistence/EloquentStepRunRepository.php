@@ -49,14 +49,10 @@ final class EloquentStepRunRepository implements StepRunRepository
      */
     private function redact(array $attributes): array
     {
-        foreach (['business_impact', 'input', 'output'] as $key) {
-            if (isset($attributes[$key]) && is_array($attributes[$key])) {
-                /** @var array<string, mixed> $payload */
-                $payload = $attributes[$key];
-                $attributes[$key] = $this->redactor->redact($payload);
-            }
-        }
-
-        return $attributes;
+        return PersistencePayloadRedaction::redactFields(
+            $this->redactor,
+            $attributes,
+            PersistencePayloadRedaction::STEP_JSON_FIELDS,
+        );
     }
 }

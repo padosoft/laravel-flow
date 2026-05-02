@@ -32,4 +32,5 @@
 - Package repos intentionally ignore `composer.lock`; CI installs with `composer update`, so do not stage a local lockfile unless the project policy changes.
 - With Testbench 11, the lock can resolve `laravel/framework` 13.x, which replaces the individual `illuminate/*` packages. Use `composer show laravel/framework --locked` to verify the effective Laravel version when `composer show illuminate/support --locked` is absent.
 - Public README examples should avoid Laravel dump-and-die or other debug helpers; use normal variable assignment or assertions so docs do not teach debug output patterns.
+- When `composer validate --strict --no-check-publish` is a hard CI/PR gate, list it explicitly in contributor quick starts and PR expectation checklists, not only in CI or PR templates.
 - README comparison updates must stay factual. If a feature only reaches parity with a competitor, document parity rather than implying an advantage.

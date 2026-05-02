@@ -8,6 +8,7 @@ Thank you for your interest in contributing. The package is a community open-sou
 git clone https://github.com/padosoft/laravel-flow.git
 cd laravel-flow
 composer install
+composer validate --strict --no-check-publish
 composer format:test
 composer analyse
 composer test
@@ -33,6 +34,7 @@ Branch-name conventions:
 - Any new step handler / compensator implements the appropriate interface (`FlowStepHandler` / `FlowCompensator`) — closures are not accepted.
 - Any change to the event surface adds a corresponding test in `FlowEventEmissionTest`.
 - The standalone-agnostic invariant (`tests/Architecture/StandaloneAgnosticTest`) must keep passing — no AskMyDocs / sister-package symbols may appear under `src/`.
+- `composer validate --strict --no-check-publish` must pass.
 - `composer format:test` must pass with no diffs.
 - `composer analyse` must report zero errors at level 6.
 - `composer test` must pass the Unit and Architecture suites.

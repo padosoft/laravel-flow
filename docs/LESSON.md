@@ -32,6 +32,7 @@
 - Repo-local laravel-flow guidance must remain the authority over imported shared defaults; after Macro Task 1 it defines the Laravel 13-only baseline and Composer-script gates.
 - Composer scripts are the canonical package gates after Macro Task 1: `composer validate --strict --no-check-publish`, `composer format:test`, `composer analyse`, and `composer test`.
 - Package repos intentionally ignore `composer.lock`; CI installs with `composer update`, so do not stage a local lockfile unless the project policy changes.
+- In package repos without a tracked lockfile, avoid overly specific patch-minimum dev constraints unless there is a documented compatibility reason; prefer broader major/minor ranges and let transitive constraints enforce required patch floors.
 - With Testbench 11, the lock can resolve `laravel/framework` 13.x, which replaces the individual `illuminate/*` packages. Use `composer show laravel/framework --locked` to verify the effective Laravel version when `composer show illuminate/support --locked` is absent.
 - Public README examples should avoid Laravel dump-and-die or other debug helpers; use normal variable assignment or assertions so docs do not teach debug output patterns.
 - When `composer validate --strict --no-check-publish` is a hard CI/PR gate, list it explicitly in contributor quick starts and PR expectation checklists, not only in CI or PR templates.

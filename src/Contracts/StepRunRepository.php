@@ -10,6 +10,8 @@ use Padosoft\LaravelFlow\Models\FlowStepRecord;
 interface StepRunRepository
 {
     /**
+     * Persist a step record using the run id and step name as immutable identity.
+     *
      * @param  array<string, mixed>  $attributes
      */
     public function createOrUpdate(string $runId, string $stepName, array $attributes): FlowStepRecord;

@@ -8,7 +8,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Added
 
-- **Persistence foundation** — publishable `flow_runs`, `flow_steps`, and `flow_audit` migrations; public `FlowStore`, `RunRepository`, `StepRunRepository`, and `AuditRepository` contracts; Eloquent-backed records/repositories; append-only audit record guard; configurable payload redaction for stored JSON payloads.
+- **Persistence foundation** — publishable `flow_runs`, `flow_steps`, and `flow_audit` migrations; public `FlowStore`, `RunRepository`, `StepRunRepository`, and `AuditRepository` contracts; Eloquent-backed records/repositories; atomic step upserts; append-only audit record guard; configurable payload redaction for stored JSON payloads.
 
 ### Changed
 

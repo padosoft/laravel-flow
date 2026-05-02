@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Padosoft\LaravelFlow\Tests\Unit\Persistence;
 
 use DateTimeImmutable;
+use Illuminate\Support\Facades\DB;
 use LogicException;
 use Padosoft\LaravelFlow\Contracts\AuditRepository;
 use Padosoft\LaravelFlow\Contracts\FlowStore;
@@ -128,6 +129,51 @@ final class PersistenceRepositoryTest extends PersistenceTestCase
 
         $this->assertSame($run->id, $step->run_id);
         $this->assertSame('charge', $step->step_name);
+        $this->assertCount(1, $steps->forRun($run->id));
+    }
+
+    public function test_step_create_or_update_uses_atomic_upsert_for_step_identity(): void
+    {
+        $this->migrateFlowTables();
+
+        $runs = $this->app->make(RunRepository::class);
+        $steps = $this->app->make(StepRunRepository::class);
+
+        $run = $runs->create([
+            'definition_name' => 'atomic.steps',
+            'dry_run' => false,
+            'id' => '00000000-0000-4000-8000-000000000006',
+            'input' => [],
+            'status' => FlowRun::STATUS_PENDING,
+        ]);
+
+        DB::connection()->enableQueryLog();
+
+        $step = $steps->createOrUpdate($run->id, 'reserve-stock', [
+            'output' => ['token' => 'runtime-token'],
+            'sequence' => 1,
+            'status' => 'running',
+        ]);
+
+        $queries = DB::connection()->getQueryLog();
+        DB::connection()->flushQueryLog();
+
+        $this->assertTrue(
+            collect($queries)->contains(
+                fn (array $query): bool => str_contains(strtolower((string) $query['query']), ' on conflict '),
+            ),
+            'Step persistence should use a database-level upsert instead of select-before-insert.',
+        );
+
+        $updatedStep = $steps->createOrUpdate($run->id, 'reserve-stock', [
+            'output' => ['token' => 'new-runtime-token'],
+            'sequence' => 1,
+            'status' => 'succeeded',
+        ]);
+
+        $this->assertSame($step->id, $updatedStep->id);
+        $this->assertSame('succeeded', $updatedStep->status);
+        $this->assertSame('[redacted]', $updatedStep->output['token']);
         $this->assertCount(1, $steps->forRun($run->id));
     }
 

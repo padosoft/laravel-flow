@@ -20,14 +20,21 @@ final class EloquentStepRunRepository implements StepRunRepository
     {
         unset($attributes['id'], $attributes['run_id'], $attributes['step_name']);
 
-        $model = $this->newModel()->newQuery()->firstOrNew([
-            'run_id' => $runId,
-            'step_name' => $stepName,
-        ]);
+        $values = $this->databaseAttributesFor($runId, $stepName, $attributes);
 
-        $model->forceFill($this->redact($attributes))->save();
+        $this->newModel()->newQuery()->upsert(
+            [$values],
+            ['run_id', 'step_name'],
+            $this->updatableColumns($values),
+        );
 
-        return $model->refresh();
+        /** @var FlowStepRecord $record */
+        $record = $this->newModel()->newQuery()
+            ->where('run_id', $runId)
+            ->where('step_name', $stepName)
+            ->firstOrFail();
+
+        return $record;
     }
 
     public function forRun(string $runId): Collection
@@ -41,6 +48,37 @@ final class EloquentStepRunRepository implements StepRunRepository
     private function newModel(): FlowStepRecord
     {
         return (new FlowStepRecord)->setConnection($this->connection);
+    }
+
+    /**
+     * @param  array<string, mixed>  $attributes
+     * @return array<string, mixed>
+     */
+    private function databaseAttributesFor(string $runId, string $stepName, array $attributes): array
+    {
+        $model = $this->newModel();
+        $model->forceFill([
+            'run_id' => $runId,
+            'step_name' => $stepName,
+            ...$this->redact($attributes),
+        ]);
+
+        $values = $model->getAttributes();
+        unset($values['id']);
+
+        return $values;
+    }
+
+    /**
+     * @param  array<string, mixed>  $values
+     * @return list<string>
+     */
+    private function updatableColumns(array $values): array
+    {
+        return array_values(array_diff(
+            array_keys($values),
+            ['id', 'run_id', 'step_name', 'created_at'],
+        ));
     }
 
     /**

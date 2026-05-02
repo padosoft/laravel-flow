@@ -9,6 +9,7 @@ Known workstreams:
 | Workstream | Durable state |
 | --- | --- |
 | Macro Task 0 - durable agent operating system | Completed after merge of the macro PR to `main`. |
+| Macro Task 1 - baseline tooling and Laravel 13 policy | In progress on subtask branch `task/laravel13-composer-ci`; Composer/CI/docs now narrow to Laravel 13, PHP 8.3/8.4, and Composer-script quality gates. Local gates passed on PHP 8.4.20 with PHPUnit 12.5.24. |
 
 Concurrent subtasks should add rows here instead of replacing existing workstreams.
 
@@ -25,7 +26,7 @@ Completed in Macro Task 0:
 - Imported/adapted useful Padosoft Claude pack guidance from the reference project without copying app-specific implementation rules.
 - Updated CI so PRs targeting `main` or `task/**` run the matrix; push-trigger CI remains limited to `main` to avoid duplicate subtask runs.
 - Recorded the durable rule that README section `Comparison vs alternatives` must be reviewed for every new or materially improved feature, with competitor research when claims are uncertain.
-- Aligned README, CONTRIBUTING, PR template, Copilot instructions, repo rules, and repo skills around the macro/subtask workflow, Laravel 12/13 compatibility until Macro Task 1, companion-dashboard scope, and mandatory Copilot review.
+- Aligned README, CONTRIBUTING, PR template, Copilot instructions, repo rules, and repo skills around the macro/subtask workflow, the pre-Macro-1 Laravel 12/13 compatibility state, companion-dashboard scope, and mandatory Copilot review.
 
 Validation summary:
 

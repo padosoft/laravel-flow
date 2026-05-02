@@ -17,10 +17,9 @@ Plan reference (enterprise roadmap only; write `N/A` for community PRs):
 ## Test gate
 
 - [ ] Composer validation (`composer validate --strict --no-check-publish`)
-- [ ] Pint clean (`vendor/bin/pint --test`)
-- [ ] PHPStan clean (`vendor/bin/phpstan analyse --no-progress`)
-- [ ] PHPUnit Unit suite (`vendor/bin/phpunit --testsuite Unit`)
-- [ ] PHPUnit Architecture suite (`vendor/bin/phpunit --testsuite Architecture`)
+- [ ] Pint clean (`composer format:test`)
+- [ ] PHPStan clean (`composer analyse`)
+- [ ] PHPUnit Unit + Architecture suites (`composer test`)
 - [ ] Companion dashboard app gates, run in that app/repo only: PHPUnit, Vitest/Vite/build, and Playwright; write `N/A` for package-only dashboard contracts
 - [ ] GitHub Copilot Code Review requested by the author if they have permission; otherwise maintainer must request before merge; actionable comments addressed
 

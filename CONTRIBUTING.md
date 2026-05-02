@@ -8,10 +8,9 @@ Thank you for your interest in contributing. The package is a community open-sou
 git clone https://github.com/padosoft/laravel-flow.git
 cd laravel-flow
 composer install
-vendor/bin/phpunit --testsuite Unit
-vendor/bin/phpunit --testsuite Architecture
-vendor/bin/pint --test
-vendor/bin/phpstan analyse
+composer format:test
+composer analyse
+composer test
 ```
 
 The default `phpunit` invocation runs only the offline `Unit` + `Architecture` testsuites — it never makes a network call. The `Live` testsuite is opt-in (set `LARAVEL_FLOW_LIVE=1`).
@@ -30,12 +29,13 @@ Branch-name conventions:
 
 ## Pull request expectations
 
-- The default `Unit` + `Architecture` suites must stay green on the full PHP 8.3 / 8.4 / 8.5 × Laravel 12 / 13 matrix.
+- The default `Unit` + `Architecture` suites must stay green on the PHP 8.3 / 8.4 × Laravel 13 matrix.
 - Any new step handler / compensator implements the appropriate interface (`FlowStepHandler` / `FlowCompensator`) — closures are not accepted.
 - Any change to the event surface adds a corresponding test in `FlowEventEmissionTest`.
 - The standalone-agnostic invariant (`tests/Architecture/StandaloneAgnosticTest`) must keep passing — no AskMyDocs / sister-package symbols may appear under `src/`.
-- `vendor/bin/pint --test` must pass with no diffs.
-- `vendor/bin/phpstan analyse` must report zero errors at level 6.
+- `composer format:test` must pass with no diffs.
+- `composer analyse` must report zero errors at level 6.
+- `composer test` must pass the Unit and Architecture suites.
 - GitHub Copilot Code Review must run on every PR. Authors with permission should request it; otherwise a maintainer will request it before merge. Actionable comments must be addressed.
 - The README's "Features at a glance" bullet list stays in sync with what the code does — add a bullet when you ship a feature, remove one when you remove it.
 - The README's "Comparison vs alternatives" section stays in sync with new or materially improved features; research competitor behavior before changing uncertain comparison claims.

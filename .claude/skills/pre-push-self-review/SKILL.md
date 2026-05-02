@@ -120,10 +120,10 @@ not yet committed) and walk through every item below.
 
 Before pushing run the full local quality gate the repo ships:
 
-- [ ] `vendor/bin/phpunit` or equivalent — green
-- [ ] `vendor/bin/phpstan analyse` — `[OK] No errors`
-- [ ] `vendor/bin/pint --test` — passed (run `vendor/bin/pint` to
-      autofix if it fails)
+- [ ] `composer validate --strict --no-check-publish` — green
+- [ ] `composer format:test` — green
+- [ ] `composer analyse` — `[OK] No errors`
+- [ ] `composer test` — Unit and Architecture suites green
 - [ ] (if applicable) frontend / E2E gates the repo has — green
 
 If any of these is red, do NOT push. Fix locally first.

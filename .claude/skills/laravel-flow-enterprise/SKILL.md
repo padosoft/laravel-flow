@@ -27,9 +27,8 @@ If the current branch or progress file disagree, trust Git first and update `doc
 ## Product Defaults
 
 - Current implementation target: active Composer/CI matrix compatibility.
-- Today the active matrix is Laravel 12/13 and PHP `^8.3`.
-- Enterprise target: Laravel 13-only after Macro Task 1 narrows Composer and CI.
-- This repo-local skill overrides imported shared Laravel 13 defaults until Macro Task 1 lands. If a shared `.claude` rule or skill conflicts, follow the active Composer/CI matrix and avoid Laravel 13-only APIs.
+- Active matrix after Macro Task 1: Laravel 13 and PHP `^8.3`, with CI hard gates on PHP 8.3 and 8.4.
+- Laravel 13-only APIs are allowed only when covered by package tests and compatible with the current Composer constraints.
 - Dashboard: companion app.
 - Core package: standalone-agnostic and headless.
 
@@ -69,10 +68,9 @@ For package-only changes:
 
 ```bash
 composer validate --strict --no-check-publish
-vendor/bin/pint --test
-vendor/bin/phpstan analyse --no-progress
-vendor/bin/phpunit --testsuite Unit
-vendor/bin/phpunit --testsuite Architecture
+composer format:test
+composer analyse
+composer test
 ```
 
 For companion dashboard app/repo changes, add that app's PHP, Node, Vite, Vitest, and Playwright gates. Package-only dashboard contracts in this repository stay on the package gates plus any contract tests.

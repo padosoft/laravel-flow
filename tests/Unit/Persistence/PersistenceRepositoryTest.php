@@ -224,6 +224,8 @@ final class PersistenceRepositoryTest extends PersistenceTestCase
                 'status' => 'succeeded',
             ]);
         } finally {
+            DB::connection()->flushQueryLog();
+            DB::connection()->disableQueryLog();
             Date::setTestNow();
         }
 

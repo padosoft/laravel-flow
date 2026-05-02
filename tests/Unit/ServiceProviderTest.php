@@ -60,6 +60,7 @@ final class ServiceProviderTest extends TestCase
 
     public function test_config_and_migrations_are_publishable(): void
     {
+        $packageRoot = dirname(__DIR__, 2);
         $configPublishes = ServiceProvider::pathsToPublish(
             LaravelFlowServiceProvider::class,
             'laravel-flow-config',
@@ -72,9 +73,9 @@ final class ServiceProviderTest extends TestCase
         $configSources = array_map('realpath', array_keys($configPublishes));
         $migrationSources = array_map('realpath', array_keys($migrationPublishes));
 
-        $this->assertContains(realpath(__DIR__.'/../../config/laravel-flow.php'), $configSources);
+        $this->assertContains(realpath($packageRoot.'/config/laravel-flow.php'), $configSources);
         $this->assertContains(
-            realpath(__DIR__.'/../../database/migrations/2026_05_02_000001_create_laravel_flow_tables.php'),
+            realpath($packageRoot.'/database/migrations/2026_05_02_000001_create_laravel_flow_tables.php'),
             $migrationSources,
         );
     }

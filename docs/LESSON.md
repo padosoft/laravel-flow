@@ -36,6 +36,10 @@
 - Package repos intentionally ignore `composer.lock`; CI installs with `composer update`, so do not stage a local lockfile unless the project policy changes.
 - In package repos without a tracked lockfile, avoid overly specific patch-minimum dev constraints unless there is a documented compatibility reason; prefer broader major/minor ranges and let transitive constraints enforce required patch floors.
 - With Testbench 11, the lock can resolve `laravel/framework` 13.x, which replaces the individual `illuminate/*` packages. Use `composer show laravel/framework --locked` to verify the effective Laravel version when `composer show illuminate/support --locked` is absent.
+- Once persistence models/repositories are in `src/`, `illuminate/database` must be a runtime dependency rather than require-dev, because package consumers can autoload those classes.
+- Eloquent persistence models can push PHPStan over the default 128M worker limit; keep the `composer analyse` script on an explicit memory limit so local and CI gates are deterministic.
+- Persistence payload storage must pass through redaction before JSON is saved; default redaction should cover common secret-looking keys while allowing host apps to override config.
+- Audit persistence should expose append-only behavior at the model/repository layer so normal runtime code cannot update or delete audit rows accidentally.
 - Public README examples should avoid Laravel dump-and-die or other debug helpers; use normal variable assignment or assertions so docs do not teach debug output patterns.
 - When `composer validate --strict --no-check-publish` is a hard CI/PR gate, list it explicitly in contributor quick starts and PR expectation checklists, not only in CI or PR templates.
 - README comparison updates must stay factual. If a feature only reaches parity with a competitor, document parity rather than implying an advantage.

@@ -65,7 +65,7 @@ The Laravel ecosystem has plenty of tools for *some* of these — `Bus::chain()`
 
 `laravel-flow` is that surface.
 
-It is **deliberately small**. v0.1 is in-memory, synchronous, container-resolved. v0.2 will bring queued workers, persisted runs, and companion dashboard contracts/app integration. The core engine fits in ~250 lines of PHP and 30+ unit tests describe every transition.
+It is **deliberately small**. v0.1 is in-memory, synchronous, container-resolved. v0.2 is adding persisted runs, queued workers, and companion dashboard contracts/app integration while the offline test suite covers engine transitions and persistence contracts.
 
 ---
 
@@ -102,6 +102,7 @@ Every transition (`FlowStepStarted`, `FlowStepCompleted`, `FlowStepFailed`, `Flo
 - **Reverse-order saga compensation** — `compensateWith(Compensator::class)` per step; failures unwind cleanly.
 - **Immutable audit trail** — four Laravel events per transition; subscribe once.
 - **Business-impact projection** — handlers return `businessImpact: [...]` alongside output, surfaced on every step result.
+- **Publishable persistence foundation** — `flow_runs`, `flow_steps`, and `flow_audit` migrations, Eloquent repositories, and redacted JSON payload storage for v0.2 wiring.
 - **Container-resolved handlers** — full DI, type hints, and stack traces.
 - **Strict input validation** — `withInput(['a','b'])` throws `FlowInputException` if a key is missing.
 - **Multi-strategy compensation knob** — `reverse-order` (default), `parallel` (v0.2).
@@ -121,7 +122,7 @@ Every transition (`FlowStepStarted`, `FlowStepCompleted`, `FlowStepFailed`, `Flo
 | Container-resolved handlers      | ✅                            | ⚠️ partial                  | ✅                          | ✅ (via worker DI)         | ❌ (Lambda fanout)      |
 | Audit trail (events)             | ✅ 4 events / transition      | ⚠️ via state machine hooks  | ✅                          | ✅                         | ✅ (CloudWatch)         |
 | Business-impact projection       | ✅ on every result            | ❌                          | ❌                          | ❌                         | ❌                      |
-| Persistence model                | in-memory (v0.1) → DB (v0.2) | DB                          | DB                          | dedicated cluster         | managed                |
+| Persistence model                | in-memory engine + publishable DB schema/repos | DB                          | DB                          | dedicated cluster         | managed                |
 | Setup time                       | `composer require` + 1 file  | medium                      | medium                      | run a Temporal cluster    | AWS account + IAM      |
 | Self-hosted, zero infra          | ✅                            | ✅                           | ✅                          | ❌ (cluster needed)        | ❌ (AWS-only)           |
 | License                          | Apache-2.0                   | MIT                         | MIT                         | MIT                       | proprietary            |
@@ -142,7 +143,14 @@ Publish the config (optional — the engine works with defaults):
 php artisan vendor:publish --tag=laravel-flow-config
 ```
 
-That's it. v0.1 has no migrations.
+Publish the v0.2 persistence migrations only when you are opting into DB-backed storage:
+
+```bash
+php artisan vendor:publish --tag=laravel-flow-migrations
+php artisan migrate
+```
+
+The in-memory engine path still works without migrations. Runtime writes to these tables are wired in the v0.2 persistence workstream.
 
 > **Requirements**
 > - PHP 8.3+
@@ -272,7 +280,15 @@ Event::listen(function (FlowStepFailed $e) {
 ```php
 // config/laravel-flow.php
 return [
-    'default_storage'        => env('LARAVEL_FLOW_STORAGE', null),       // v0.2
+    'default_storage'        => env('LARAVEL_FLOW_STORAGE', null),
+    'persistence'            => [
+        'enabled'   => env('LARAVEL_FLOW_PERSISTENCE_ENABLED', false),
+        'redaction' => [
+            'enabled'     => env('LARAVEL_FLOW_REDACTION_ENABLED', true),
+            'replacement' => env('LARAVEL_FLOW_REDACTION_REPLACEMENT', '[redacted]'),
+            'keys'        => ['api_key', 'authorization', 'password', 'secret', 'token'],
+        ],
+    ],
     'audit_trail_enabled'    => env('LARAVEL_FLOW_AUDIT_ENABLED', true), // event emission
     'dry_run_default'        => env('LARAVEL_FLOW_DRY_RUN_DEFAULT', false),
     'step_timeout_seconds'   => (int) env('LARAVEL_FLOW_STEP_TIMEOUT', 300), // v0.2
@@ -282,7 +298,9 @@ return [
 
 | Key                       | Default          | Effect                                                                                            |
 | ------------------------- | ---------------- | ------------------------------------------------------------------------------------------------- |
-| `default_storage`         | `null`           | DB connection used by v0.2 persistence. Inherits app default when `null`.                         |
+| `default_storage`         | `null`           | DB connection used by persistence repositories. Inherits app default when `null`.                 |
+| `persistence.enabled`     | `false`          | Reserved switch for engine-level DB writes; repository APIs are available for v0.2 integration.   |
+| `persistence.redaction`   | common secrets   | Redacts configured JSON payload keys before run, step, and audit payloads are stored.             |
 | `audit_trail_enabled`     | `true`           | When `false`, the engine suppresses every `FlowStep*` / `FlowCompensated` event.                  |
 | `dry_run_default`         | `false`          | When `true`, `Flow::execute()` behaves like `dryRun()` — guard rail for staging environments.     |
 | `step_timeout_seconds`    | `300`            | Reserved for v0.2 queued workers.                                                                 |
@@ -330,7 +348,7 @@ return [
                                                    └─────────────────────┘
 ```
 
-Every box is one PHP class under `src/`. The engine is in-memory and synchronous in v0.1. v0.2 will introduce a `flow_runs` Eloquent model + queued worker that hydrates a definition by name and resumes execution at the failed step.
+Every box is one PHP class under `src/`. The engine path is still in-memory and synchronous, while the v0.2 persistence foundation now ships `flow_runs`, `flow_steps`, and `flow_audit` records/repositories. The next v0.2 slices wire engine execution, queues, and replay onto those records.
 
 ---
 

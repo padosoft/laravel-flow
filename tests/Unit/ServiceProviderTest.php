@@ -6,25 +6,15 @@ namespace Padosoft\LaravelFlow\Tests\Unit;
 
 use Illuminate\Support\ServiceProvider;
 use Orchestra\Testbench\TestCase;
+use Padosoft\LaravelFlow\Contracts\AuditRepository;
+use Padosoft\LaravelFlow\Contracts\FlowStore;
+use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
+use Padosoft\LaravelFlow\Contracts\RunRepository;
+use Padosoft\LaravelFlow\Contracts\StepRunRepository;
 use Padosoft\LaravelFlow\LaravelFlowServiceProvider;
 
 /**
- * Smoke coverage for the v0.0.1 scaffold.
- *
- * The package currently ships an empty no-op `LaravelFlowServiceProvider`;
- * real bindings land during v4.0 development. This test pins the
- * scaffold's two non-negotiable contracts so a future regression in
- * the auto-discovery wiring fails CI immediately:
- *
- *   1. The provider is a true `Illuminate\Support\ServiceProvider`
- *      subclass (auto-discovery requires this).
- *   2. `register()` and `boot()` execute cleanly when invoked
- *      directly on a Testbench app instance — both are no-ops in
- *      v0.0.1, so the test simply exercises the code path and
- *      asserts that no exception escaped.
- *
- * When v4.0 brings real bindings, replace these assertions with
- * coverage of the actual public surface.
+ * Smoke coverage for service-provider auto-discovery and package bindings.
  */
 final class ServiceProviderTest extends TestCase
 {
@@ -48,13 +38,6 @@ final class ServiceProviderTest extends TestCase
 
     public function test_register_and_boot_complete_without_throwing(): void
     {
-        // Construct a fresh provider and invoke both methods directly
-        // — Testbench's setUp() also calls them, but invoking
-        // explicitly here means a future regression that throws from
-        // either method fails THIS test with a clear stack trace
-        // instead of failing the whole TestCase setUp(). Both
-        // methods are no-ops in the v0.0.1 scaffold, so reaching the
-        // assertion is itself the green signal.
         $provider = new LaravelFlowServiceProvider($this->app);
 
         $provider->register();
@@ -63,6 +46,36 @@ final class ServiceProviderTest extends TestCase
         $this->assertTrue(
             $this->app->providerIsLoaded(LaravelFlowServiceProvider::class),
             'Testbench should have registered the provider during setUp().',
+        );
+    }
+
+    public function test_persistence_contracts_are_bound(): void
+    {
+        $this->assertTrue($this->app->bound(FlowStore::class));
+        $this->assertTrue($this->app->bound(RunRepository::class));
+        $this->assertTrue($this->app->bound(StepRunRepository::class));
+        $this->assertTrue($this->app->bound(AuditRepository::class));
+        $this->assertTrue($this->app->bound(PayloadRedactor::class));
+    }
+
+    public function test_config_and_migrations_are_publishable(): void
+    {
+        $configPublishes = ServiceProvider::pathsToPublish(
+            LaravelFlowServiceProvider::class,
+            'laravel-flow-config',
+        );
+        $migrationPublishes = ServiceProvider::pathsToPublish(
+            LaravelFlowServiceProvider::class,
+            'laravel-flow-migrations',
+        );
+
+        $configSources = array_map('realpath', array_keys($configPublishes));
+        $migrationSources = array_map('realpath', array_keys($migrationPublishes));
+
+        $this->assertContains(realpath(__DIR__.'/../../config/laravel-flow.php'), $configSources);
+        $this->assertContains(
+            realpath(__DIR__.'/../../database/migrations/2026_05_02_000001_create_laravel_flow_tables.php'),
+            $migrationSources,
         );
     }
 }

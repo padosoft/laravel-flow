@@ -10,6 +10,7 @@ Known workstreams:
 | --- | --- |
 | Macro Task 0 - durable agent operating system | Completed after merge of the macro PR to `main`. |
 | Macro Task 1 - baseline tooling and Laravel 13 policy | Completed after merge of the macro PR to `main`; Composer/CI/docs now narrow to Laravel 13, PHP 8.3/8.4, and Composer-script quality gates. |
+| Macro Task 2 - v0.2 persistence layer | In progress on subtask branch `task/persistence-schema-repositories`; first slice adds publishable migrations, persistence contracts, Eloquent repositories, append-only audit records, and payload redaction. |
 
 Concurrent subtasks should add rows here instead of replacing existing workstreams.
 
@@ -37,6 +38,6 @@ Validation summary:
   - `vendor/bin/phpunit --testsuite Unit` => 32 tests, 97 assertions
   - `vendor/bin/phpunit --testsuite Architecture` => 2 tests, 7 assertions
 
-Next planned macro:
+Next active macro:
 
-- Continue with Macro Task 2 from `docs/ENTERPRISE_PLAN.md`: v0.2 persistence layer on branch `task/v02-persistence`.
+- Continue Macro Task 2 from `docs/ENTERPRISE_PLAN.md`: v0.2 persistence layer on branch `task/v02-persistence`.

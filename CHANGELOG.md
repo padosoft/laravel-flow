@@ -6,9 +6,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+### Added
+
+- **Persistence foundation** — publishable `flow_runs`, `flow_steps`, and `flow_audit` migrations; public `FlowStore`, `RunRepository`, `StepRunRepository`, and `AuditRepository` contracts; Eloquent-backed records/repositories; append-only audit record guard; configurable payload redaction for stored JSON payloads.
+
 ### Changed
 
 - **Baseline compatibility policy** — Composer constraints and CI now target Laravel 13 only, with PHP 8.3 and 8.4 as stable hard gates. Package quality commands are exposed through Composer scripts: `format:test`, `analyse`, `test`, and `quality`.
+- **Runtime dependencies** — `illuminate/database` is now a production dependency because v0.2 persistence models and repositories are part of the package runtime surface.
 
 ## [0.1.0] - 2026-05-02
 

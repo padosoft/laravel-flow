@@ -17,3 +17,6 @@
 - Durable plans should reference release tags and capabilities, not exact moving branch SHAs. Put current branch, PR, and SHA state only in `docs/PROGRESS.md`.
 - Repository-wide PR templates must work for both enterprise roadmap PRs and normal community PRs.
 - Final lesson fold-back must include `.github/copilot-instructions.md` so Copilot's durable guidance stays aligned with AGENTS, CLAUDE, rules, and skills.
+- Repo-local rule files must include the same mandatory reading list as AGENTS/CLAUDE when they are part of the durable instruction surface.
+- Dashboard PR gates must include the companion app's PHPUnit suite as well as Vitest/Vite/Playwright checks when dashboard code changes.
+- Final lesson fold-back must include repo rule files as well as AGENTS, CLAUDE, `docs/RULES.md`, Copilot instructions, and skills.

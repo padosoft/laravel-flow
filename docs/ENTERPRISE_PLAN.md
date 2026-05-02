@@ -219,7 +219,7 @@ Key changes:
 
 - Produce a complete README inspired by the AskMyDocs style: badges, architecture, feature matrix, install, config, quickstart, API examples, roadmap, quality gates, security, and enterprise notes.
 - Add docs for architecture, persistence, queues, approvals, webhooks, dashboard, migration guides, and release process.
-- Read `docs/LESSON.md` and fold reusable lessons back into `AGENTS.md`, `CLAUDE.md`, `docs/RULES.md`, `.github/copilot-instructions.md`, and repo skills.
+- Read `docs/LESSON.md` and fold reusable lessons back into `AGENTS.md`, `CLAUDE.md`, `docs/RULES.md`, `.github/copilot-instructions.md`, repo skills, and repo rule files.
 - Add final CHANGELOG and release checklist.
 - Tag `v1.0.0` and create GitHub release only from `main`.
 

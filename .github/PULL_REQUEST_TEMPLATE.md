@@ -21,7 +21,7 @@ Plan reference (enterprise roadmap only; write `N/A` for community PRs):
 - [ ] PHPStan clean (`vendor/bin/phpstan analyse --no-progress`)
 - [ ] PHPUnit Unit suite (`vendor/bin/phpunit --testsuite Unit`)
 - [ ] PHPUnit Architecture suite (`vendor/bin/phpunit --testsuite Architecture`)
-- [ ] Vitest/Vite/Playwright green, if companion dashboard UI changed
+- [ ] Companion app PHPUnit plus Vitest/Vite/Playwright green, if dashboard code/UI changed
 
 ## README impact
 

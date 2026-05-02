@@ -63,3 +63,10 @@
   - `docs/ENTERPRISE_PLAN.md` embedded an exact `origin/main` SHA even though moving SHA state belongs in `docs/PROGRESS.md`
   - `.github/PULL_REQUEST_TEMPLATE.md` work-item fields read as enterprise-only and needed to fit community PRs targeting `main`
   - Macro Task 7 did not list `.github/copilot-instructions.md` as a durable instruction surface to refresh from lessons
+- Pushed `0897267` to remove volatile SHA state from the plan, make the PR template fit community PRs, and include `.github/copilot-instructions.md` in Macro Task 7's lesson fold-back list. Local gates and CI were green.
+- Copilot reviewed `0897267` and flagged four final consistency issues:
+  - `docs/PROGRESS.md` needed to record the follow-up fixes after the `ccbd06e` review
+  - `.claude/rules/rule-laravel-flow-enterprise.md` needed to include `.claude/skills/laravel-flow-enterprise/SKILL.md` in the required reading list
+  - `.github/PULL_REQUEST_TEMPLATE.md` needed to include companion app PHPUnit in dashboard-change gates
+  - Macro Task 7 needed to refresh repo rule files from `docs/LESSON.md`, not only AGENTS/CLAUDE/Copilot instructions and skills
+- The follow-up commit after `0897267` addresses those four issues by updating the progress log, repo rule, PR template, Macro Task 7, and lessons.

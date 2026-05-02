@@ -1,0 +1,75 @@
+# Laravel Flow Agent Guide
+
+This repository is the reusable package `padosoft/laravel-flow`.
+
+If a session restarts with missing context, read these files first, in this order:
+
+1. `docs/PROGRESS.md`
+2. `docs/ENTERPRISE_PLAN.md`
+3. `docs/RULES.md`
+4. `docs/LESSON.md`
+5. `.claude/skills/laravel-flow-enterprise/SKILL.md`
+
+## Stable Baseline
+
+- v0.1 includes the in-memory Flow engine core, fluent builder, facade, dry-run, reverse-order compensation, events, business-impact results, architecture tests, and the imported Padosoft Claude pack.
+- `docs/PROGRESS.md` carries the human restart summary; verify live branch, PR, SHA, reviewer, and CI status with `git` and `gh`.
+- Subtasks branch from the active macro branch and open PRs back into it.
+
+## Operating Rules
+
+- Current code must remain compatible with the Composer/CI matrix that is active on the branch. Today that means Laravel 12/13; Laravel 13-only is an enterprise target that becomes actionable only when Macro Task 1 narrows `composer.json` and CI in the same branch.
+- The dashboard is a companion app, not UI embedded in this package.
+- Keep the package core standalone-agnostic: no AskMyDocs, companion app, or product-specific symbols in `src/`.
+- Update `docs/PROGRESS.md` after meaningful handoff points. For concurrent subtasks, keep detailed PR-specific CI/Copilot history in the PR and summarize only durable restart state.
+- Update `docs/LESSON.md` after non-obvious discoveries, CI/Copilot review findings, local tool workarounds, or reusable package design decisions.
+- Pass `docs/PROGRESS.md`, `docs/ENTERPRISE_PLAN.md`, `docs/RULES.md`, `docs/LESSON.md`, and `.claude/skills/laravel-flow-enterprise/SKILL.md` into every background agent or future session.
+- For every new or improved feature, check README section `Comparison vs alternatives` and update it with factual capability changes. If the package only reaches parity, say that accurately. Research competitors before changing competitor claims when unsure.
+- Never expose secrets in logs, docs, UI, webhook payloads, audit payloads, or debug output.
+- Do not implement code directly on a macro branch unless the user explicitly overrides the PR model.
+
+## Branch And PR Loop
+
+Macro branches:
+
+- `task/agent-operating-system`
+- `task/baseline-tooling-laravel13`
+- `task/v02-persistence`
+- `task/v02-queues-replay`
+- `task/v03-approval-webhooks`
+- `task/dashboard-contracts`
+- `task/v10-stable-api-migrations`
+- `task/release-docs-v1`
+
+For each subtask:
+
+1. Create a subtask branch from the current macro branch.
+2. Implement the smallest coherent slice.
+3. Run the relevant local gates.
+4. Open a PR from the subtask branch into the macro branch.
+5. Request GitHub Copilot Code Review.
+6. Wait for reported CI checks and Copilot comments.
+7. Fix all red reported CI and actionable Copilot comments.
+8. Repeat until CI is green and review comments are resolved.
+9. Merge the subtask PR into the macro branch.
+10. When a macro branch is complete, open a macro PR into `main` and run the same loop.
+
+Copilot review means GitHub Copilot Code Review, not a Codex review. If `gh pr edit <PR> --add-reviewer @copilot` fails because of GitHub CLI project scope issues or the `copilot` login does not resolve, use the GraphQL `requestReviewsByLogin` fallback documented in `.claude/skills/copilot-pr-review-loop/SKILL.md`.
+
+CI is configured for PRs targeting `main` and `task/**`, plus pushes to `main`. Do not add `task/**` to push triggers: both macro and subtask branches use the `task/` prefix. If a PR reports no checks, verify the workflow trigger and base branch, update the trigger if needed, then re-check the same PR; do not merge until checks for the current head are visible and green.
+
+## Local Gates
+
+For this package, run:
+
+```bash
+composer validate --strict --no-check-publish
+vendor/bin/pint --test
+vendor/bin/phpstan analyse --no-progress
+vendor/bin/phpunit --testsuite Unit
+vendor/bin/phpunit --testsuite Architecture
+```
+
+If the companion dashboard app is being changed, also run its PHP, Node, Vite, Vitest, and Playwright gates as documented in that app.
+
+If a tool is unavailable, blocked, or remote CI/Copilot cannot be verified, do not fake completion. Record the exact blocker and next remote step in `docs/PROGRESS.md`.

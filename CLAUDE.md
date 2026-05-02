@@ -16,6 +16,7 @@ This file is the Claude-compatible entrypoint for the repository. It mirrors `AG
 - Request GitHub Copilot Code Review on every PR and wait for it.
 - Merge only after local gates pass, reported CI checks are green, and actionable review comments are resolved.
 - Update `docs/PROGRESS.md` during work and `docs/LESSON.md` when learning something reusable.
+- For every new or improved feature, review README section `Comparison vs alternatives`; update it and research competitor behavior before making uncertain claims.
 - Keep package core standalone-agnostic.
 - Treat Laravel 13-only as the enterprise direction even while current v0.1 composer metadata still supports Laravel 12/13.
 - Dashboard work belongs in a companion app unless the plan is explicitly changed.

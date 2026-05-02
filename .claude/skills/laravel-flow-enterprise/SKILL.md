@@ -55,6 +55,10 @@ Update `docs/LESSON.md` after:
 - API/design decisions that future agents must preserve
 - security, redaction, queue, replay, or migration edge cases
 
+Update `README.md` section `Comparison vs alternatives` whenever a feature is
+added or materially improved. If a competitor row is uncertain, research that
+package/product first and keep the comparison accurate rather than speculative.
+
 ## Quality Gates
 
 For package-only changes:

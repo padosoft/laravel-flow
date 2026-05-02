@@ -227,6 +227,7 @@ Guardrails:
 
 - README must not promise unavailable behavior.
 - Test/assertion counts must match actual PHPUnit output.
+- README section `Comparison vs alternatives` must be reviewed for every feature addition or material feature improvement; research competitor behavior before changing uncertain comparison claims.
 - Release only after local gates, CI, and Copilot review are clean.
 
 ## PR Loop Standard

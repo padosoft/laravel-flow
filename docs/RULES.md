@@ -65,6 +65,8 @@ Playwright is required only when UI/UX changes are in scope.
 - Keep entries dated with `YYYY-MM-DD`.
 - README must never promise unimplemented behavior as available.
 - README test/assertion counts must match the actual PHPUnit output.
+- When adding or improving any package feature, review README section `Comparison vs alternatives` and update it so the table reflects the new or improved capability.
+- If a competitor capability in that section is uncertain, research the referenced package/product before updating the comparison.
 
 ## PR Rules
 

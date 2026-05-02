@@ -11,6 +11,7 @@ Important project context:
 - Compensation must remain reverse-order by default and must preserve failure context.
 - Persisted audit and webhook payloads must not expose secrets.
 - Public API changes require tests and documentation.
+- Feature additions or material feature improvements should update README section `Comparison vs alternatives`; competitor claims should be accurate and researched when uncertain.
 
 Review priorities:
 

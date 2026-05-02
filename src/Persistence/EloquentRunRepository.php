@@ -32,6 +32,8 @@ final class EloquentRunRepository implements RunRepository
             throw new RuntimeException(sprintf('Flow run [%s] was not found.', $runId));
         }
 
+        unset($attributes['id']);
+
         $model->forceFill($this->redact($attributes))->save();
 
         return $model->refresh();

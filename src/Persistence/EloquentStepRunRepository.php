@@ -18,6 +18,8 @@ final class EloquentStepRunRepository implements StepRunRepository
 
     public function createOrUpdate(string $runId, string $stepName, array $attributes): FlowStepRecord
     {
+        unset($attributes['id'], $attributes['run_id'], $attributes['step_name']);
+
         $model = $this->newModel()->newQuery()->firstOrNew([
             'run_id' => $runId,
             'step_name' => $stepName,

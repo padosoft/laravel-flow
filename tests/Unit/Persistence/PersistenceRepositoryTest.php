@@ -95,6 +95,41 @@ final class PersistenceRepositoryTest extends PersistenceTestCase
         $this->assertSame('checkout', $run->definition_name);
     }
 
+    public function test_repositories_do_not_mutate_identity_fields_from_attribute_payloads(): void
+    {
+        $this->migrateFlowTables();
+
+        $runs = $this->app->make(RunRepository::class);
+        $steps = $this->app->make(StepRunRepository::class);
+
+        $run = $runs->create([
+            'definition_name' => 'identity.safe',
+            'dry_run' => false,
+            'id' => '00000000-0000-4000-8000-000000000004',
+            'input' => [],
+            'status' => FlowRun::STATUS_PENDING,
+        ]);
+
+        $updated = $runs->update($run->id, [
+            'id' => '00000000-0000-4000-8000-000000009999',
+            'status' => FlowRun::STATUS_RUNNING,
+        ]);
+
+        $this->assertSame($run->id, $updated->id);
+        $this->assertNull($runs->find('00000000-0000-4000-8000-000000009999'));
+
+        $step = $steps->createOrUpdate($run->id, 'charge', [
+            'run_id' => '00000000-0000-4000-8000-000000009999',
+            'sequence' => 1,
+            'status' => 'running',
+            'step_name' => 'ship',
+        ]);
+
+        $this->assertSame($run->id, $step->run_id);
+        $this->assertSame('charge', $step->step_name);
+        $this->assertCount(1, $steps->forRun($run->id));
+    }
+
     public function test_audit_records_are_append_only(): void
     {
         $this->migrateFlowTables();

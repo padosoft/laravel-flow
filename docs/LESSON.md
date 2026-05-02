@@ -36,6 +36,21 @@
 - Package repos intentionally ignore `composer.lock`; CI installs with `composer update`, so do not stage a local lockfile unless the project policy changes.
 - In package repos without a tracked lockfile, avoid overly specific patch-minimum dev constraints unless there is a documented compatibility reason; prefer broader major/minor ranges and let transitive constraints enforce required patch floors.
 - With Testbench 11, the lock can resolve `laravel/framework` 13.x, which replaces the individual `illuminate/*` packages. Use `composer show laravel/framework --locked` to verify the effective Laravel version when `composer show illuminate/support --locked` is absent.
+- Once persistence models/repositories are in `src/`, `illuminate/database` must be a runtime dependency rather than require-dev, because package consumers can autoload those classes.
+- Eloquent persistence models can push PHPStan over the default 128M worker limit; keep the `composer analyse` script on an explicit memory limit so local and CI gates are deterministic.
+- Persistence payload storage must pass through redaction before JSON is saved; default redaction should cover common secret-looking keys while allowing host apps to override config.
+- Audit persistence should expose append-only behavior at the model/repository layer so normal runtime code cannot update or delete audit rows accidentally.
+- Model-level audit immutability is not enough because Eloquent query builders bypass instance `save()`/`delete()` overrides; append-only audit models need a custom builder that rejects bulk `update()`, `delete()`, and `forceDelete()`.
+- Repository update/upsert methods must strip immutable identity fields from caller-supplied attribute payloads; method arguments such as run id and step name are the source of truth.
+- Persistence schema nullability must match public repository contracts; if a repository requires a run id, the column should be non-nullable unless run-less records are intentionally documented and tested.
+- Keep persistence JSON-field redaction mapping centralized so run, step, and future repository fields do not drift when redaction rules evolve.
+- Run repository updates should whitelist mutable runtime fields instead of accepting arbitrary attributes; persisted run identity/invariants (`id`, definition, dry-run flag, input, idempotency key, correlation id, start time) must remain stable after creation.
+- Step persistence upserts should be database-atomic on the `(run_id, step_name)` unique key; prepare values through an Eloquent model first so JSON and date casts still serialize correctly before `upsert()`.
+- Eloquent `upsert()` paths should set `created_at` and `updated_at` explicitly, then exclude only `created_at` from update columns so existing records preserve creation time while updates bump `updated_at`.
+- Persistence store transactions should delegate to Laravel's connection `transaction()` API rather than manual `beginTransaction()` / `commit()` / `rollBack()` so nested transactions, savepoints, callbacks, and framework exception behavior remain intact.
+- Laravel connection `transaction()` expects a `Closure(static): TReturn`; when adapting a package-level `callable(): TReturn`, wrap it in a closure that accepts the connection argument and invokes the package callback.
+- Tests that enable Laravel's query log must disable it in a `finally` block; flushing collected queries is not enough because the connection keeps recording subsequent statements.
+- Persistence timestamp defaults should use Laravel's model/Date clock (`freshTimestamp()` / `Date::setTestNow()` compatible) instead of raw `new DateTimeImmutable`, and a single `$now` should be reused for fields that should match.
 - Public README examples should avoid Laravel dump-and-die or other debug helpers; use normal variable assignment or assertions so docs do not teach debug output patterns.
 - When `composer validate --strict --no-check-publish` is a hard CI/PR gate, list it explicitly in contributor quick starts and PR expectation checklists, not only in CI or PR templates.
 - README comparison updates must stay factual. If a feature only reaches parity with a competitor, document parity rather than implying an advantage.

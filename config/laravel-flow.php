@@ -6,16 +6,32 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Default storage connection
+    | Persistence
     |--------------------------------------------------------------------------
     |
-    | Database connection name used by laravel-flow when persisting flow runs
-    | and audit rows. Set to null to inherit the application default. Reserved
-    | for v0.2 (in v0.1 the engine is in-memory only — execution does not
-    | touch the database).
+    | Persistence remains opt-in: the in-memory engine path still works with no
+    | database writes. When enabled by a future engine-wiring step, these
+    | settings choose the connection and redact common secret-looking payload
+    | keys before JSON payloads are stored.
     |
     */
     'default_storage' => env('LARAVEL_FLOW_STORAGE', null),
+
+    'persistence' => [
+        'enabled' => env('LARAVEL_FLOW_PERSISTENCE_ENABLED', false),
+
+        'redaction' => [
+            'enabled' => env('LARAVEL_FLOW_REDACTION_ENABLED', true),
+            'replacement' => env('LARAVEL_FLOW_REDACTION_REPLACEMENT', '[redacted]'),
+            'keys' => [
+                'api_key',
+                'authorization',
+                'password',
+                'secret',
+                'token',
+            ],
+        ],
+    ],
 
     /*
     |--------------------------------------------------------------------------

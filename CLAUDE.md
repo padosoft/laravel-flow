@@ -21,7 +21,7 @@ This file is the Claude-compatible entrypoint for the repository. It mirrors `AG
 - Treat Laravel 13-only as the enterprise direction even while current v0.1 composer metadata still supports Laravel 12/13.
 - Dashboard work belongs in a companion app unless the plan is explicitly changed.
 
-CI is configured for PRs targeting `main` and `task/**`. If a current PR has no checks because its base branch predates that workflow trigger, document the absence in `docs/PROGRESS.md` and verify CI on the next PR after the trigger lands.
+CI is configured for PRs targeting `main` and `task/**`, plus pushes to `main`. If a current PR has no checks because its base branch predates that workflow trigger, document the absence in `docs/PROGRESS.md` and verify CI on the next PR after the trigger lands.
 
 ## Skills
 

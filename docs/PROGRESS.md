@@ -6,7 +6,7 @@
 - Fetched `origin` and discovered that `origin/main` advanced to `208a9d1`, tagged `v0.1.0`, with PR #3 merged: the in-memory Flow engine core is already present.
 - Created macro branch `task/agent-operating-system` from `origin/main`.
 - Created subtask branch `task/agent-docs-bootstrap` from the macro branch to respect the macro/subtask PR workflow.
-- Current subtask goal: add durable restart/operating files only, without changing package runtime code.
+- Current subtask goal: add durable restart/operating files and CI trigger support for subtask PRs, without changing package runtime code.
 - Files being added in this subtask:
   - `AGENTS.md`
   - `CLAUDE.md`
@@ -35,19 +35,14 @@
 - `gh pr checks 4` reports no checks because the current CI workflow listens only to PRs targeting `main`, not macro branches.
 - After polling, PR #4 is mergeable, has no inline comments from `gh api repos/padosoft/laravel-flow/pulls/4/comments`, and Copilot remains pending.
 - `gh pr view 4 --comments` is blocked by the current token missing `read:project`; use direct API endpoints or refresh token scope if needed.
-- Copilot completed review on the first PR #4 head and generated 5 documentation comments:
-  - avoid duplicating volatile status in `AGENTS.md`
-  - document the GraphQL Copilot fallback in the file that `AGENTS.md` references
-  - keep point-in-time workspace notes out of `docs/LESSON.md`
-  - remove the duplicated fallback lesson after moving the canonical instructions into the skill
-  - remove stale pre-PR next steps from durable progress docs
+- Copilot completed review on the first PR #4 head and raised documentation consistency issues around volatile status, the GraphQL fallback location, lesson scope, duplicated fallback guidance, and stale next-step entries.
 - Pushed `f16e4ed` to address the 5 comments and requested a fresh Copilot review.
 - Review-thread polling showed 4 threads outdated and 1 still attached to a duplicated `docs/LESSON.md` fallback line, so that line was removed and the fallback now lives only in the operating instructions/skill.
 - Pushed `e49c406` to remove the duplicated fallback lesson and requested another Copilot review.
 - Copilot completed a second review on `e49c406` and generated 10 comments, mostly pointing out that subtask PRs into macro branches cannot satisfy a green-CI rule while `.github/workflows/ci.yml` only targets `main`.
 - User added a durable documentation rule: every feature addition or material feature improvement must review and update README section `Comparison vs alternatives`; competitor claims must be researched when uncertain.
-- Pushed `b4622fd` to add `task/**` workflow triggers and align docs with macro-branch CI.
+- Pushed `b4622fd` to add `task/**` pull request workflow triggers and align docs with macro-branch CI.
 - Pushed `9fa7db0` to record the durable README `Comparison vs alternatives` update rule.
-- CI is now running on subtask PR #4; both GitHub Actions runs for `9fa7db0` completed successfully across PHP 8.3/8.4/8.5 and Laravel 12/13.
-- Current PR #4 status: open, mergeable, CI green, Copilot review requested again on `9fa7db0`.
+- CI is now running on subtask PR #4. The duplicated push + pull_request runs for `9fa7db0` completed successfully across PHP 8.3/8.4/8.5 and Laravel 12/13.
+- Current PR #4 status: open, mergeable, CI green, Copilot review requested again on `e1645e2`.
 - Current work item: address any remaining non-outdated Copilot threads, then merge PR #4 into `task/agent-operating-system` when the review loop is clean.

@@ -2,12 +2,14 @@
 
 ## 2026-05-02 - Active Handoff
 
-Live state:
+Known workstreams:
 
-- Macro branch: `task/agent-operating-system`.
-- Active subtask branch: `task/agent-docs-bootstrap`.
-- Active PR: #4, `task/agent-docs-bootstrap` -> `task/agent-operating-system`.
-- Verify live head, reviewer, mergeability, and CI with `git status --short --branch`, `gh pr view 4 --json headRefOid,mergeable,statusCheckRollup,reviewDecision,reviews`, and `gh api repos/padosoft/laravel-flow/pulls/4/requested_reviewers`.
+| Workstream | Branch / PR | Durable state |
+| --- | --- | --- |
+| Macro Task 0 - durable agent operating system | `task/agent-docs-bootstrap` -> `task/agent-operating-system`, PR #4 | In review loop for the restart docs subtask. |
+
+Concurrent subtasks must add rows here instead of replacing existing workstreams.
+Verify live head, reviewer, mergeability, and CI with `git status --short --branch`, `gh pr view <PR> --json headRefOid,mergeable,statusCheckRollup,reviewDecision,reviews`, and `gh api repos/padosoft/laravel-flow/pulls/<PR>/requested_reviewers`.
 - This file is a durable handoff summary. Detailed per-poll CI/Copilot iteration history belongs in PR #4, not in this shared file.
 
 Completed in Macro Task 0:
@@ -27,8 +29,7 @@ Validation summary:
   - `vendor/bin/phpstan analyse --no-progress`
   - `vendor/bin/phpunit --testsuite Unit` => 32 tests, 97 assertions
   - `vendor/bin/phpunit --testsuite Architecture` => 2 tests, 7 assertions
-- Remote CI for PR #4 has been green on post-fix heads through `def22c7`; verify current remote state with `gh pr checks 4`.
-- Copilot reviewed `def22c7` and raised five final workflow-documentation comments. This follow-up update addresses them by making Copilot review permission-safe for external contributors, replacing the noisy progress log with this handoff summary, and removing contradictory lesson guidance.
+- Remote CI and Copilot review state are intentionally not mirrored here per commit. Verify the current PR state with `gh pr checks <PR>` and the review-thread GraphQL query documented in `.claude/skills/copilot-pr-review-loop/SKILL.md`.
 
 Restart action:
 

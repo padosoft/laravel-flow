@@ -43,8 +43,8 @@
 - User added a durable documentation rule: every feature addition or material feature improvement must review and update README section `Comparison vs alternatives`; competitor claims must be researched when uncertain.
 - Pushed `b4622fd` to add `task/**` pull request workflow triggers and align docs with macro-branch CI.
 - Pushed `9fa7db0` to record the durable README `Comparison vs alternatives` update rule.
-- CI is now running on subtask PR #4. The duplicated push + pull_request runs for `9fa7db0` completed successfully across PHP 8.3/8.4/8.5 and Laravel 12/13.
-- Current PR #4 status: open, mergeable, CI green, Copilot review requested again on `e1645e2`.
+- CI is now running on subtask PR #4. Before the push trigger was narrowed, GitHub produced both push and pull_request runs for `9fa7db0`; after `478c077`, only the pull_request run remains for subtask updates.
+- PR #4 reached mergeable/CI-green on `865c8a2`; Copilot reviewed that head and opened follow-up comments about public docs alignment and no-check recovery wording.
 - Current work item: address any remaining non-outdated Copilot threads, then merge PR #4 into `task/agent-operating-system` when the review loop is clean.
 - Copilot reviewed `478c077` and flagged two durable-rule issues:
   - the docs were too easy to read as "use Laravel 13-only APIs now" while Composer/CI still support Laravel 12/13

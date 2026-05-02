@@ -10,3 +10,4 @@
 - When tests are added or assertion counts change, run the `test-count-readme-sync` skill before pushing so README and PR descriptions do not drift.
 - Until Macro Task 1 narrows Composer and CI, all code must stay Laravel 12/13-compatible even though Laravel 13-only is the enterprise target.
 - Do not use `task/**` as a push trigger. Macro and subtask branches both use the `task/` prefix, so `task/**` belongs only in PR base triggers unless branch naming changes.
+- README and CONTRIBUTING are part of the durable workflow contract. When AGENTS/RULES change branching or CI behavior, update public contributor docs in the same PR.

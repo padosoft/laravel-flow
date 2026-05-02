@@ -18,7 +18,7 @@ The default `phpunit` invocation runs only the offline `Unit` + `Architecture` t
 
 ## Branching model
 
-This is a community Padosoft repository, so PRs target `main` directly (no integration branches). Open one PR per cohesive change.
+Community PRs target `main` directly. Enterprise roadmap work may use the macro/subtask PR loop documented in `AGENTS.md`, where subtask PRs target a macro branch and macro PRs target `main`. Open one PR per cohesive change.
 
 Branch-name conventions:
 
@@ -26,6 +26,7 @@ Branch-name conventions:
 - `fix/<topic>` — bug fix on shipped behaviour.
 - `docs/<topic>` — README, CHANGELOG, or `docs/` updates.
 - `chore/<topic>` — dependency bumps, CI tweaks, repo hygiene.
+- `task/<topic>` — enterprise macro or subtask branch used by the documented agent workflow.
 
 ## Pull request expectations
 
@@ -36,6 +37,7 @@ Branch-name conventions:
 - `vendor/bin/pint --test` must pass with no diffs.
 - `vendor/bin/phpstan analyse` must report zero errors at level 6.
 - The README's "Features at a glance" bullet list stays in sync with what the code does — add a bullet when you ship a feature, remove one when you remove it.
+- The README's "Comparison vs alternatives" section stays in sync with new or materially improved features; research competitor behavior before changing uncertain comparison claims.
 
 ## Commits
 

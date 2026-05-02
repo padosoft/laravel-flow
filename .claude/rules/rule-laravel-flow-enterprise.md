@@ -8,4 +8,4 @@
 - Update progress and lessons during work, not only at handoff.
 - Every PR requires local gates, GitHub Copilot Code Review, and CI when the repository reports checks for that PR.
 - Subtask PR CI is expected for PRs targeting `task/**`; do not add `task/**` to push triggers because macro and subtask branches share the `task/` prefix.
-- If a base branch predates that workflow trigger, document the missing checks in `docs/PROGRESS.md` and verify CI on the next PR after the trigger is merged.
+- If a PR reports no checks, verify the workflow trigger and base branch, update the trigger if needed, then re-check the same PR. Do not merge until checks for the current head are visible and green.

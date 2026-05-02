@@ -88,9 +88,9 @@ Do not mark a task done until:
 - PR exists against the correct target branch
 - Copilot Code Review was requested and completed
 - CI is green when GitHub reports checks for that PR; if GitHub reports no
-  checks because the base branch predates the `task/**` trigger update, record
-  the exact absence in `docs/PROGRESS.md` and require the next PR on the updated
-  base branch to prove CI
+  checks, verify the workflow trigger and base branch, update the trigger if
+  needed, then re-check the same PR. Do not merge until checks for the current
+  head are visible and green
 - actionable review comments are fixed or explicitly resolved
 - the PR is merged
 

@@ -364,7 +364,7 @@ The `Live` testsuite is **opt-in** and reserved for v0.2+ scenarios that need a 
 LARAVEL_FLOW_LIVE=1 vendor/bin/phpunit --testsuite Live
 ```
 
-CI runs Pint (style), PHPStan (level 6), and the Unit + Architecture suites on the full PHP 8.3 / 8.4 / 8.5 × Laravel 12 / 13 matrix on every push and PR.
+CI runs Pint (style), PHPStan (level 6), and the Unit + Architecture suites on the full PHP 8.3 / 8.4 / 8.5 × Laravel 12 / 13 matrix for pushes to `main` and PRs targeting `main` or `task/**`.
 
 ---
 
@@ -381,7 +381,7 @@ CI runs Pint (style), PHPStan (level 6), and the Unit + Architecture suites on t
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). PRs target `main` directly (community repo, no integration branches).
+See [CONTRIBUTING.md](CONTRIBUTING.md). Community PRs target `main`; enterprise roadmap work uses the macro/subtask PR loop documented in `AGENTS.md`.
 
 ---
 

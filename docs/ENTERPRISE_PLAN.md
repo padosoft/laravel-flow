@@ -18,7 +18,7 @@ Branch macro: `task/agent-operating-system`
 
 Subtasks:
 
-- `task/agent-docs-bootstrap`: add `AGENTS.md`, `CLAUDE.md`, `docs/RULES.md`, `docs/LESSON.md`, `docs/PROGRESS.md`, `docs/ENTERPRISE_PLAN.md`, `.github/copilot-instructions.md`, the laravel-flow enterprise Claude skill/rule, and CI triggers for macro-branch subtask PRs.
+- `task/agent-docs-bootstrap`: add `AGENTS.md`, `CLAUDE.md`, `docs/RULES.md`, `docs/LESSON.md`, `docs/PROGRESS.md`, `docs/ENTERPRISE_PLAN.md`, `.github/copilot-instructions.md`, the laravel-flow enterprise Claude skill/rule, and CI triggers for PRs targeting `task/**`.
 - `task/import-reference-lessons`: adapt the useful workflow lessons from `product_image_discovery_admin` without copying app-specific implementation rules.
 
 Guardrails:

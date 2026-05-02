@@ -56,7 +56,7 @@ For each subtask:
 
 Copilot review means GitHub Copilot Code Review, not a Codex review. If `gh pr edit <PR> --add-reviewer @copilot` fails because of GitHub CLI project scope issues or the `copilot` login does not resolve, use the GraphQL `requestReviewsByLogin` fallback documented in `.claude/skills/copilot-pr-review-loop/SKILL.md`.
 
-CI is configured for PRs targeting `main` and `task/**`, plus pushes to `main`. Do not add `task/**` to push triggers: both macro and subtask branches use the `task/` prefix. If a PR targets a base branch that predates the workflow trigger and GitHub reports no checks, record that exact state in `docs/PROGRESS.md` and require the next PR on the updated base branch to prove CI.
+CI is configured for PRs targeting `main` and `task/**`, plus pushes to `main`. Do not add `task/**` to push triggers: both macro and subtask branches use the `task/` prefix. If a PR reports no checks, verify the workflow trigger and base branch, update the trigger if needed, then re-check the same PR; do not merge until checks for the current head are visible and green.
 
 ## Local Gates
 

@@ -107,7 +107,31 @@ Ask the user to enable it once per repo (one-time manual setup).
 If `gh pr create --reviewer copilot` or `gh pr edit <PR> --add-reviewer @copilot`
 opens/updates the PR but fails to request Copilot because `copilot` does not
 resolve, or because GitHub CLI tries to read project items and the token lacks
-`read:project`, request the Copilot bot directly with GraphQL:
+`read:project`, request the Copilot bot directly with GraphQL.
+
+Bash / Linux / macOS:
+
+```bash
+pr_node_id="$(gh pr view <PR> --json id --jq .id)"
+
+query='
+mutation RequestReviewsByLogin($pullRequestId: ID!, $botLogins: [String!], $union: Boolean!) {
+  requestReviewsByLogin(input: {pullRequestId: $pullRequestId, botLogins: $botLogins, union: $union}) {
+    clientMutationId
+  }
+}
+'
+
+gh api graphql \
+  -f query="$query" \
+  -F pullRequestId="$pr_node_id" \
+  -F botLogins[]='copilot-pull-request-reviewer[bot]' \
+  -F union=true
+
+gh api repos/<owner>/<repo>/pulls/<PR>/requested_reviewers
+```
+
+PowerShell:
 
 ```powershell
 $prNodeId = gh pr view <PR> --json id --jq .id

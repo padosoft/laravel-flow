@@ -78,5 +78,5 @@ Playwright is required only when UI/UX changes are in scope.
 - CI is expected for PRs targeting `main` and `task/**`, plus pushes to `main`.
 - Do not add `task/**` to push triggers; the branch naming scheme uses `task/` for both macro branches and subtask branches.
 - Merge only after local gates, Copilot review, and reported CI checks are clean.
-- If a current base branch predates the `task/**` trigger and GitHub reports no checks, record the exact absence in `docs/PROGRESS.md`; the next PR after the workflow trigger is merged must prove CI.
+- If a PR reports no checks, verify the workflow trigger and base branch, update the trigger if needed, then re-check the same PR. Do not merge until checks for the current head are visible and green.
 - If GitHub access is unavailable, record the exact blocked remote step in `docs/PROGRESS.md`.

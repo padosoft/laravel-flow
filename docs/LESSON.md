@@ -14,14 +14,14 @@
 - Keep companion-dashboard scope consistent everywhere it appears, including README intro copy and roadmap rows; changing only one mention leaves the public docs ambiguous.
 - Restart/subagent context must include the repo-local skill `.claude/skills/laravel-flow-enterprise/SKILL.md`, not only the four durable docs, because the skill carries mandatory PR-loop and pre-push behavior.
 - Copilot review threads can remain non-outdated after a fix when the same line still exists. Verify current file contents against the comment before resolving a thread as already addressed.
-- Durable plans should reference release tags and capabilities, not exact moving branch SHAs. Put current branch, PR, and SHA state only in `docs/PROGRESS.md`.
+- Durable plans should reference release tags and capabilities, not exact moving branch SHAs. Verify live branch, PR, and SHA state with `git` and `gh`; keep `docs/PROGRESS.md` as a human handoff summary.
 - Repository-wide PR templates must work for both enterprise roadmap PRs and normal community PRs.
 - Final lesson fold-back must include `.github/copilot-instructions.md` so Copilot's durable guidance stays aligned with AGENTS, CLAUDE, rules, and skills.
 - Repo-local rule files must include the same mandatory reading list as AGENTS/CLAUDE when they are part of the durable instruction surface.
 - Dashboard app/repo PR gates must include the companion app's PHPUnit suite as well as Vitest/Vite/Playwright checks when dashboard code changes.
 - Final lesson fold-back must include repo rule files as well as AGENTS, CLAUDE, `docs/RULES.md`, Copilot instructions, and skills.
 - PR templates should include an explicit GitHub Copilot Code Review checkpoint when the repository makes that review mandatory.
-- Keep PR-specific Copilot/CI history in `docs/PROGRESS.md`; write only the reusable takeaway to `docs/LESSON.md`.
+- Keep detailed PR-specific Copilot/CI history in the PR; write only durable handoff state to `docs/PROGRESS.md` and reusable takeaways to `docs/LESSON.md`.
 - Dashboard gates belong to the companion app/repo unless the package PR also changes that app; package-only dashboard contracts use package gates.
 - Final lesson fold-back must include `.github/PULL_REQUEST_TEMPLATE.md` because it is part of the durable workflow surface.
 - `docs/PROGRESS.md` should be a handoff summary, not an append-only remote poll log for every concurrent subtask. Keep detailed PR-specific CI/Copilot iteration history in the PR to avoid shared-file conflicts.

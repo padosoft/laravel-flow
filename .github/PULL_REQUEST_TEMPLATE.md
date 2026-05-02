@@ -22,7 +22,7 @@ Plan reference (enterprise roadmap only; write `N/A` for community PRs):
 - [ ] PHPUnit Unit suite (`vendor/bin/phpunit --testsuite Unit`)
 - [ ] PHPUnit Architecture suite (`vendor/bin/phpunit --testsuite Architecture`)
 - [ ] Companion dashboard app gates, run in that app/repo only: PHPUnit, Vitest/Vite/build, and Playwright; write `N/A` for package-only dashboard contracts
-- [ ] GitHub Copilot Code Review requested; actionable comments addressed before merge
+- [ ] GitHub Copilot Code Review requested by the author if they have permission; otherwise maintainer must request before merge; actionable comments addressed
 
 ## README impact
 

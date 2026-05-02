@@ -1,88 +1,35 @@
 # Progress
 
-## 2026-05-02
+## 2026-05-02 - Active Handoff
 
-- User asked to implement the enterprise plan, then specifically to save the plan and restart files in case the session is interrupted.
-- Fetched `origin` and discovered that `origin/main` advanced to `208a9d1`, tagged `v0.1.0`, with PR #3 merged: the in-memory Flow engine core is already present.
-- Created macro branch `task/agent-operating-system` from `origin/main`.
-- Created subtask branch `task/agent-docs-bootstrap` from the macro branch to respect the macro/subtask PR workflow.
-- Current subtask goal: add durable restart/operating files and CI trigger support for subtask PRs, without changing package runtime code.
-- Files being added in this subtask:
-  - `AGENTS.md`
-  - `CLAUDE.md`
-  - `docs/RULES.md`
-  - `docs/LESSON.md`
-  - `docs/PROGRESS.md`
-  - `docs/ENTERPRISE_PLAN.md`
-  - `.claude/skills/laravel-flow-enterprise/SKILL.md`
-  - `.claude/rules/rule-laravel-flow-enterprise.md`
-  - `.github/copilot-instructions.md`
-- `composer validate --strict --no-check-publish` initially failed because `composer.lock` had a stale content hash after the v0.1 composer metadata changes already present on `origin/main`.
-- Ran `composer update --lock --no-interaction --no-progress`; it wrote the lock file without changing installed package versions.
-- Local gates passed after the lock refresh:
+Live state:
+
+- Macro branch: `task/agent-operating-system`.
+- Active subtask branch: `task/agent-docs-bootstrap`.
+- Active PR: #4, `task/agent-docs-bootstrap` -> `task/agent-operating-system`.
+- Verify live head, reviewer, mergeability, and CI with `git status --short --branch`, `gh pr view 4 --json headRefOid,mergeable,statusCheckRollup,reviewDecision,reviews`, and `gh api repos/padosoft/laravel-flow/pulls/4/requested_reviewers`.
+- This file is a durable handoff summary. Detailed per-poll CI/Copilot iteration history belongs in PR #4, not in this shared file.
+
+Completed in Macro Task 0:
+
+- Created `task/agent-operating-system` from `origin/main` and subtask branch `task/agent-docs-bootstrap`.
+- Added durable restart files: `AGENTS.md`, `CLAUDE.md`, `docs/RULES.md`, `docs/LESSON.md`, `docs/PROGRESS.md`, `docs/ENTERPRISE_PLAN.md`, `.github/copilot-instructions.md`, `.claude/skills/laravel-flow-enterprise/SKILL.md`, and `.claude/rules/rule-laravel-flow-enterprise.md`.
+- Imported/adapted useful Padosoft Claude pack guidance from the reference project without copying app-specific implementation rules.
+- Updated CI so PRs targeting `main` or `task/**` run the matrix; push-trigger CI remains limited to `main` to avoid duplicate subtask runs.
+- Recorded the durable rule that README section `Comparison vs alternatives` must be reviewed for every new or materially improved feature, with competitor research when claims are uncertain.
+- Aligned README, CONTRIBUTING, PR template, Copilot instructions, repo rules, and repo skills around the macro/subtask workflow, Laravel 12/13 compatibility until Macro Task 1, companion-dashboard scope, and mandatory Copilot review.
+
+Validation summary:
+
+- Local gates were run after the latest edits in this subtask:
   - `composer validate --strict --no-check-publish`
   - `vendor/bin/pint --test`
   - `vendor/bin/phpstan analyse --no-progress`
   - `vendor/bin/phpunit --testsuite Unit` => 32 tests, 97 assertions
   - `vendor/bin/phpunit --testsuite Architecture` => 2 tests, 7 assertions
-- Committed the subtask as `c080c3a` with message `docs: add enterprise restart operating files`.
-- Pushed both restart branches:
-  - `origin/task/agent-operating-system`
-  - `origin/task/agent-docs-bootstrap`
-- Opened PR #4: `task/agent-docs-bootstrap` -> `task/agent-operating-system`.
-- Standard `gh pr create --reviewer copilot` opened the PR but failed to request review because login `copilot` did not resolve.
-- Requested Copilot Code Review with GraphQL `requestReviewsByLogin` using `copilot-pull-request-reviewer[bot]`; API verification shows pending reviewer `Copilot`.
-- `gh pr checks 4` reports no checks because the current CI workflow listens only to PRs targeting `main`, not macro branches.
-- After polling, PR #4 is mergeable, has no inline comments from `gh api repos/padosoft/laravel-flow/pulls/4/comments`, and Copilot remains pending.
-- `gh pr view 4 --comments` is blocked by the current token missing `read:project`; use direct API endpoints or refresh token scope if needed.
-- Copilot completed review on the first PR #4 head and raised documentation consistency issues around volatile status, the GraphQL fallback location, lesson scope, duplicated fallback guidance, and stale next-step entries.
-- Pushed `f16e4ed` to address the 5 comments and requested a fresh Copilot review.
-- Review-thread polling showed 4 threads outdated and 1 still attached to a duplicated `docs/LESSON.md` fallback line, so that line was removed and the fallback now lives only in the operating instructions/skill.
-- Pushed `e49c406` to remove the duplicated fallback lesson and requested another Copilot review.
-- Copilot completed a second review on `e49c406` and generated 10 comments, mostly pointing out that subtask PRs into macro branches cannot satisfy a green-CI rule while `.github/workflows/ci.yml` only targets `main`.
-- User added a durable documentation rule: every feature addition or material feature improvement must review and update README section `Comparison vs alternatives`; competitor claims must be researched when uncertain.
-- Pushed `b4622fd` to add `task/**` pull request workflow triggers and align docs with macro-branch CI.
-- Pushed `9fa7db0` to record the durable README `Comparison vs alternatives` update rule.
-- CI is now running on subtask PR #4. Before the push trigger was narrowed, GitHub produced both push and pull_request runs for `9fa7db0`; after `478c077`, only the pull_request run remains for subtask updates.
-- PR #4 reached mergeable/CI-green on `865c8a2`; Copilot reviewed that head and opened follow-up comments about public docs alignment and no-check recovery wording.
-- Copilot reviewed `478c077` and flagged two durable-rule issues:
-  - the docs were too easy to read as "use Laravel 13-only APIs now" while Composer/CI still support Laravel 12/13
-  - `task/**` must not be described as macro-only because macro and subtask branches both use the `task/` prefix
-- Copilot reviewed `cc314d5` and flagged five final alignment issues: pass plan/rules to subagents, make README comparison updates mandatory in Copilot instructions, clarify the v0.2 dashboard as companion-app scope, and remove stale current-action wording.
-- Copilot reviewed `5f7e693` and flagged three remaining alignment issues:
-  - `.github/PULL_REQUEST_TEMPLATE.md` still referenced v4.0 plan IDs and PHPStan level 8
-  - the PR review-reading fallback still depended on `gh pr view --comments`, which can fail without `read:project`
-  - `.claude/rules/rule-laravel-flow-enterprise.md` was missing the mandatory README `Comparison vs alternatives` rule
-- Pushed `94ce87a` to finish the PR template, review-reading fallback, rule-file comparison requirement, and PR body alignment. Local gates and CI were green.
-- Copilot reviewed `94ce87a` and flagged three final consistency issues:
-  - README introduction still described v0.2 as adding a generic web dashboard instead of companion dashboard contracts/app integration
-  - `AGENTS.md` did not include `.claude/skills/laravel-flow-enterprise/SKILL.md` in the required restart/subagent context list
-  - `docs/ENTERPRISE_PLAN.md` did not include the same repo-local skill in the background-agent guardrail
-- Pushed `ccbd06e` to align README companion-dashboard wording and include the repo-local skill in restart/subagent context. Local gates and CI were green.
-- Copilot reviewed `ccbd06e` and flagged three final consistency issues:
-  - `docs/ENTERPRISE_PLAN.md` embedded an exact `origin/main` SHA even though moving SHA state belongs in `docs/PROGRESS.md`
-  - `.github/PULL_REQUEST_TEMPLATE.md` work-item fields read as enterprise-only and needed to fit community PRs targeting `main`
-  - Macro Task 7 did not list `.github/copilot-instructions.md` as a durable instruction surface to refresh from lessons
-- Pushed `0897267` to remove volatile SHA state from the plan, make the PR template fit community PRs, and include `.github/copilot-instructions.md` in Macro Task 7's lesson fold-back list. Local gates and CI were green.
-- Copilot reviewed `0897267` and flagged four final consistency issues:
-  - `docs/PROGRESS.md` needed to record the follow-up fixes after the `ccbd06e` review
-  - `.claude/rules/rule-laravel-flow-enterprise.md` needed to include `.claude/skills/laravel-flow-enterprise/SKILL.md` in the required reading list
-  - `.github/PULL_REQUEST_TEMPLATE.md` needed to include companion app PHPUnit in dashboard-change gates
-  - Macro Task 7 needed to refresh repo rule files from `docs/LESSON.md`, not only AGENTS/CLAUDE/Copilot instructions and skills
-- The follow-up commit after `0897267` addresses those four issues by updating the progress log, repo rule, PR template, Macro Task 7, and lessons.
-- Pushed `ce1e514` to align the rule file, PR template dashboard gate, Macro Task 7 rule-file fold-back, and lessons. Local gates and CI were green.
-- Copilot reviewed `ce1e514` and flagged seven final workflow-consistency issues:
-  - PR template needed an explicit GitHub Copilot Code Review checkpoint
-  - `docs/RULES.md` and `.claude/skills/laravel-flow-enterprise/SKILL.md` needed to keep `docs/LESSON.md` limited to reusable findings, with PR-specific history in `docs/PROGRESS.md`
-  - dashboard checks needed to be described as companion app/repo gates, not package-repo commands
-  - Macro Task 7 needed to include `.github/PULL_REQUEST_TEMPLATE.md` in lesson fold-back
-  - `CONTRIBUTING.md` needed to document the mandatory Copilot Code Review requirement
-- The follow-up commit after `ce1e514` addresses those seven issues across the PR template, rules, skill, plan, contributing guide, progress, and lessons.
-- Pushed `5fb9ecb` to add the explicit Copilot Review checkpoint, keep reusable lessons separate from PR-specific progress, clarify companion app/repo dashboard gates, include the PR template in lesson fold-back, and update CONTRIBUTING. Local gates and CI were green.
-- Copilot reviewed `5fb9ecb` and flagged five final alignment issues:
-  - shared `docs/PROGRESS.md` must avoid becoming a conflict-heavy log for every concurrent subtask
-  - progress needed to record the actual `5fb9ecb` push, CI, and review result
-  - dashboard contract-only package PRs must not be blocked on companion app gates that do not run in this repo
-  - repo-local guidance needed to explicitly override imported shared Laravel 13 defaults until Macro Task 1 narrows Composer and CI
-  - README comparison guidance must remain factual and must not imply every update has to claim an advantage
-- The follow-up commit after `5fb9ecb` addresses those five issues by updating AGENTS, RULES, ENTERPRISE_PLAN, the repo-local skill, progress, and lessons.
+- Remote CI for PR #4 has been green on post-fix heads through `def22c7`; verify current remote state with `gh pr checks 4`.
+- Copilot reviewed `def22c7` and raised five final workflow-documentation comments. This follow-up update addresses them by making Copilot review permission-safe for external contributors, replacing the noisy progress log with this handoff summary, and removing contradictory lesson guidance.
+
+Restart action:
+
+- Continue PR #4 from live GitHub state. Do not merge until local gates are green for the latest head, CI is green for the latest head, Copilot review has completed for the latest head, and no actionable non-outdated Copilot threads remain.

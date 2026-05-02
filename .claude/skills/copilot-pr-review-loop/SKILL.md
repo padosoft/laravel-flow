@@ -169,6 +169,52 @@ gh pr view <PR> --comments
 gh api repos/<owner>/<repo>/pulls/<PR>/comments --jq '.[] | {body, path, line}'
 ```
 
+If `gh pr view <PR> --comments` fails because the token lacks `read:project`,
+use API endpoints that do not query project items:
+
+```bash
+# PR review summaries
+gh api repos/<owner>/<repo>/pulls/<PR>/reviews \
+  --jq '.[] | {user:.user.login,state,commit_id,body,submitted_at}'
+
+# top-level PR conversation comments
+gh api repos/<owner>/<repo>/issues/<PR>/comments \
+  --jq '.[] | {user:.user.login,body,created_at}'
+
+# inline review comments
+gh api repos/<owner>/<repo>/pulls/<PR>/comments \
+  --jq '.[] | {user:.user.login,path,line,body,commit_id}'
+```
+
+For thread state, use GraphQL so outdated/resolved status is explicit:
+
+```bash
+query='
+query($owner:String!, $repo:String!, $number:Int!) {
+  repository(owner:$owner, name:$repo) {
+    pullRequest(number:$number) {
+      reviewThreads(first:100) {
+        nodes {
+          id
+          isResolved
+          isOutdated
+          comments(first:10) {
+            nodes { author { login } path line outdated body }
+          }
+        }
+      }
+    }
+  }
+}
+'
+
+gh api graphql \
+  -f query="$query" \
+  -f owner='<owner>' \
+  -f repo='<repo>' \
+  -F number=<PR>
+```
+
 ### Phase C — Read CI failures
 ```bash
 # list runs for branch

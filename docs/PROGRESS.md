@@ -49,3 +49,7 @@
   - the docs were too easy to read as "use Laravel 13-only APIs now" while Composer/CI still support Laravel 12/13
   - `task/**` must not be described as macro-only because macro and subtask branches both use the `task/` prefix
 - Copilot reviewed `cc314d5` and flagged five final alignment issues: pass plan/rules to subagents, make README comparison updates mandatory in Copilot instructions, clarify the v0.2 dashboard as companion-app scope, and remove stale current-action wording.
+- Copilot reviewed `5f7e693` and flagged three remaining alignment issues:
+  - `.github/PULL_REQUEST_TEMPLATE.md` still referenced v4.0 plan IDs and PHPStan level 8
+  - the PR review-reading fallback still depended on `gh pr view --comments`, which can fail without `read:project`
+  - `.claude/rules/rule-laravel-flow-enterprise.md` was missing the mandatory README `Comparison vs alternatives` rule

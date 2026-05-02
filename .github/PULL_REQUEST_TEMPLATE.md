@@ -1,32 +1,46 @@
-## Sottotask
-ID: <v4.0.W?.?.?>
-Plan ref: `plans/v4.0-week-?-detailed.md` sezione W?.?.?
+## Work item
+
+Subtask or macro branch:
+
+Plan reference:
 
 ## Summary
-1-2 sentences description.
+
+1-2 sentence description of the change.
 
 ## Changes
-- File modificati
-- Migration aggiunta
-- Test aggiunti
+
+- Files or subsystems changed
+- Public API/config/migration changes, if any
+- Documentation changes, if any
 
 ## Test gate
-- [ ] PHPUnit verde (`vendor/bin/phpunit`)
-- [ ] PHPStan level 8 (`vendor/bin/phpstan analyse`)
+
+- [ ] Composer validation (`composer validate --strict --no-check-publish`)
 - [ ] Pint clean (`vendor/bin/pint --test`)
-- [ ] Architecture tests verdi (R30/R31/R32 dove applicabili)
-- [ ] Vitest verde (frontend, se applicabile)
-- [ ] Playwright E2E verde (se applicabile)
-- [ ] Eval tests verdi (se applicabile per agent/prompt changes)
+- [ ] PHPStan clean (`vendor/bin/phpstan analyse --no-progress`)
+- [ ] PHPUnit Unit suite (`vendor/bin/phpunit --testsuite Unit`)
+- [ ] PHPUnit Architecture suite (`vendor/bin/phpunit --testsuite Architecture`)
+- [ ] Vitest/Vite/Playwright green, if companion dashboard UI changed
+
+## README impact
+
+- [ ] `Features at a glance` is still accurate
+- [ ] `Comparison vs alternatives` is updated for new or materially improved features
+- [ ] Competitor claims were researched where uncertain
 
 ## Architecture impact
-[Brief: nessun nuovo coupling, R30 rispettato]
+
+Briefly state package-core coupling, standalone-agnostic impact, and BC/API impact.
 
 ## Security impact
-[Brief: nessun nuovo path PII, ACL rispettate]
+
+Briefly state secret/redaction/auth/webhook/approval-token impact, or `None`.
 
 ## Risk
-[Low/Medium/High + mitigation]
+
+Low/Medium/High plus mitigation.
 
 ## Rollback plan
-[Come revertire se serve]
+
+How to revert safely if needed.

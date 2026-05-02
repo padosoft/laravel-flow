@@ -1,6 +1,6 @@
 # Rule: Laravel Flow Enterprise Roadmap
 
-- Read `docs/PROGRESS.md`, `docs/ENTERPRISE_PLAN.md`, `docs/RULES.md`, `docs/LESSON.md`, and `.claude/skills/laravel-flow-enterprise/SKILL.md` before changing code.
+- Read `AGENTS.md`, `CLAUDE.md`, `docs/PROGRESS.md`, `docs/ENTERPRISE_PLAN.md`, `docs/RULES.md`, `docs/LESSON.md`, and `.claude/skills/laravel-flow-enterprise/SKILL.md` before changing code.
 - Use macro branches and subtask PRs exactly as documented in `AGENTS.md`.
 - Keep the package core standalone-agnostic and headless.
 - Keep implementation compatible with the active Composer/CI matrix; Laravel 13-only becomes actionable only when Macro Task 1 narrows Composer and CI.

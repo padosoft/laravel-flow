@@ -26,5 +26,6 @@
 - Final lesson fold-back must include `.github/PULL_REQUEST_TEMPLATE.md` because it is part of the durable workflow surface.
 - `docs/PROGRESS.md` should be a handoff summary, not an append-only remote poll log for every concurrent subtask. Keep detailed PR-specific CI/Copilot iteration history in the PR to avoid shared-file conflicts.
 - `docs/PROGRESS.md` should track concurrent subtasks as separate workstream rows and should not mirror commit-specific CI/Copilot status.
+- `docs/PROGRESS.md` must be safe to merge into `main`; avoid in-flight PR numbers or branch arrows unless they are clearly historical or live state is verified through `gh`.
 - Repo-local laravel-flow guidance must explicitly override imported shared Laravel 13 defaults until Macro Task 1 narrows Composer and CI.
 - README comparison updates must stay factual. If a feature only reaches parity with a competitor, document parity rather than implying an advantage.

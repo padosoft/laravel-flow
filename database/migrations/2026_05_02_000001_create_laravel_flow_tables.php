@@ -54,7 +54,7 @@ return new class extends Migration
 
         Schema::create('flow_audit', function (Blueprint $table): void {
             $table->id();
-            $table->string('run_id', 36)->nullable()->index();
+            $table->string('run_id', 36)->index();
             $table->string('step_name')->nullable()->index();
             $table->string('event')->index();
             $table->json('payload')->nullable();

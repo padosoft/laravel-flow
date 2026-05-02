@@ -11,7 +11,7 @@ use Padosoft\LaravelFlow\Persistence\AppendOnlyAuditBuilder;
 
 /**
  * @property int $id
- * @property string|null $run_id
+ * @property string $run_id
  * @property string|null $step_name
  * @property string $event
  * @property array<string, mixed>|null $payload

@@ -30,6 +30,7 @@
 - Keep `docs/PROGRESS.md` rows free of Copilot comment details and exact local tool versions; detailed iteration history belongs in the PR body/comments, while PROGRESS keeps durable restart state only.
 - Completed `docs/PROGRESS.md` workstream rows should describe the durable post-merge state on `main`, not the temporary macro/subtask branch that produced it.
 - When a macro is marked completed in `docs/PROGRESS.md`, update the `Next planned macro` section in the same file during the same PR so restart guidance remains internally consistent.
+- When a macro lands, update plan assumptions/current-baseline wording from future tense to present tense so roadmap docs do not imply completed compatibility work is still pending.
 - Repo-local laravel-flow guidance must remain the authority over imported shared defaults; after Macro Task 1 it defines the Laravel 13-only baseline and Composer-script gates.
 - Composer scripts are the canonical package gates after Macro Task 1: `composer validate --strict --no-check-publish`, `composer format:test`, `composer analyse`, and `composer test`.
 - Package repos intentionally ignore `composer.lock`; CI installs with `composer update`, so do not stage a local lockfile unless the project policy changes.

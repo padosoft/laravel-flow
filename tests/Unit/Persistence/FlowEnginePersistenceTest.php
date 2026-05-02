@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Padosoft\LaravelFlow\Tests\Unit\Persistence;
 
+use Padosoft\LaravelFlow\Events\FlowStepStarted;
 use Padosoft\LaravelFlow\FlowEngine;
 use Padosoft\LaravelFlow\FlowRun;
 use Padosoft\LaravelFlow\Models\FlowAuditRecord;
@@ -147,6 +148,40 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
 
         $this->assertTrue($run->dryRun);
         $this->assertPersistenceTablesEmpty();
+    }
+
+    public function test_persisted_run_is_closed_when_a_step_listener_throws(): void
+    {
+        $this->migrateFlowTables();
+        $engine = $this->engineWithPersistence();
+
+        $this->app['events']->listen(
+            FlowStepStarted::class,
+            static fn (): never => throw new RuntimeException('listener exploded'),
+        );
+
+        $engine->define('flow.persist.listener')
+            ->step('create', AlwaysSucceedsHandler::class)
+            ->register();
+
+        try {
+            $engine->execute('flow.persist.listener', []);
+            $this->fail('The throwing listener should abort execution.');
+        } catch (RuntimeException $exception) {
+            $this->assertSame('listener exploded', $exception->getMessage());
+        }
+
+        $runRecord = FlowRunRecord::query()->first();
+        $this->assertInstanceOf(FlowRunRecord::class, $runRecord);
+        $this->assertSame(FlowRun::STATUS_FAILED, $runRecord->status);
+        $this->assertSame('create', $runRecord->failed_step);
+        $this->assertNotNull($runRecord->finished_at);
+
+        $stepRecord = FlowStepRecord::query()->first();
+        $this->assertInstanceOf(FlowStepRecord::class, $stepRecord);
+        $this->assertSame('failed', $stepRecord->status);
+        $this->assertSame(RuntimeException::class, $stepRecord->error_class);
+        $this->assertSame('listener exploded', $stepRecord->error_message);
     }
 
     private function engineWithPersistence(): FlowEngine

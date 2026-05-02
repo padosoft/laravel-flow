@@ -138,7 +138,16 @@ class FlowEngine
                 'dry_run' => $dryRun,
                 'status' => 'running',
             ]);
-            $this->dispatch(new FlowStepStarted($run->id, $definition->name, $step->name, $dryRun));
+            $this->dispatchOrPersistListenerFailure(
+                $persist,
+                new FlowStepStarted($run->id, $definition->name, $step->name, $dryRun),
+                $run,
+                $step,
+                $sequence,
+                $context,
+                $stepStartedAt,
+                false,
+            );
 
             $result = $this->executeStep($step, $context);
             $stepFinishedAt = $this->now();
@@ -163,7 +172,16 @@ class FlowEngine
                     'error_message' => $error instanceof Throwable ? $error->getMessage() : null,
                     'status' => 'failed',
                 ]);
-                $this->dispatch(new FlowStepFailed($run->id, $definition->name, $step->name, $result, $dryRun));
+                $this->dispatchOrPersistListenerFailure(
+                    $persist,
+                    new FlowStepFailed($run->id, $definition->name, $step->name, $result, $dryRun),
+                    $run,
+                    $step,
+                    $sequence,
+                    $context,
+                    $stepStartedAt,
+                    true,
+                );
                 $run->markFailed($step->name, $stepFinishedAt);
                 $this->persistRunFinished($persist, $run);
 
@@ -197,7 +215,16 @@ class FlowEngine
                 'output' => $result->output,
                 'status' => $result->dryRunSkipped ? 'skipped' : 'succeeded',
             ], $result->businessImpact);
-            $this->dispatch(new FlowStepCompleted($run->id, $definition->name, $step->name, $result, $dryRun));
+            $this->dispatchOrPersistListenerFailure(
+                $persist,
+                new FlowStepCompleted($run->id, $definition->name, $step->name, $result, $dryRun),
+                $run,
+                $step,
+                $sequence,
+                $context,
+                $stepStartedAt,
+                true,
+            );
 
             // Accumulate output into context for downstream steps (skip dry-run-skipped).
             if (! $result->dryRunSkipped) {
@@ -308,12 +335,12 @@ class FlowEngine
                 continue;
             }
 
-            $this->dispatch(new FlowCompensated($run->id, $definition->name, $step->name, $context->dryRun));
             $this->recordAudit($persist, 'FlowCompensated', $run, $step->name, [
                 'definition_name' => $definition->name,
                 'dry_run' => $context->dryRun,
                 'status' => 'compensated',
             ]);
+            $this->dispatch(new FlowCompensated($run->id, $definition->name, $step->name, $context->dryRun));
             $compensatedAtLeastOne = true;
         }
 
@@ -337,6 +364,52 @@ class FlowEngine
                 count($compensationErrors),
                 $summary,
             ), previous: $compensationErrors[0]['error']);
+        }
+    }
+
+    private function dispatchOrPersistListenerFailure(
+        bool $persist,
+        object $event,
+        FlowRun $run,
+        FlowStep $step,
+        int $sequence,
+        FlowContext $context,
+        DateTimeInterface $stepStartedAt,
+        bool $stepAlreadyFinished,
+    ): void {
+        if (! $persist) {
+            $this->dispatch($event);
+
+            return;
+        }
+
+        try {
+            $this->dispatch($event);
+        } catch (Throwable $e) {
+            $failedAt = $this->now();
+
+            if (! $stepAlreadyFinished) {
+                $result = FlowStepResult::failed($e);
+                $run->recordStepResult($step->name, $result);
+                $this->persistStepFinished(
+                    true,
+                    $run,
+                    $step,
+                    $sequence,
+                    $context,
+                    $result,
+                    $stepStartedAt,
+                    $failedAt,
+                );
+            }
+
+            if ($run->finishedAt === null) {
+                $run->markFailed($step->name, $failedAt);
+            }
+
+            $this->persistRunFinished(true, $run);
+
+            throw $e;
         }
     }
 

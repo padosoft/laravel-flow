@@ -46,9 +46,8 @@
 - Pushed `e49c406` to remove the duplicated fallback lesson and requested another Copilot review.
 - Copilot completed a second review on `e49c406` and generated 10 comments, mostly pointing out that subtask PRs into macro branches cannot satisfy a green-CI rule while `.github/workflows/ci.yml` only targets `main`.
 - User added a durable documentation rule: every feature addition or material feature improvement must review and update README section `Comparison vs alternatives`; competitor claims must be researched when uncertain.
-
-## 2026-05-02 - Current Remote Status
-
-- PR #4 remains open: `task/agent-docs-bootstrap` -> `task/agent-operating-system`.
-- Remote CI is unavailable for PR #4 because its base branch was created before the `task/**` workflow trigger update.
-- The current work item is adding that workflow trigger plus doc caveats and the new README comparison rule, then requesting another Copilot review.
+- Pushed `b4622fd` to add `task/**` workflow triggers and align docs with macro-branch CI.
+- Pushed `9fa7db0` to record the durable README `Comparison vs alternatives` update rule.
+- CI is now running on subtask PR #4; both GitHub Actions runs for `9fa7db0` completed successfully across PHP 8.3/8.4/8.5 and Laravel 12/13.
+- Current PR #4 status: open, mergeable, CI green, Copilot review requested again on `9fa7db0`.
+- Current work item: address any remaining non-outdated Copilot threads, then merge PR #4 into `task/agent-operating-system` when the review loop is clean.

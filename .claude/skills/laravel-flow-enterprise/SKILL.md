@@ -75,10 +75,11 @@ For companion dashboard changes, add the companion app's PHP, Node, Vite, Vitest
 
 ## PR Loop
 
-Use `.claude/skills/copilot-pr-review-loop/SKILL.md` for the mandatory remote loop.
-For laravel-flow subtask PRs, replace the shared example's `--base main`
-with the active macro branch, usually `task/<macro-name>`. Macro PRs still
-target `main`.
+Use `.claude/skills/copilot-pr-review-loop/SKILL.md` for the mandatory remote
+loop after choosing the correct target branch:
+
+- subtask PRs target the active macro branch, usually `task/<macro-name>`
+- macro PRs target `main`
 
 Do not mark a task done until:
 

@@ -88,11 +88,14 @@ any AI agent).
 ```bash
 gh pr create \
   --title "feat(...): ..." \
-  --base main \
-  --head feature/<branch> \
+  --base <base-branch> \
+  --head <head-branch> \
   --body-file .github/PULL_REQUEST_TEMPLATE.md \
   --reviewer copilot
 ```
+
+Use the correct base branch for the repository workflow. In repos with macro
+branches, subtask PRs target the macro branch and macro PRs target `main`.
 
 Note: `--reviewer copilot` may fail with "could not resolve user". In
 that case, the repo must have Copilot Code Review enabled at:

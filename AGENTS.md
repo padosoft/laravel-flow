@@ -10,13 +10,11 @@ If a session restarts with missing context, read these files first, in this orde
 4. `docs/LESSON.md`
 5. `.claude/skills/laravel-flow-enterprise/SKILL.md`
 
-## Current Baseline
+## Stable Baseline
 
-- `origin/main` is at `208a9d1`, tagged `v0.1.0`.
 - v0.1 includes the in-memory Flow engine core, fluent builder, facade, dry-run, reverse-order compensation, events, business-impact results, architecture tests, and the imported Padosoft Claude pack.
-- The active implementation track is Macro Task 0: durable operating docs and restart files.
-- The macro branch is `task/agent-operating-system`.
-- Subtasks branch from the macro branch and open PRs back into it.
+- Current branch, PR, SHA, reviewer, and CI status are intentionally kept only in `docs/PROGRESS.md` to avoid drift.
+- Subtasks branch from the active macro branch and open PRs back into it.
 
 ## Operating Rules
 
@@ -55,7 +53,7 @@ For each subtask:
 9. Merge the subtask PR into the macro branch.
 10. When a macro branch is complete, open a macro PR into `main` and run the same loop.
 
-Copilot review means GitHub Copilot Code Review, not a Codex review. If `gh pr edit <PR> --add-reviewer @copilot` fails because of GitHub CLI project scope issues, use the GraphQL `requestReviewsByLogin` fallback documented in `.claude/skills/copilot-pr-review-loop/SKILL.md`.
+Copilot review means GitHub Copilot Code Review, not a Codex review. If `gh pr edit <PR> --add-reviewer @copilot` fails because of GitHub CLI project scope issues or the `copilot` login does not resolve, use the GraphQL `requestReviewsByLogin` fallback documented in `.claude/skills/copilot-pr-review-loop/SKILL.md`.
 
 ## Local Gates
 

@@ -99,6 +99,37 @@ that case, the repo must have Copilot Code Review enabled at:
 `Settings → General → Pull Requests → Allow GitHub Copilot to review`.
 Ask the user to enable it once per repo (one-time manual setup).
 
+### Phase A.1 — Copilot reviewer fallback
+
+If `gh pr create --reviewer copilot` or `gh pr edit <PR> --add-reviewer @copilot`
+opens/updates the PR but fails to request Copilot because `copilot` does not
+resolve, or because GitHub CLI tries to read project items and the token lacks
+`read:project`, request the Copilot bot directly with GraphQL:
+
+```powershell
+$prNodeId = gh pr view <PR> --json id --jq .id
+
+$query = @'
+mutation RequestReviewsByLogin($pullRequestId: ID!, $botLogins: [String!], $union: Boolean!) {
+  requestReviewsByLogin(input: {pullRequestId: $pullRequestId, botLogins: $botLogins, union: $union}) {
+    clientMutationId
+  }
+}
+'@
+
+gh api graphql `
+  -f query="$query" `
+  -F pullRequestId="$prNodeId" `
+  -F botLogins[]='copilot-pull-request-reviewer[bot]' `
+  -F union=true
+
+gh api repos/<owner>/<repo>/pulls/<PR>/requested_reviewers
+```
+
+The verification call must show pending reviewer `Copilot`. The REST endpoint
+with `reviewers[]=copilot` is not equivalent; it can return success without
+creating a visible Copilot Code Review request.
+
 ### Phase B — Read review (after 60-180s wait)
 ```bash
 # overview

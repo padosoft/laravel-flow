@@ -35,9 +35,14 @@
 - `gh pr checks 4` reports no checks because the current CI workflow listens only to PRs targeting `main`, not macro branches.
 - After polling, PR #4 is mergeable, has no inline comments from `gh api repos/padosoft/laravel-flow/pulls/4/comments`, and Copilot remains pending.
 - `gh pr view 4 --comments` is blocked by the current token missing `read:project`; use direct API endpoints or refresh token scope if needed.
+- Copilot completed review on the first PR #4 head and generated 5 documentation comments:
+  - avoid duplicating volatile status in `AGENTS.md`
+  - document the GraphQL Copilot fallback in the file that `AGENTS.md` references
+  - keep point-in-time workspace notes out of `docs/LESSON.md`
+  - remove stale pre-PR next steps from durable progress docs
 
-## Next Steps
+## Current Remote Status
 
-- Continue polling PR #4 until Copilot publishes a review or the pending request is otherwise resolved.
-- Record that remote CI is unavailable on subtask PRs until the workflow is changed to include macro branches or a separate reusable workflow is added.
-- Merge subtask PR into the macro branch only after the loop is clean.
+- PR #4 remains open: `task/agent-docs-bootstrap` -> `task/agent-operating-system`.
+- Remote CI is unavailable for PR #4 because the workflow is currently scoped to PRs targeting `main`.
+- The current work item is addressing Copilot's 5 documentation comments, then pushing a follow-up commit and requesting a fresh review.

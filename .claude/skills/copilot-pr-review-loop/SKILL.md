@@ -88,16 +88,74 @@ any AI agent).
 ```bash
 gh pr create \
   --title "feat(...): ..." \
-  --base main \
-  --head feature/<branch> \
+  --base <base-branch> \
+  --head <head-branch> \
   --body-file .github/PULL_REQUEST_TEMPLATE.md \
   --reviewer copilot
 ```
+
+Use the correct base branch for the repository workflow. In repos with macro
+branches, subtask PRs target the macro branch and macro PRs target `main`.
 
 Note: `--reviewer copilot` may fail with "could not resolve user". In
 that case, the repo must have Copilot Code Review enabled at:
 `Settings → General → Pull Requests → Allow GitHub Copilot to review`.
 Ask the user to enable it once per repo (one-time manual setup).
+
+### Phase A.1 — Copilot reviewer fallback
+
+If `gh pr create --reviewer copilot` or `gh pr edit <PR> --add-reviewer @copilot`
+opens/updates the PR but fails to request Copilot because `copilot` does not
+resolve, or because GitHub CLI tries to read project items and the token lacks
+`read:project`, request the Copilot bot directly with GraphQL.
+
+Bash / Linux / macOS:
+
+```bash
+pr_node_id="$(gh pr view <PR> --json id --jq .id)"
+
+query='
+mutation RequestReviewsByLogin($pullRequestId: ID!, $botLogins: [String!], $union: Boolean!) {
+  requestReviewsByLogin(input: {pullRequestId: $pullRequestId, botLogins: $botLogins, union: $union}) {
+    clientMutationId
+  }
+}
+'
+
+gh api graphql \
+  -f query="$query" \
+  -F pullRequestId="$pr_node_id" \
+  -F botLogins[]='copilot-pull-request-reviewer[bot]' \
+  -F union=true
+
+gh api repos/<owner>/<repo>/pulls/<PR>/requested_reviewers
+```
+
+PowerShell:
+
+```powershell
+$prNodeId = gh pr view <PR> --json id --jq .id
+
+$query = @'
+mutation RequestReviewsByLogin($pullRequestId: ID!, $botLogins: [String!], $union: Boolean!) {
+  requestReviewsByLogin(input: {pullRequestId: $pullRequestId, botLogins: $botLogins, union: $union}) {
+    clientMutationId
+  }
+}
+'@
+
+gh api graphql `
+  -f query="$query" `
+  -F pullRequestId="$prNodeId" `
+  -F botLogins[]='copilot-pull-request-reviewer[bot]' `
+  -F union=true
+
+gh api repos/<owner>/<repo>/pulls/<PR>/requested_reviewers
+```
+
+The verification call must show pending reviewer `Copilot`. The REST endpoint
+with `reviewers[]=copilot` is not equivalent; it can return success without
+creating a visible Copilot Code Review request.
 
 ### Phase B — Read review (after 60-180s wait)
 ```bash
@@ -109,6 +167,52 @@ gh pr view <PR> --comments
 
 # inline review comments (specific lines)
 gh api repos/<owner>/<repo>/pulls/<PR>/comments --jq '.[] | {body, path, line}'
+```
+
+If `gh pr view <PR> --comments` fails because the token lacks `read:project`,
+use API endpoints that do not query project items:
+
+```bash
+# PR review summaries
+gh api repos/<owner>/<repo>/pulls/<PR>/reviews \
+  --jq '.[] | {user:.user.login,state,commit_id,body,submitted_at}'
+
+# top-level PR conversation comments
+gh api repos/<owner>/<repo>/issues/<PR>/comments \
+  --jq '.[] | {user:.user.login,body,created_at}'
+
+# inline review comments
+gh api repos/<owner>/<repo>/pulls/<PR>/comments \
+  --jq '.[] | {user:.user.login,path,line,body,commit_id}'
+```
+
+For thread state, use GraphQL so outdated/resolved status is explicit:
+
+```bash
+query='
+query($owner:String!, $repo:String!, $number:Int!) {
+  repository(owner:$owner, name:$repo) {
+    pullRequest(number:$number) {
+      reviewThreads(first:100) {
+        nodes {
+          id
+          isResolved
+          isOutdated
+          comments(first:10) {
+            nodes { author { login } path line outdated body }
+          }
+        }
+      }
+    }
+  }
+}
+'
+
+gh api graphql \
+  -f query="$query" \
+  -f owner='<owner>' \
+  -f repo='<repo>' \
+  -F number=<PR>
 ```
 
 ### Phase C — Read CI failures

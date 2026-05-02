@@ -65,7 +65,7 @@ The Laravel ecosystem has plenty of tools for *some* of these — `Bus::chain()`
 
 `laravel-flow` is that surface.
 
-It is **deliberately small**. v0.1 is in-memory, synchronous, container-resolved. v0.2 will bring queued workers, persisted runs, and a web dashboard. The core engine fits in ~250 lines of PHP and 30+ unit tests describe every transition.
+It is **deliberately small**. v0.1 is in-memory, synchronous, container-resolved. v0.2 will bring queued workers, persisted runs, and companion dashboard contracts/app integration. The core engine fits in ~250 lines of PHP and 30+ unit tests describe every transition.
 
 ---
 
@@ -339,7 +339,7 @@ Every box is one PHP class under `src/`. The engine is in-memory and synchronous
 🚀 **Every Padosoft package ships with the same vibe-coding pack** — drop the `.claude/` directory into Claude Code or GitHub Copilot and you get:
 
 - **Skills** under `.claude/skills/` — reviewer-validated playbooks for `copilot-pr-review-loop`, `pre-push-self-review`, `test-count-readme-sync`, and more.
-- **Rules** under `.claude/rules/` — coding standards (Laravel 13 defaults, type hints, early return, no debug in commits, code structure, naming conventions, PR workflow).
+- **Rules** under `.claude/rules/` — coding standards (type hints, early return, no debug in commits, code structure, naming conventions, PR workflow). For `laravel-flow`, repo-local rules override imported Laravel 13 defaults until the Composer/CI matrix is narrowed.
 - **Agents** under `.claude/agents/` — pre-wired sub-agent definitions (`admin-interface-architect`, `playwright-enterprise-tester`).
 - **Commands** under `.claude/commands/` — slash-command templates (`/create-job`, `/domain-scaffold`, `/playwright-tester`, `/pagespeed-review`).
 - **Instructions** under `.claude/instructions/` — runtime safety guardrails (`testing-safety.md`).
@@ -364,7 +364,7 @@ The `Live` testsuite is **opt-in** and reserved for v0.2+ scenarios that need a 
 LARAVEL_FLOW_LIVE=1 vendor/bin/phpunit --testsuite Live
 ```
 
-CI runs Pint (style), PHPStan (level 6), and the Unit + Architecture suites on the full PHP 8.3 / 8.4 / 8.5 × Laravel 12 / 13 matrix on every push and PR.
+CI runs Pint (style), PHPStan (level 6), and the Unit + Architecture suites on the full PHP 8.3 / 8.4 / 8.5 × Laravel 12 / 13 matrix for pushes to `main` and PRs targeting `main` or `task/**`.
 
 ---
 
@@ -373,7 +373,7 @@ CI runs Pint (style), PHPStan (level 6), and the Unit + Architecture suites on t
 | Version | Scope                                                                                                                                                                                                                                                              | Target            |
 | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
 | v0.1    | In-memory engine, fluent builder, dry-run, reverse-order compensation, four audit events, business-impact field on results, Facade. Architecture test enforces standalone-agnostic.                                                                                  | code complete     |
-| v0.2    | Persisted runs (`flow_runs` / `flow_steps` / `flow_audit` tables), queued workers, replay command, parallel compensation strategy, web dashboard.                                                                                                                    | Q3 2026           |
+| v0.2    | Persisted runs (`flow_runs` / `flow_steps` / `flow_audit` tables), queued workers, replay command, parallel compensation strategy, and companion web dashboard contracts/app integration.                                                                              | Q3 2026           |
 | v0.3    | Approval-gate primitive (a step type that pauses until an external token is presented), webhooks for resume.                                                                                                                                                         | Q4 2026           |
 | v1.0    | Stable API, semver guarantee, full migration helpers from Spatie Workflow / Symfony Workflow.                                                                                                                                                                        | 2027              |
 
@@ -381,7 +381,7 @@ CI runs Pint (style), PHPStan (level 6), and the Unit + Architecture suites on t
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). PRs target `main` directly (community repo, no integration branches).
+See [CONTRIBUTING.md](CONTRIBUTING.md). Community PRs target `main`; enterprise roadmap work uses the macro/subtask PR loop documented in `AGENTS.md`.
 
 ---
 

@@ -48,9 +48,9 @@ Update `docs/PROGRESS.md` after:
 - opening/requesting/merging PRs
 - hitting blockers
 
-Update `docs/LESSON.md` after:
+Update `docs/LESSON.md` after reusable findings from:
 
-- Copilot comments
+- reusable lessons extracted from Copilot comments
 - CI failures with reusable cause
 - local environment discoveries
 - API/design decisions that future agents must preserve

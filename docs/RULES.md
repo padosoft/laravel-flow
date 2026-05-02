@@ -47,7 +47,7 @@ vendor/bin/phpunit --testsuite Architecture
 
 For persistence, queue, commands, approval gates, and webhooks, add Testbench feature tests with SQLite.
 
-For companion dashboard UI, add:
+For companion dashboard app/repo changes, add these gates in the companion app repository. Package-only dashboard contracts stay on the package gates above.
 
 ```text
 vendor/bin/phpunit
@@ -60,8 +60,8 @@ Playwright is required only when UI/UX changes are in scope.
 
 ## Documentation Rules
 
-- Update `docs/PROGRESS.md` after meaningful work.
-- Update `docs/LESSON.md` after discoveries, Copilot comments, CI failures, or reusable design decisions.
+- Update `docs/PROGRESS.md` after meaningful work and PR-specific Copilot/CI history.
+- Update `docs/LESSON.md` only after reusable discoveries from Copilot comments, CI failures, local tooling, or design decisions.
 - Keep entries dated with `YYYY-MM-DD`.
 - README must never promise unimplemented behavior as available.
 - README test/assertion counts must match the actual PHPUnit output.

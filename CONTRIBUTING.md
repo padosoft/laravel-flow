@@ -36,6 +36,7 @@ Branch-name conventions:
 - The standalone-agnostic invariant (`tests/Architecture/StandaloneAgnosticTest`) must keep passing — no AskMyDocs / sister-package symbols may appear under `src/`.
 - `vendor/bin/pint --test` must pass with no diffs.
 - `vendor/bin/phpstan analyse` must report zero errors at level 6.
+- GitHub Copilot Code Review must be requested on every PR, and actionable comments must be addressed before merge.
 - The README's "Features at a glance" bullet list stays in sync with what the code does — add a bullet when you ship a feature, remove one when you remove it.
 - The README's "Comparison vs alternatives" section stays in sync with new or materially improved features; research competitor behavior before changing uncertain comparison claims.
 

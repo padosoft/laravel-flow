@@ -9,7 +9,7 @@ Known workstreams:
 | Workstream | Durable state |
 | --- | --- |
 | Macro Task 0 - durable agent operating system | Completed after merge of the macro PR to `main`. |
-| Macro Task 1 - baseline tooling and Laravel 13 policy | Completed in the Macro Task 1 branch; Composer/CI/docs now narrow to Laravel 13, PHP 8.3/8.4, and Composer-script quality gates. |
+| Macro Task 1 - baseline tooling and Laravel 13 policy | Completed after merge of the macro PR to `main`; Composer/CI/docs now narrow to Laravel 13, PHP 8.3/8.4, and Composer-script quality gates. |
 
 Concurrent subtasks should add rows here instead of replacing existing workstreams.
 

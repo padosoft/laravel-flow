@@ -10,7 +10,6 @@ use Padosoft\LaravelFlow\Contracts\FlowStore;
 use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
 use Padosoft\LaravelFlow\Contracts\RunRepository;
 use Padosoft\LaravelFlow\Contracts\StepRunRepository;
-use Throwable;
 
 final class EloquentFlowStore implements FlowStore
 {
@@ -36,18 +35,8 @@ final class EloquentFlowStore implements FlowStore
 
     public function transaction(callable $callback): mixed
     {
-        $connection = DB::connection($this->connection);
-        $connection->beginTransaction();
-
-        try {
-            $result = $callback();
-            $connection->commit();
-
-            return $result;
-        } catch (Throwable $e) {
-            $connection->rollBack();
-
-            throw $e;
-        }
+        return DB::connection($this->connection)->transaction(
+            static fn (mixed $_connection): mixed => $callback(),
+        );
     }
 }

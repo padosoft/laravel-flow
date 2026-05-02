@@ -57,10 +57,15 @@ final class EloquentStepRunRepository implements StepRunRepository
     private function databaseAttributesFor(string $runId, string $stepName, array $attributes): array
     {
         $model = $this->newModel();
+        $timestamp = $model->freshTimestamp();
+        $attributes = $this->redact($attributes);
+        $attributes['created_at'] ??= $timestamp;
+        $attributes['updated_at'] = $timestamp;
+
         $model->forceFill([
             'run_id' => $runId,
             'step_name' => $stepName,
-            ...$this->redact($attributes),
+            ...$attributes,
         ]);
 
         $values = $model->getAttributes();

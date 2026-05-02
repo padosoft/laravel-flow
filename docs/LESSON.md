@@ -45,6 +45,9 @@
 - Persistence schema nullability must match public repository contracts; if a repository requires a run id, the column should be non-nullable unless run-less records are intentionally documented and tested.
 - Keep persistence JSON-field redaction mapping centralized so run, step, and future repository fields do not drift when redaction rules evolve.
 - Step persistence upserts should be database-atomic on the `(run_id, step_name)` unique key; prepare values through an Eloquent model first so JSON and date casts still serialize correctly before `upsert()`.
+- Eloquent `upsert()` paths should set `created_at` and `updated_at` explicitly, then exclude only `created_at` from update columns so existing records preserve creation time while updates bump `updated_at`.
+- Persistence store transactions should delegate to Laravel's connection `transaction()` API rather than manual `beginTransaction()` / `commit()` / `rollBack()` so nested transactions, savepoints, callbacks, and framework exception behavior remain intact.
+- Laravel connection `transaction()` expects a `Closure(static): TReturn`; when adapting a package-level `callable(): TReturn`, wrap it in a closure that accepts the connection argument and invokes the package callback.
 - Public README examples should avoid Laravel dump-and-die or other debug helpers; use normal variable assignment or assertions so docs do not teach debug output patterns.
 - When `composer validate --strict --no-check-publish` is a hard CI/PR gate, list it explicitly in contributor quick starts and PR expectation checklists, not only in CI or PR templates.
 - README comparison updates must stay factual. If a feature only reaches parity with a competitor, document parity rather than implying an advantage.

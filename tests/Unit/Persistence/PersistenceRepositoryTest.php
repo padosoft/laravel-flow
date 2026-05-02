@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Padosoft\LaravelFlow\Tests\Unit\Persistence;
 
 use DateTimeImmutable;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
 use LogicException;
 use Padosoft\LaravelFlow\Contracts\AuditRepository;
@@ -13,6 +15,7 @@ use Padosoft\LaravelFlow\Contracts\RunRepository;
 use Padosoft\LaravelFlow\Contracts\StepRunRepository;
 use Padosoft\LaravelFlow\FlowRun;
 use Padosoft\LaravelFlow\Models\FlowAuditRecord;
+use RuntimeException;
 
 final class PersistenceRepositoryTest extends PersistenceTestCase
 {
@@ -97,6 +100,33 @@ final class PersistenceRepositoryTest extends PersistenceTestCase
         $this->assertSame('checkout', $run->definition_name);
     }
 
+    public function test_flow_store_rolls_back_repository_operations_inside_transactions(): void
+    {
+        $this->migrateFlowTables();
+
+        $store = $this->app->make(FlowStore::class);
+
+        try {
+            $store->transaction(function () use ($store): void {
+                $store->runs()->create([
+                    'definition_name' => 'checkout.rollback',
+                    'dry_run' => false,
+                    'id' => '00000000-0000-4000-8000-000000000007',
+                    'input' => [],
+                    'status' => FlowRun::STATUS_PENDING,
+                ]);
+
+                throw new RuntimeException('rollback expected');
+            });
+
+            $this->fail('The transaction callback should throw.');
+        } catch (RuntimeException $exception) {
+            $this->assertSame('rollback expected', $exception->getMessage());
+        }
+
+        $this->assertNull($store->runs()->find('00000000-0000-4000-8000-000000000007'));
+    }
+
     public function test_repositories_do_not_mutate_identity_fields_from_attribute_payloads(): void
     {
         $this->migrateFlowTables();
@@ -147,33 +177,45 @@ final class PersistenceRepositoryTest extends PersistenceTestCase
             'status' => FlowRun::STATUS_PENDING,
         ]);
 
-        DB::connection()->enableQueryLog();
+        Date::setTestNow(Carbon::parse('2026-05-02 10:00:00'));
 
-        $step = $steps->createOrUpdate($run->id, 'reserve-stock', [
-            'output' => ['token' => 'runtime-token'],
-            'sequence' => 1,
-            'status' => 'running',
-        ]);
+        try {
+            DB::connection()->enableQueryLog();
 
-        $queries = DB::connection()->getQueryLog();
-        DB::connection()->flushQueryLog();
+            $step = $steps->createOrUpdate($run->id, 'reserve-stock', [
+                'output' => ['token' => 'runtime-token'],
+                'sequence' => 1,
+                'status' => 'running',
+            ]);
 
-        $this->assertTrue(
-            collect($queries)->contains(
-                fn (array $query): bool => str_contains(strtolower((string) $query['query']), ' on conflict '),
-            ),
-            'Step persistence should use a database-level upsert instead of select-before-insert.',
-        );
+            $queries = DB::connection()->getQueryLog();
+            DB::connection()->flushQueryLog();
 
-        $updatedStep = $steps->createOrUpdate($run->id, 'reserve-stock', [
-            'output' => ['token' => 'new-runtime-token'],
-            'sequence' => 1,
-            'status' => 'succeeded',
-        ]);
+            $this->assertTrue(
+                collect($queries)->contains(
+                    fn (array $query): bool => str_contains(strtolower((string) $query['query']), ' on conflict '),
+                ),
+                'Step persistence should use a database-level upsert instead of select-before-insert.',
+            );
+
+            Date::setTestNow(Carbon::parse('2026-05-02 10:00:05'));
+
+            $updatedStep = $steps->createOrUpdate($run->id, 'reserve-stock', [
+                'output' => ['token' => 'new-runtime-token'],
+                'sequence' => 1,
+                'status' => 'succeeded',
+            ]);
+        } finally {
+            Date::setTestNow();
+        }
 
         $this->assertSame($step->id, $updatedStep->id);
         $this->assertSame('succeeded', $updatedStep->status);
         $this->assertSame('[redacted]', $updatedStep->output['token']);
+        $this->assertNotNull($step->created_at);
+        $this->assertNotNull($step->updated_at);
+        $this->assertSame($step->created_at->getTimestamp(), $updatedStep->created_at->getTimestamp());
+        $this->assertGreaterThan($step->updated_at->getTimestamp(), $updatedStep->updated_at->getTimestamp());
         $this->assertCount(1, $steps->forRun($run->id));
     }
 

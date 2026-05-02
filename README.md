@@ -102,7 +102,7 @@ Every transition (`FlowStepStarted`, `FlowStepCompleted`, `FlowStepFailed`, `Flo
 - **Reverse-order saga compensation** — `compensateWith(Compensator::class)` per step; failures unwind cleanly.
 - **Immutable audit trail** — four Laravel events per transition; subscribe once.
 - **Business-impact projection** — handlers return `businessImpact: [...]` alongside output, surfaced on every step result.
-- **Publishable persistence foundation** — `flow_runs`, `flow_steps`, and `flow_audit` migrations, Eloquent repositories, atomic step upserts, and redacted JSON payload storage for v0.2 wiring.
+- **Publishable persistence foundation** — `flow_runs`, `flow_steps`, and `flow_audit` migrations, Eloquent repositories, timestamped atomic step upserts, and redacted JSON payload storage for v0.2 wiring.
 - **Container-resolved handlers** — full DI, type hints, and stack traces.
 - **Strict input validation** — `withInput(['a','b'])` throws `FlowInputException` if a key is missing.
 - **Multi-strategy compensation knob** — `reverse-order` (default), `parallel` (v0.2).
@@ -122,7 +122,7 @@ Every transition (`FlowStepStarted`, `FlowStepCompleted`, `FlowStepFailed`, `Flo
 | Container-resolved handlers      | ✅                            | ⚠️ partial                  | ✅                          | ✅ (via worker DI)         | ❌ (Lambda fanout)      |
 | Audit trail (events)             | ✅ 4 events / transition      | ⚠️ via state machine hooks  | ✅                          | ✅                         | ✅ (CloudWatch)         |
 | Business-impact projection       | ✅ on every result            | ❌                          | ❌                          | ❌                         | ❌                      |
-| Persistence model                | in-memory engine + publishable DB schema/repos with atomic step upserts | DB                          | DB                          | dedicated cluster         | managed                |
+| Persistence model                | in-memory engine + publishable DB schema/repos with timestamped atomic step upserts | DB                          | DB                          | dedicated cluster         | managed                |
 | Setup time                       | `composer require` + 1 file  | medium                      | medium                      | run a Temporal cluster    | AWS account + IAM      |
 | Self-hosted, zero infra          | ✅                            | ✅                           | ✅                          | ❌ (cluster needed)        | ❌ (AWS-only)           |
 | License                          | Apache-2.0                   | MIT                         | MIT                         | MIT                       | proprietary            |

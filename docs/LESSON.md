@@ -3,12 +3,12 @@
 ## 2026-05-02
 
 - v0.1 is no longer a no-op scaffold. It includes the in-memory Flow engine core, facade, dry-run, compensation, events, business-impact results, README expansion, and architecture tests.
-- The enterprise direction chosen by the user is Laravel 13-only, but current `composer.json` and CI still test Laravel 12/13. Narrowing compatibility belongs to Macro Task 1, not the restart-docs subtask.
+- The enterprise direction chosen by the user is Laravel 13-only. Macro Task 0 intentionally left `composer.json` and CI on Laravel 12/13; Macro Task 1 is the branch that narrows compatibility.
 - The dashboard direction chosen by the user is companion app, not package-embedded UI.
 - The imported `.claude` pack already contains useful PR-loop and pre-push skills. Do not duplicate the full content; link to it and add laravel-flow-specific rules.
 - For this package repo, Vite/Vitest/Playwright are not local gates unless the companion dashboard app is touched.
 - When tests are added or assertion counts change, run the `test-count-readme-sync` skill before pushing so README and PR descriptions do not drift.
-- Until Macro Task 1 narrows Composer and CI, all code must stay Laravel 12/13-compatible even though Laravel 13-only is the enterprise target.
+- After Macro Task 1, the active implementation baseline is Laravel 13 with PHP 8.3 and 8.4 as hard CI gates. PHP 8.5 remains outside hard CI until dependency support is reliable.
 - Do not use `task/**` as a push trigger. Macro and subtask branches both use the `task/` prefix, so `task/**` belongs only in PR base triggers unless branch naming changes.
 - README and CONTRIBUTING are part of the durable workflow contract. When AGENTS/RULES change branching or CI behavior, update public contributor docs in the same PR.
 - Keep companion-dashboard scope consistent everywhere it appears, including README intro copy and roadmap rows; changing only one mention leaves the public docs ambiguous.
@@ -27,5 +27,11 @@
 - `docs/PROGRESS.md` should be a handoff summary, not an append-only remote poll log for every concurrent subtask. Keep detailed PR-specific CI/Copilot iteration history in the PR to avoid shared-file conflicts.
 - `docs/PROGRESS.md` should track concurrent subtasks as separate workstream rows and should not mirror commit-specific CI/Copilot status.
 - `docs/PROGRESS.md` must be safe to merge into `main`; avoid in-flight PR numbers or branch arrows unless they are clearly historical or live state is verified through `gh`.
-- Repo-local laravel-flow guidance must explicitly override imported shared Laravel 13 defaults until Macro Task 1 narrows Composer and CI.
+- Keep `docs/PROGRESS.md` rows free of Copilot comment details and exact local tool versions; detailed iteration history belongs in the PR body/comments, while PROGRESS keeps durable restart state only.
+- Repo-local laravel-flow guidance must remain the authority over imported shared defaults; after Macro Task 1 it defines the Laravel 13-only baseline and Composer-script gates.
+- Composer scripts are the canonical package gates after Macro Task 1: `composer validate --strict --no-check-publish`, `composer format:test`, `composer analyse`, and `composer test`.
+- Package repos intentionally ignore `composer.lock`; CI installs with `composer update`, so do not stage a local lockfile unless the project policy changes.
+- With Testbench 11, the lock can resolve `laravel/framework` 13.x, which replaces the individual `illuminate/*` packages. Use `composer show laravel/framework --locked` to verify the effective Laravel version when `composer show illuminate/support --locked` is absent.
+- Public README examples should avoid Laravel dump-and-die or other debug helpers; use normal variable assignment or assertions so docs do not teach debug output patterns.
+- When `composer validate --strict --no-check-publish` is a hard CI/PR gate, list it explicitly in contributor quick starts and PR expectation checklists, not only in CI or PR templates.
 - README comparison updates must stay factual. If a feature only reaches parity with a competitor, document parity rather than implying an advantage.

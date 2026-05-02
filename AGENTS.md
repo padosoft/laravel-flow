@@ -18,7 +18,7 @@ If a session restarts with missing context, read these files first, in this orde
 
 ## Operating Rules
 
-- Current code must remain compatible with the Composer/CI matrix that is active on the branch. Today that means Laravel 12/13; Laravel 13-only is an enterprise target that becomes actionable only when Macro Task 1 narrows `composer.json` and CI in the same branch.
+- Current code must remain compatible with the Composer/CI matrix that is active on the branch. After Macro Task 1, that means Laravel 13 on PHP 8.3/8.4.
 - The dashboard is a companion app, not UI embedded in this package.
 - Keep the package core standalone-agnostic: no AskMyDocs, companion app, or product-specific symbols in `src/`.
 - Update `docs/PROGRESS.md` after meaningful handoff points. For concurrent subtasks, keep detailed PR-specific CI/Copilot history in the PR and summarize only durable restart state.
@@ -64,10 +64,9 @@ For this package, run:
 
 ```bash
 composer validate --strict --no-check-publish
-vendor/bin/pint --test
-vendor/bin/phpstan analyse --no-progress
-vendor/bin/phpunit --testsuite Unit
-vendor/bin/phpunit --testsuite Architecture
+composer format:test
+composer analyse
+composer test
 ```
 
 If the companion dashboard app is being changed, also run its PHP, Node, Vite, Vitest, and Playwright gates as documented in that app.

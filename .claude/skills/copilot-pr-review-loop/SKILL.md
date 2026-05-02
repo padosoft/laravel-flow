@@ -230,10 +230,11 @@ Run the gates the **current repo** actually has. Each repo opts into
 the subset that applies; do not run a step the repo does not ship.
 
 ```bash
-# Always (PHP repos):
-vendor/bin/phpunit --no-coverage              # unit + feature suite
-vendor/bin/phpstan analyse --memory-limit=512M
-vendor/bin/pint --test
+# Always for laravel-flow package work:
+composer validate --strict --no-check-publish
+composer format:test
+composer analyse
+composer test
 
 # When the repo ships a frontend (presence of frontend/ or package.json):
 cd frontend && npm test                       # vitest
@@ -241,13 +242,12 @@ npm run e2e                                   # playwright
 cd ..
 
 # When the repo defines a dedicated Architecture testsuite in phpunit.xml:
-vendor/bin/phpunit --testsuite Architecture   # R30+R31+R32+R34+R35
+composer test                                 # includes Unit + Architecture
 ```
 
-The AskMyDocs main repo runs every step above. Standalone Padosoft
-packages (laravel-ai-regolo, eval-harness, laravel-flow,
-laravel-pii-redactor) run only the always-on row plus their own
-unit suite.
+The AskMyDocs main repo may still use lower-level `vendor/bin/*` commands.
+For laravel-flow, prefer the Composer scripts because they are the documented
+quality contract and match CI.
 
 ### Phase E — Commit + push
 ```bash

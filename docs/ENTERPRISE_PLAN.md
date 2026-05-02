@@ -9,7 +9,7 @@ Current baseline:
 - Release tag: `v0.1.0`
 - v0.1 status: code complete for the in-memory engine core.
 - Live branch, PR, and SHA status must be verified with `git` and `gh`; `docs/PROGRESS.md` carries the human restart summary.
-- Enterprise target selected by user: Laravel 13-only, PHP `^8.3`, after Macro Task 1 narrows Composer and CI.
+- Enterprise target selected by user: Laravel 13-only, PHP `^8.3`; Macro Task 1 narrows Composer and CI.
 - Dashboard selected by user: companion app.
 
 ## Macro Task 0 - Durable Agent Operating System
@@ -254,7 +254,7 @@ For every macro:
 
 ## Assumptions
 
-- Laravel 13-only is the desired enterprise target, but implementation must stay Laravel 12/13-compatible until Macro Task 1 changes Composer and CI.
+- Laravel 13-only is the desired enterprise target. After Macro Task 1 changes Composer and CI, implementation follows the Laravel 13-only matrix.
 - The dashboard remains a companion app unless the user explicitly changes the architecture.
 - Package code remains standalone-agnostic.
 - GitHub/Copilot access must be verified, not assumed.

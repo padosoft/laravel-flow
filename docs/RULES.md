@@ -11,7 +11,7 @@
 ## Product Direction
 
 - Current implementation must remain compatible with the active Composer/CI matrix.
-- Today the active matrix is Laravel 12/13 and PHP `^8.3`; narrowing to Laravel 13-only is Macro Task 1 and must update Composer and CI in the same branch.
+- After Macro Task 1, the active matrix is Laravel 13 and PHP `^8.3`, with CI hard gates on PHP 8.3 and 8.4.
 - Core package stays headless and standalone-agnostic.
 - Dashboard is a separate companion app.
 - Public APIs must be explicit, documented, and pinned by tests before v1.0.
@@ -39,10 +39,9 @@ Every package subtask should run the relevant subset:
 
 ```text
 composer validate --strict --no-check-publish
-vendor/bin/pint --test
-vendor/bin/phpstan analyse --no-progress
-vendor/bin/phpunit --testsuite Unit
-vendor/bin/phpunit --testsuite Architecture
+composer format:test
+composer analyse
+composer test
 ```
 
 For persistence, queue, commands, approval gates, and webhooks, add Testbench feature tests with SQLite.

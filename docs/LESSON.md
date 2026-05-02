@@ -40,6 +40,7 @@
 - Eloquent persistence models can push PHPStan over the default 128M worker limit; keep the `composer analyse` script on an explicit memory limit so local and CI gates are deterministic.
 - Persistence payload storage must pass through redaction before JSON is saved; default redaction should cover common secret-looking keys while allowing host apps to override config.
 - Audit persistence should expose append-only behavior at the model/repository layer so normal runtime code cannot update or delete audit rows accidentally.
+- Model-level audit immutability is not enough because Eloquent query builders bypass instance `save()`/`delete()` overrides; append-only audit models need a custom builder that rejects bulk `update()`, `delete()`, and `forceDelete()`.
 - Repository update/upsert methods must strip immutable identity fields from caller-supplied attribute payloads; method arguments such as run id and step name are the source of truth.
 - Public README examples should avoid Laravel dump-and-die or other debug helpers; use normal variable assignment or assertions so docs do not teach debug output patterns.
 - When `composer validate --strict --no-check-publish` is a hard CI/PR gate, list it explicitly in contributor quick starts and PR expectation checklists, not only in CI or PR templates.

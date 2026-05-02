@@ -65,7 +65,7 @@ The Laravel ecosystem has plenty of tools for *some* of these — `Bus::chain()`
 
 `laravel-flow` is that surface.
 
-It is **deliberately small**. v0.1 is in-memory, synchronous, container-resolved. v0.2 is adding persisted runs, queued workers, and companion dashboard contracts/app integration while the offline test suite covers engine transitions and persistence contracts.
+It is **deliberately small**. v0.1 is in-memory, synchronous, container-resolved. The current v0.2 foundation adds persisted-run storage primitives; queued workers and companion dashboard contracts remain planned v0.2 slices.
 
 ---
 

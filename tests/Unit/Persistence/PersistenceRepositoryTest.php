@@ -11,6 +11,7 @@ use Padosoft\LaravelFlow\Contracts\FlowStore;
 use Padosoft\LaravelFlow\Contracts\RunRepository;
 use Padosoft\LaravelFlow\Contracts\StepRunRepository;
 use Padosoft\LaravelFlow\FlowRun;
+use Padosoft\LaravelFlow\Models\FlowAuditRecord;
 
 final class PersistenceRepositoryTest extends PersistenceTestCase
 {
@@ -153,5 +154,33 @@ final class PersistenceRepositoryTest extends PersistenceTestCase
         $this->expectExceptionMessage('Flow audit records are append-only and cannot be deleted.');
 
         $record->delete();
+    }
+
+    public function test_audit_records_reject_query_builder_mutations(): void
+    {
+        $this->migrateFlowTables();
+
+        $audit = $this->app->make(AuditRepository::class);
+        $record = $audit->append(
+            runId: '00000000-0000-4000-8000-000000000005',
+            event: 'FlowStepStarted',
+            payload: [],
+        );
+
+        try {
+            FlowAuditRecord::query()
+                ->whereKey($record->id)
+                ->update(['event' => 'FlowStepCompleted']);
+            $this->fail('Updating audit records through the query builder should throw.');
+        } catch (LogicException $exception) {
+            $this->assertSame('Flow audit records are append-only and cannot be updated.', $exception->getMessage());
+        }
+
+        $this->expectException(LogicException::class);
+        $this->expectExceptionMessage('Flow audit records are append-only and cannot be deleted.');
+
+        FlowAuditRecord::query()
+            ->whereKey($record->id)
+            ->delete();
     }
 }

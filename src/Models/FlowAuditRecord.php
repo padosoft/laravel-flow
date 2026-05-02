@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace Padosoft\LaravelFlow\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Query\Builder as QueryBuilder;
 use LogicException;
+use Padosoft\LaravelFlow\Persistence\AppendOnlyAuditBuilder;
 
 /**
  * @property int $id
@@ -35,6 +37,12 @@ final class FlowAuditRecord extends Model
         'occurred_at' => 'immutable_datetime',
         'payload' => 'array',
     ];
+
+    public function newEloquentBuilder($query): AppendOnlyAuditBuilder
+    {
+        /** @var QueryBuilder $query */
+        return new AppendOnlyAuditBuilder($query);
+    }
 
     /**
      * @param  array<string, mixed>  $options

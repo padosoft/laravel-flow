@@ -1,9 +1,19 @@
 {
     "name": "padosoft/laravel-flow",
-    "description": "DX-first workflow engine for Laravel with dry-run, compensation, approval gate, and business impact tracking",
+    "description": "DX-first workflow / saga / compensation engine for Laravel with native dry-run, reverse-order compensation, approval gate, business impact tracking, and immutable audit trail.",
     "type": "library",
     "license": "Apache-2.0",
-    "keywords": ["laravel", "workflow", "saga", "dry-run", "approval", "compensation"],
+    "keywords": [
+        "laravel",
+        "workflow",
+        "saga",
+        "dry-run",
+        "approval",
+        "compensation",
+        "audit-trail",
+        "business-impact",
+        "orchestration"
+    ],
     "authors": [
         {
             "name": "Lorenzo Padovani",
@@ -12,15 +22,21 @@
     ],
     "require": {
         "php": "^8.3",
-        "illuminate/support": "^11.0|^12.0|^13.0",
-        "illuminate/database": "^11.0|^12.0|^13.0",
-        "illuminate/queue": "^11.0|^12.0|^13.0"
+        "illuminate/support": "^12.0|^13.0",
+        "illuminate/contracts": "^12.0|^13.0"
     },
     "require-dev": {
-        "phpunit/phpunit": "^11.0",
+        "phpunit/phpunit": "^11.0|^12.0",
         "phpstan/phpstan": "^2.0",
         "laravel/pint": "^1.18",
-        "orchestra/testbench": "^9.0|^10.0|^11.0"
+        "orchestra/testbench": "^10.0|^11.0",
+        "illuminate/database": "^12.0|^13.0",
+        "illuminate/queue": "^12.0|^13.0"
+    },
+    "suggest": {
+        "illuminate/database": "Required when v0.2 lands the persisted `flow_runs` / `flow_steps` / `flow_audit` storage layer.",
+        "illuminate/queue": "Required when v0.2 lands queued-worker step execution + replay command.",
+        "padosoft/laravel-patent-box-tracker": "Tracks R&D activity (Italian Patent Box) across repositories that depend on laravel-flow — useful when flow definitions are part of a tax-deductible R&D project."
     },
     "autoload": {
         "psr-4": {
@@ -36,9 +52,15 @@
         "laravel": {
             "providers": [
                 "Padosoft\\LaravelFlow\\LaravelFlowServiceProvider"
-            ]
+            ],
+            "aliases": {
+                "Flow": "Padosoft\\LaravelFlow\\Facades\\Flow"
+            }
         }
     },
     "minimum-stability": "dev",
-    "prefer-stable": true
+    "prefer-stable": true,
+    "config": {
+        "sort-packages": true
+    }
 }

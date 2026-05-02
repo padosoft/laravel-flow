@@ -4,25 +4,55 @@ declare(strict_types=1);
 
 namespace Padosoft\LaravelFlow;
 
+use Illuminate\Contracts\Container\Container;
+use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Support\ServiceProvider;
 
 /**
- * LaravelFlowServiceProvider — skeleton service provider for v0.0.1 scaffold.
+ * Service provider for padosoft/laravel-flow.
  *
- * Implementation will follow during v4.0 development. For now this
- * is an empty no-op so Laravel package auto-discovery does not fail
- * with "Class not found" when a host application requires the package
- * via a path repository.
+ * Registers {@see FlowEngine} as a container singleton + publishes the
+ * package config. Migrations are reserved for v0.2 (queued runs +
+ * persisted audit trail); v0.1 keeps everything in-memory.
  */
 final class LaravelFlowServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
-        // Bindings will be added during v4.0 development.
+        $this->mergeConfigFrom(
+            __DIR__.'/../config/laravel-flow.php',
+            'laravel-flow',
+        );
+
+        $this->app->singleton(FlowEngine::class, function (Container $app): FlowEngine {
+            /** @var array<string, mixed> $config */
+            $config = $app['config']->get('laravel-flow', []);
+            /** @var Dispatcher $events */
+            $events = $app->make(Dispatcher::class);
+
+            return new FlowEngine($app, $events, $config);
+        });
     }
 
     public function boot(): void
     {
-        // Bootstrapping will be added during v4.0 development.
+        if (! $this->app->runningInConsole()) {
+            return;
+        }
+
+        $this->publishes([
+            __DIR__.'/../config/laravel-flow.php' => $this->configPath('laravel-flow.php'),
+        ], 'laravel-flow-config');
+
+        // Migration publishing reserved for v0.2 — flow_runs / flow_steps /
+        // flow_audit tables. v0.1 has no DB-backed state.
+    }
+
+    private function configPath(string $file): string
+    {
+        // Avoid hard-binding to the global helper for testability.
+        return function_exists('config_path')
+            ? config_path($file)
+            : $this->app->basePath('config/'.$file);
     }
 }

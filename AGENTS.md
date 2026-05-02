@@ -23,7 +23,7 @@ If a session restarts with missing context, read these files first, in this orde
 - Keep the package core standalone-agnostic: no AskMyDocs, companion app, or product-specific symbols in `src/`.
 - Update `docs/PROGRESS.md` after meaningful work.
 - Update `docs/LESSON.md` after non-obvious discoveries, CI/Copilot review findings, local tool workarounds, or reusable package design decisions.
-- Pass `docs/LESSON.md` and `docs/PROGRESS.md` into every background agent or future session.
+- Pass `docs/PROGRESS.md`, `docs/ENTERPRISE_PLAN.md`, `docs/RULES.md`, and `docs/LESSON.md` into every background agent or future session.
 - For every new or improved feature, check README section `Comparison vs alternatives` and update it to show the package's current advantage. Research competitors before changing competitor claims when unsure.
 - Never expose secrets in logs, docs, UI, webhook payloads, audit payloads, or debug output.
 - Do not implement code directly on a macro branch unless the user explicitly overrides the PR model.

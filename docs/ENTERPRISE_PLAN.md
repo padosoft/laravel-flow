@@ -25,7 +25,7 @@ Guardrails:
 
 - No runtime package code changes in this macro unless required by docs tooling.
 - Every future session starts by reading the restart files.
-- Every background agent receives `docs/LESSON.md` and `docs/PROGRESS.md`.
+- Every background agent receives `docs/PROGRESS.md`, `docs/ENTERPRISE_PLAN.md`, `docs/RULES.md`, and `docs/LESSON.md`.
 
 Tests:
 

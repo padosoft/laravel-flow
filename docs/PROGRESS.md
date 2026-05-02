@@ -39,4 +39,4 @@ Validation summary:
 
 Next planned macro:
 
-- Continue from `docs/ENTERPRISE_PLAN.md`. The likely next workstream is Macro Task 1, baseline tooling and compatibility policy.
+- Continue with Macro Task 2 from `docs/ENTERPRISE_PLAN.md`: v0.2 persistence layer on branch `task/v02-persistence`.

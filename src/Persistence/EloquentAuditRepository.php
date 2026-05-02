@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Padosoft\LaravelFlow\Persistence;
 
-use DateTimeImmutable;
 use DateTimeInterface;
 use Illuminate\Database\Eloquent\Collection;
 use Padosoft\LaravelFlow\Contracts\AuditRepository;
@@ -27,11 +26,13 @@ final class EloquentAuditRepository implements AuditRepository
         ?DateTimeInterface $occurredAt = null,
     ): FlowAuditRecord {
         $model = $this->newModel();
+        $now = $model->freshTimestamp();
+
         $model->forceFill([
             'business_impact' => $businessImpact === null ? null : $this->redactor->redact($businessImpact),
-            'created_at' => new DateTimeImmutable,
+            'created_at' => $now,
             'event' => $event,
-            'occurred_at' => $occurredAt ?? new DateTimeImmutable,
+            'occurred_at' => $occurredAt ?? $now,
             'payload' => $this->redactor->redact($payload),
             'run_id' => $runId,
             'step_name' => $stepName,

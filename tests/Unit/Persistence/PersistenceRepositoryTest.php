@@ -264,6 +264,31 @@ final class PersistenceRepositoryTest extends PersistenceTestCase
         $record->delete();
     }
 
+    public function test_audit_append_uses_laravel_clock_for_default_timestamps(): void
+    {
+        $this->migrateFlowTables();
+
+        $audit = $this->app->make(AuditRepository::class);
+        $frozen = Carbon::parse('2026-05-02 11:00:00');
+
+        Date::setTestNow($frozen);
+
+        try {
+            $record = $audit->append(
+                runId: '00000000-0000-4000-8000-000000000008',
+                event: 'FlowStepStarted',
+                payload: [],
+            );
+        } finally {
+            Date::setTestNow();
+        }
+
+        $this->assertNotNull($record->created_at);
+        $this->assertNotNull($record->occurred_at);
+        $this->assertSame($frozen->getTimestamp(), $record->created_at->getTimestamp());
+        $this->assertSame($record->created_at->getTimestamp(), $record->occurred_at->getTimestamp());
+    }
+
     public function test_audit_records_reject_query_builder_mutations(): void
     {
         $this->migrateFlowTables();

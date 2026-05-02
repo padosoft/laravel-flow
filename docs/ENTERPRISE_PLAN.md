@@ -18,8 +18,7 @@ Branch macro: `task/agent-operating-system`
 
 Subtasks:
 
-- `task/agent-docs-bootstrap`: add `AGENTS.md`, `CLAUDE.md`, `docs/RULES.md`, `docs/LESSON.md`, `docs/PROGRESS.md`, `.github/copilot-instructions.md`, and the laravel-flow enterprise Claude skill/rule.
-- `task/save-plan`: save this plan in `docs/ENTERPRISE_PLAN.md`.
+- `task/agent-docs-bootstrap`: add `AGENTS.md`, `CLAUDE.md`, `docs/RULES.md`, `docs/LESSON.md`, `docs/PROGRESS.md`, `docs/ENTERPRISE_PLAN.md`, `.github/copilot-instructions.md`, the laravel-flow enterprise Claude skill/rule, and CI triggers for macro-branch subtask PRs.
 - `task/import-reference-lessons`: adapt the useful workflow lessons from `product_image_discovery_admin` without copying app-specific implementation rules.
 
 Guardrails:
@@ -241,7 +240,7 @@ For every subtask:
 5. Run relevant local gates.
 6. Open PR into the macro branch.
 7. Request GitHub Copilot Code Review.
-8. Wait for CI and review.
+8. Wait for CI and review. CI is expected to run for PRs targeting `main` and `task/**` macro branches.
 9. Fix all failures/comments.
 10. Repeat until clean.
 11. Merge.

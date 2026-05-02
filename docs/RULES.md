@@ -73,5 +73,7 @@ Playwright is required only when UI/UX changes are in scope.
 - Subtask PR targets the macro branch.
 - Macro PR targets `main`.
 - Request Copilot Code Review for every PR.
-- Merge only after local gates, CI, and Copilot review are clean.
+- CI is expected for PRs targeting `main` and `task/**` macro branches.
+- Merge only after local gates, Copilot review, and reported CI checks are clean.
+- If a current base branch predates the `task/**` trigger and GitHub reports no checks, record the exact absence in `docs/PROGRESS.md`; the next PR after the workflow trigger is merged must prove CI.
 - If GitHub access is unavailable, record the exact blocked remote step in `docs/PROGRESS.md`.

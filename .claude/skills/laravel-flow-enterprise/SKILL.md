@@ -72,13 +72,19 @@ For companion dashboard changes, add the companion app's PHP, Node, Vite, Vitest
 ## PR Loop
 
 Use `.claude/skills/copilot-pr-review-loop/SKILL.md` for the mandatory remote loop.
+For laravel-flow subtask PRs, replace the shared example's `--base main`
+with the active macro branch, usually `task/<macro-name>`. Macro PRs still
+target `main`.
 
 Do not mark a task done until:
 
 - local gates are green
 - PR exists against the correct target branch
 - Copilot Code Review was requested and completed
-- CI is green
+- CI is green when GitHub reports checks for that PR; if GitHub reports no
+  checks because the base branch predates the `task/**` trigger update, record
+  the exact absence in `docs/PROGRESS.md` and require the next PR on the updated
+  base branch to prove CI
 - actionable review comments are fixed or explicitly resolved
 - the PR is merged
 

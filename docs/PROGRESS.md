@@ -39,12 +39,15 @@
   - avoid duplicating volatile status in `AGENTS.md`
   - document the GraphQL Copilot fallback in the file that `AGENTS.md` references
   - keep point-in-time workspace notes out of `docs/LESSON.md`
+  - remove the duplicated fallback lesson after moving the canonical instructions into the skill
   - remove stale pre-PR next steps from durable progress docs
 - Pushed `f16e4ed` to address the 5 comments and requested a fresh Copilot review.
 - Review-thread polling showed 4 threads outdated and 1 still attached to a duplicated `docs/LESSON.md` fallback line, so that line was removed and the fallback now lives only in the operating instructions/skill.
+- Pushed `e49c406` to remove the duplicated fallback lesson and requested another Copilot review.
+- Copilot completed a second review on `e49c406` and generated 10 comments, mostly pointing out that subtask PRs into macro branches cannot satisfy a green-CI rule while `.github/workflows/ci.yml` only targets `main`.
 
-## Current Remote Status
+## 2026-05-02 - Current Remote Status
 
 - PR #4 remains open: `task/agent-docs-bootstrap` -> `task/agent-operating-system`.
-- Remote CI is unavailable for PR #4 because the workflow is currently scoped to PRs targeting `main`.
-- The current work item is pushing the final documentation-thread cleanup, then requesting another Copilot review.
+- Remote CI is unavailable for PR #4 because its base branch was created before the `task/**` workflow trigger update.
+- The current work item is adding that workflow trigger plus doc caveats, then requesting another Copilot review.

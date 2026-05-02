@@ -47,13 +47,15 @@ For each subtask:
 3. Run the relevant local gates.
 4. Open a PR from the subtask branch into the macro branch.
 5. Request GitHub Copilot Code Review.
-6. Wait for CI and Copilot comments.
-7. Fix all red CI and actionable Copilot comments.
+6. Wait for reported CI checks and Copilot comments.
+7. Fix all red reported CI and actionable Copilot comments.
 8. Repeat until CI is green and review comments are resolved.
 9. Merge the subtask PR into the macro branch.
 10. When a macro branch is complete, open a macro PR into `main` and run the same loop.
 
 Copilot review means GitHub Copilot Code Review, not a Codex review. If `gh pr edit <PR> --add-reviewer @copilot` fails because of GitHub CLI project scope issues or the `copilot` login does not resolve, use the GraphQL `requestReviewsByLogin` fallback documented in `.claude/skills/copilot-pr-review-loop/SKILL.md`.
+
+CI is configured for PRs targeting `main` and `task/**`. If a PR targets a base branch that predates the workflow trigger and GitHub reports no checks, record that exact state in `docs/PROGRESS.md` and require the next PR on the updated base branch to prove CI.
 
 ## Local Gates
 

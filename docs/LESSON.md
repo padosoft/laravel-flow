@@ -27,6 +27,7 @@
 - `docs/PROGRESS.md` should be a handoff summary, not an append-only remote poll log for every concurrent subtask. Keep detailed PR-specific CI/Copilot iteration history in the PR to avoid shared-file conflicts.
 - `docs/PROGRESS.md` should track concurrent subtasks as separate workstream rows and should not mirror commit-specific CI/Copilot status.
 - `docs/PROGRESS.md` must be safe to merge into `main`; avoid in-flight PR numbers or branch arrows unless they are clearly historical or live state is verified through `gh`.
+- Keep `docs/PROGRESS.md` rows free of Copilot comment details and exact local tool versions; detailed iteration history belongs in the PR body/comments, while PROGRESS keeps durable restart state only.
 - Repo-local laravel-flow guidance must remain the authority over imported shared defaults; after Macro Task 1 it defines the Laravel 13-only baseline and Composer-script gates.
 - Composer scripts are the canonical package gates after Macro Task 1: `composer validate --strict --no-check-publish`, `composer format:test`, `composer analyse`, and `composer test`.
 - Package repos intentionally ignore `composer.lock`; CI installs with `composer update`, so do not stage a local lockfile unless the project policy changes.

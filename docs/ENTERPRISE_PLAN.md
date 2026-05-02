@@ -4,11 +4,11 @@
 
 Bring `padosoft/laravel-flow` from v0.1 package core to an enterprise-grade Laravel workflow engine with persisted runs, queued execution, deterministic replay, approval gates, webhooks, a companion dashboard app, migration helpers, and release-quality documentation.
 
-Current baseline after fetch:
+Current baseline:
 
-- `origin/main`: `208a9d1`
-- Tag: `v0.1.0`
+- Release tag: `v0.1.0`
 - v0.1 status: code complete for the in-memory engine core.
+- Moving branch, PR, and SHA status belongs in `docs/PROGRESS.md`.
 - Enterprise target selected by user: Laravel 13-only, PHP `^8.3`, after Macro Task 1 narrows Composer and CI.
 - Dashboard selected by user: companion app.
 
@@ -219,7 +219,7 @@ Key changes:
 
 - Produce a complete README inspired by the AskMyDocs style: badges, architecture, feature matrix, install, config, quickstart, API examples, roadmap, quality gates, security, and enterprise notes.
 - Add docs for architecture, persistence, queues, approvals, webhooks, dashboard, migration guides, and release process.
-- Read `docs/LESSON.md` and fold reusable lessons back into `AGENTS.md`, `CLAUDE.md`, `docs/RULES.md`, and repo skills.
+- Read `docs/LESSON.md` and fold reusable lessons back into `AGENTS.md`, `CLAUDE.md`, `docs/RULES.md`, `.github/copilot-instructions.md`, and repo skills.
 - Add final CHANGELOG and release checklist.
 - Tag `v1.0.0` and create GitHub release only from `main`.
 

@@ -1,8 +1,8 @@
 ## Work item
 
-Subtask or macro branch:
+Branch or work item:
 
-Plan reference:
+Plan reference (enterprise roadmap only; write `N/A` for community PRs):
 
 ## Summary
 

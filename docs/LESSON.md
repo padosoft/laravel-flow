@@ -14,3 +14,6 @@
 - Keep companion-dashboard scope consistent everywhere it appears, including README intro copy and roadmap rows; changing only one mention leaves the public docs ambiguous.
 - Restart/subagent context must include the repo-local skill `.claude/skills/laravel-flow-enterprise/SKILL.md`, not only the four durable docs, because the skill carries mandatory PR-loop and pre-push behavior.
 - Copilot review threads can remain non-outdated after a fix when the same line still exists. Verify current file contents against the comment before resolving a thread as already addressed.
+- Durable plans should reference release tags and capabilities, not exact moving branch SHAs. Put current branch, PR, and SHA state only in `docs/PROGRESS.md`.
+- Repository-wide PR templates must work for both enterprise roadmap PRs and normal community PRs.
+- Final lesson fold-back must include `.github/copilot-instructions.md` so Copilot's durable guidance stays aligned with AGENTS, CLAUDE, rules, and skills.

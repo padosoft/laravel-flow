@@ -58,3 +58,8 @@
   - README introduction still described v0.2 as adding a generic web dashboard instead of companion dashboard contracts/app integration
   - `AGENTS.md` did not include `.claude/skills/laravel-flow-enterprise/SKILL.md` in the required restart/subagent context list
   - `docs/ENTERPRISE_PLAN.md` did not include the same repo-local skill in the background-agent guardrail
+- Pushed `ccbd06e` to align README companion-dashboard wording and include the repo-local skill in restart/subagent context. Local gates and CI were green.
+- Copilot reviewed `ccbd06e` and flagged three final consistency issues:
+  - `docs/ENTERPRISE_PLAN.md` embedded an exact `origin/main` SHA even though moving SHA state belongs in `docs/PROGRESS.md`
+  - `.github/PULL_REQUEST_TEMPLATE.md` work-item fields read as enterprise-only and needed to fit community PRs targeting `main`
+  - Macro Task 7 did not list `.github/copilot-instructions.md` as a durable instruction surface to refresh from lessons

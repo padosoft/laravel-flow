@@ -339,7 +339,7 @@ Every box is one PHP class under `src/`. The engine is in-memory and synchronous
 🚀 **Every Padosoft package ships with the same vibe-coding pack** — drop the `.claude/` directory into Claude Code or GitHub Copilot and you get:
 
 - **Skills** under `.claude/skills/` — reviewer-validated playbooks for `copilot-pr-review-loop`, `pre-push-self-review`, `test-count-readme-sync`, and more.
-- **Rules** under `.claude/rules/` — coding standards (Laravel 13 defaults, type hints, early return, no debug in commits, code structure, naming conventions, PR workflow).
+- **Rules** under `.claude/rules/` — coding standards (type hints, early return, no debug in commits, code structure, naming conventions, PR workflow). For `laravel-flow`, repo-local rules override imported Laravel 13 defaults until the Composer/CI matrix is narrowed.
 - **Agents** under `.claude/agents/` — pre-wired sub-agent definitions (`admin-interface-architect`, `playwright-enterprise-tester`).
 - **Commands** under `.claude/commands/` — slash-command templates (`/create-job`, `/domain-scaffold`, `/playwright-tester`, `/pagespeed-review`).
 - **Instructions** under `.claude/instructions/` — runtime safety guardrails (`testing-safety.md`).

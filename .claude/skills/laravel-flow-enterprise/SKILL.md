@@ -29,6 +29,7 @@ If the current branch or progress file disagree, trust Git first and update `doc
 - Current implementation target: active Composer/CI matrix compatibility.
 - Today the active matrix is Laravel 12/13 and PHP `^8.3`.
 - Enterprise target: Laravel 13-only after Macro Task 1 narrows Composer and CI.
+- This repo-local skill overrides imported shared Laravel 13 defaults until Macro Task 1 lands. If a shared `.claude` rule or skill conflicts, follow the active Composer/CI matrix and avoid Laravel 13-only APIs.
 - Dashboard: companion app.
 - Core package: standalone-agnostic and headless.
 
@@ -47,6 +48,8 @@ Update `docs/PROGRESS.md` after:
 - running test gates
 - opening/requesting/merging PRs
 - hitting blockers
+
+For concurrent subtasks, keep detailed CI/Copilot iteration history in the PR and write only durable restart state to the shared progress file.
 
 Update `docs/LESSON.md` after reusable findings from:
 
@@ -72,7 +75,7 @@ vendor/bin/phpunit --testsuite Unit
 vendor/bin/phpunit --testsuite Architecture
 ```
 
-For companion dashboard changes, add the companion app's PHP, Node, Vite, Vitest, and Playwright gates.
+For companion dashboard app/repo changes, add that app's PHP, Node, Vite, Vitest, and Playwright gates. Package-only dashboard contracts in this repository stay on the package gates plus any contract tests.
 
 ## PR Loop
 

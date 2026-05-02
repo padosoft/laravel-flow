@@ -24,3 +24,6 @@
 - Keep PR-specific Copilot/CI history in `docs/PROGRESS.md`; write only the reusable takeaway to `docs/LESSON.md`.
 - Dashboard gates belong to the companion app/repo unless the package PR also changes that app; package-only dashboard contracts use package gates.
 - Final lesson fold-back must include `.github/PULL_REQUEST_TEMPLATE.md` because it is part of the durable workflow surface.
+- `docs/PROGRESS.md` should be a handoff summary, not an append-only remote poll log for every concurrent subtask. Keep detailed PR-specific CI/Copilot iteration history in the PR to avoid shared-file conflicts.
+- Repo-local laravel-flow guidance must explicitly override imported shared Laravel 13 defaults until Macro Task 1 narrows Composer and CI.
+- README comparison updates must stay factual. If a feature only reaches parity with a competitor, document parity rather than implying an advantage.

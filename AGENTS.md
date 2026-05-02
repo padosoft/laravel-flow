@@ -13,7 +13,7 @@ If a session restarts with missing context, read these files first, in this orde
 ## Stable Baseline
 
 - v0.1 includes the in-memory Flow engine core, fluent builder, facade, dry-run, reverse-order compensation, events, business-impact results, architecture tests, and the imported Padosoft Claude pack.
-- Current branch, PR, SHA, reviewer, and CI status are intentionally kept only in `docs/PROGRESS.md` to avoid drift.
+- `docs/PROGRESS.md` carries the human restart summary; verify live branch, PR, SHA, reviewer, and CI status with `git` and `gh`.
 - Subtasks branch from the active macro branch and open PRs back into it.
 
 ## Operating Rules
@@ -21,10 +21,10 @@ If a session restarts with missing context, read these files first, in this orde
 - Current code must remain compatible with the Composer/CI matrix that is active on the branch. Today that means Laravel 12/13; Laravel 13-only is an enterprise target that becomes actionable only when Macro Task 1 narrows `composer.json` and CI in the same branch.
 - The dashboard is a companion app, not UI embedded in this package.
 - Keep the package core standalone-agnostic: no AskMyDocs, companion app, or product-specific symbols in `src/`.
-- Update `docs/PROGRESS.md` after meaningful work.
+- Update `docs/PROGRESS.md` after meaningful handoff points. For concurrent subtasks, keep detailed PR-specific CI/Copilot history in the PR and summarize only durable restart state.
 - Update `docs/LESSON.md` after non-obvious discoveries, CI/Copilot review findings, local tool workarounds, or reusable package design decisions.
 - Pass `docs/PROGRESS.md`, `docs/ENTERPRISE_PLAN.md`, `docs/RULES.md`, `docs/LESSON.md`, and `.claude/skills/laravel-flow-enterprise/SKILL.md` into every background agent or future session.
-- For every new or improved feature, check README section `Comparison vs alternatives` and update it to show the package's current advantage. Research competitors before changing competitor claims when unsure.
+- For every new or improved feature, check README section `Comparison vs alternatives` and update it with factual capability changes. If the package only reaches parity, say that accurately. Research competitors before changing competitor claims when unsure.
 - Never expose secrets in logs, docs, UI, webhook payloads, audit payloads, or debug output.
 - Do not implement code directly on a macro branch unless the user explicitly overrides the PR model.
 

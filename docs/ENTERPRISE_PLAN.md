@@ -8,7 +8,7 @@ Current baseline:
 
 - Release tag: `v0.1.0`
 - v0.1 status: code complete for the in-memory engine core.
-- Moving branch, PR, and SHA status belongs in `docs/PROGRESS.md`.
+- Live branch, PR, and SHA status must be verified with `git` and `gh`; `docs/PROGRESS.md` carries the human restart summary.
 - Enterprise target selected by user: Laravel 13-only, PHP `^8.3`, after Macro Task 1 narrows Composer and CI.
 - Dashboard selected by user: companion app.
 

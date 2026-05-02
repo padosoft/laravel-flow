@@ -3,7 +3,7 @@
 ## Source Of Truth
 
 - Enterprise plan: `docs/ENTERPRISE_PLAN.md`.
-- Work status: `docs/PROGRESS.md`.
+- Work handoff summary: `docs/PROGRESS.md`.
 - Reusable findings: `docs/LESSON.md`.
 - Agent entrypoints: `AGENTS.md` and `CLAUDE.md`.
 - Repo-local skill: `.claude/skills/laravel-flow-enterprise/SKILL.md`.
@@ -60,7 +60,7 @@ Playwright is required only when UI/UX changes are in scope.
 
 ## Documentation Rules
 
-- Update `docs/PROGRESS.md` after meaningful work and PR-specific Copilot/CI history.
+- Update `docs/PROGRESS.md` after meaningful handoff points. For concurrent subtasks, keep detailed PR-specific Copilot/CI history in the PR and summarize only durable restart state in the shared progress file.
 - Update `docs/LESSON.md` only after reusable discoveries from Copilot comments, CI failures, local tooling, or design decisions.
 - Keep entries dated with `YYYY-MM-DD`.
 - README must never promise unimplemented behavior as available.

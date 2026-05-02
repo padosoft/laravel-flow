@@ -46,10 +46,10 @@ jobs:
       - name: Pin Laravel matrix versions
         run: |
           composer require --no-update --no-interaction \
-            "illuminate/support:${{ matrix.laravel }}" \
-            "illuminate/database:${{ matrix.laravel }}" \
-            "illuminate/queue:${{ matrix.laravel }}"
+            "illuminate/support:${{ matrix.laravel }}"
           composer require --dev --no-update --no-interaction \
+            "illuminate/database:${{ matrix.laravel }}" \
+            "illuminate/queue:${{ matrix.laravel }}" \
             "orchestra/testbench:${{ matrix.testbench }}"
 
       - name: Install dependencies

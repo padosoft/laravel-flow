@@ -44,6 +44,7 @@
 - Repository update/upsert methods must strip immutable identity fields from caller-supplied attribute payloads; method arguments such as run id and step name are the source of truth.
 - Persistence schema nullability must match public repository contracts; if a repository requires a run id, the column should be non-nullable unless run-less records are intentionally documented and tested.
 - Keep persistence JSON-field redaction mapping centralized so run, step, and future repository fields do not drift when redaction rules evolve.
+- Run repository updates should whitelist mutable runtime fields instead of accepting arbitrary attributes; persisted run identity/invariants (`id`, definition, dry-run flag, input, idempotency key, correlation id, start time) must remain stable after creation.
 - Step persistence upserts should be database-atomic on the `(run_id, step_name)` unique key; prepare values through an Eloquent model first so JSON and date casts still serialize correctly before `upsert()`.
 - Eloquent `upsert()` paths should set `created_at` and `updated_at` explicitly, then exclude only `created_at` from update columns so existing records preserve creation time while updates bump `updated_at`.
 - Persistence store transactions should delegate to Laravel's connection `transaction()` API rather than manual `beginTransaction()` / `commit()` / `rollBack()` so nested transactions, savepoints, callbacks, and framework exception behavior remain intact.

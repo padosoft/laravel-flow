@@ -133,22 +133,40 @@ final class PersistenceRepositoryTest extends PersistenceTestCase
 
         $runs = $this->app->make(RunRepository::class);
         $steps = $this->app->make(StepRunRepository::class);
+        $startedAt = new DateTimeImmutable('2026-05-02 08:00:00');
 
         $run = $runs->create([
+            'correlation_id' => 'corr-original',
             'definition_name' => 'identity.safe',
             'dry_run' => false,
             'id' => '00000000-0000-4000-8000-000000000004',
-            'input' => [],
+            'idempotency_key' => 'identity-original',
+            'input' => ['original' => true],
+            'started_at' => $startedAt,
             'status' => FlowRun::STATUS_PENDING,
         ]);
 
         $updated = $runs->update($run->id, [
+            'correlation_id' => 'corr-mutated',
+            'definition_name' => 'identity.mutated',
+            'dry_run' => true,
             'id' => '00000000-0000-4000-8000-000000009999',
+            'idempotency_key' => 'identity-mutated',
+            'input' => ['mutated' => true],
+            'started_at' => new DateTimeImmutable('2026-05-02 09:00:00'),
             'status' => FlowRun::STATUS_RUNNING,
         ]);
 
         $this->assertSame($run->id, $updated->id);
+        $this->assertSame('identity.safe', $updated->definition_name);
+        $this->assertFalse($updated->dry_run);
+        $this->assertSame(['original' => true], $updated->input);
+        $this->assertSame('corr-original', $updated->correlation_id);
+        $this->assertSame('identity-original', $updated->idempotency_key);
+        $this->assertSame($startedAt->getTimestamp(), $updated->started_at->getTimestamp());
+        $this->assertSame(FlowRun::STATUS_RUNNING, $updated->status);
         $this->assertNull($runs->find('00000000-0000-4000-8000-000000009999'));
+        $this->assertNull($runs->findByIdempotencyKey('identity-mutated'));
 
         $step = $steps->createOrUpdate($run->id, 'charge', [
             'run_id' => '00000000-0000-4000-8000-000000009999',

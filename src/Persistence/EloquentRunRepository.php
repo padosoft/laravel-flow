@@ -11,6 +11,20 @@ use RuntimeException;
 
 final class EloquentRunRepository implements RunRepository
 {
+    /**
+     * @var list<string>
+     */
+    private const UPDATABLE_COLUMNS = [
+        'business_impact',
+        'compensated',
+        'compensation_status',
+        'duration_ms',
+        'failed_step',
+        'finished_at',
+        'output',
+        'status',
+    ];
+
     public function __construct(
         private readonly ?string $connection,
         private readonly PayloadRedactor $redactor,
@@ -32,9 +46,7 @@ final class EloquentRunRepository implements RunRepository
             throw new RuntimeException(sprintf('Flow run [%s] was not found.', $runId));
         }
 
-        unset($attributes['id']);
-
-        $model->forceFill($this->redact($attributes))->save();
+        $model->forceFill($this->redact($this->onlyUpdatable($attributes)))->save();
 
         return $model->refresh();
     }
@@ -54,6 +66,15 @@ final class EloquentRunRepository implements RunRepository
     private function newModel(): FlowRunRecord
     {
         return (new FlowRunRecord)->setConnection($this->connection);
+    }
+
+    /**
+     * @param  array<string, mixed>  $attributes
+     * @return array<string, mixed>
+     */
+    private function onlyUpdatable(array $attributes): array
+    {
+        return array_intersect_key($attributes, array_flip(self::UPDATABLE_COLUMNS));
     }
 
     /**

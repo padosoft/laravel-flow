@@ -9,11 +9,15 @@ use Padosoft\LaravelFlow\Models\FlowRunRecord;
 interface RunRepository
 {
     /**
+     * Persist a new run with its immutable identity/invariant fields.
+     *
      * @param  array<string, mixed>  $attributes
      */
     public function create(array $attributes): FlowRunRecord;
 
     /**
+     * Update mutable runtime fields only; run identity and start invariants stay unchanged.
+     *
      * @param  array<string, mixed>  $attributes
      */
     public function update(string $runId, array $attributes): FlowRunRecord;

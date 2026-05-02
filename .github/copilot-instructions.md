@@ -4,7 +4,7 @@ This repository is a Laravel package, not an application.
 
 Important project context:
 
-- Enterprise target is Laravel 13-only and PHP `^8.3`; current v0.1 metadata may still support Laravel 12/13 until the baseline tooling macro narrows it.
+- Review code against the active Composer/CI matrix. Today the package supports Laravel 12/13 and PHP `^8.3`; Laravel 13-only is an enterprise target only after the baseline tooling macro narrows Composer and CI.
 - Dashboard work belongs in a companion app, not embedded in this package.
 - Core code in `src/` must remain standalone-agnostic and must not reference AskMyDocs, the companion dashboard, or app-specific symbols.
 - Dry-run behavior must not perform real side effects.

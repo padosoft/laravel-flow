@@ -46,3 +46,6 @@
 - CI is now running on subtask PR #4. The duplicated push + pull_request runs for `9fa7db0` completed successfully across PHP 8.3/8.4/8.5 and Laravel 12/13.
 - Current PR #4 status: open, mergeable, CI green, Copilot review requested again on `e1645e2`.
 - Current work item: address any remaining non-outdated Copilot threads, then merge PR #4 into `task/agent-operating-system` when the review loop is clean.
+- Copilot reviewed `478c077` and flagged two durable-rule issues:
+  - the docs were too easy to read as "use Laravel 13-only APIs now" while Composer/CI still support Laravel 12/13
+  - `task/**` must not be described as macro-only because macro and subtask branches both use the `task/` prefix

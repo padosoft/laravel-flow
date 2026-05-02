@@ -18,10 +18,10 @@ This file is the Claude-compatible entrypoint for the repository. It mirrors `AG
 - Update `docs/PROGRESS.md` during work and `docs/LESSON.md` when learning something reusable.
 - For every new or improved feature, review README section `Comparison vs alternatives`; update it and research competitor behavior before making uncertain claims.
 - Keep package core standalone-agnostic.
-- Treat Laravel 13-only as the enterprise direction even while current v0.1 composer metadata still supports Laravel 12/13.
+- Keep code compatible with the active Composer/CI matrix. Today that means Laravel 12/13; Laravel 13-only is the enterprise direction only after Macro Task 1 narrows Composer and CI.
 - Dashboard work belongs in a companion app unless the plan is explicitly changed.
 
-CI is configured for PRs targeting `main` and `task/**`, plus pushes to `main`. If a current PR has no checks because its base branch predates that workflow trigger, document the absence in `docs/PROGRESS.md` and verify CI on the next PR after the trigger lands.
+CI is configured for PRs targeting `main` and `task/**`, plus pushes to `main`. Do not add `task/**` to push triggers because macro and subtask branches both use the `task/` prefix. If a current PR has no checks because its base branch predates that workflow trigger, document the absence in `docs/PROGRESS.md` and verify CI on the next PR after the trigger lands.
 
 ## Skills
 

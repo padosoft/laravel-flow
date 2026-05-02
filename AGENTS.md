@@ -18,7 +18,7 @@ If a session restarts with missing context, read these files first, in this orde
 
 ## Operating Rules
 
-- Treat the enterprise target as Laravel 13-only and PHP `^8.3`; composer still supports Laravel 12/13 until the baseline tooling macro narrows it.
+- Current code must remain compatible with the Composer/CI matrix that is active on the branch. Today that means Laravel 12/13; Laravel 13-only is an enterprise target that becomes actionable only when Macro Task 1 narrows `composer.json` and CI in the same branch.
 - The dashboard is a companion app, not UI embedded in this package.
 - Keep the package core standalone-agnostic: no AskMyDocs, companion app, or product-specific symbols in `src/`.
 - Update `docs/PROGRESS.md` after meaningful work.
@@ -56,7 +56,7 @@ For each subtask:
 
 Copilot review means GitHub Copilot Code Review, not a Codex review. If `gh pr edit <PR> --add-reviewer @copilot` fails because of GitHub CLI project scope issues or the `copilot` login does not resolve, use the GraphQL `requestReviewsByLogin` fallback documented in `.claude/skills/copilot-pr-review-loop/SKILL.md`.
 
-CI is configured for PRs targeting `main` and `task/**`, plus pushes to `main`. If a PR targets a base branch that predates the workflow trigger and GitHub reports no checks, record that exact state in `docs/PROGRESS.md` and require the next PR on the updated base branch to prove CI.
+CI is configured for PRs targeting `main` and `task/**`, plus pushes to `main`. Do not add `task/**` to push triggers: both macro and subtask branches use the `task/` prefix. If a PR targets a base branch that predates the workflow trigger and GitHub reports no checks, record that exact state in `docs/PROGRESS.md` and require the next PR on the updated base branch to prove CI.
 
 ## Local Gates
 

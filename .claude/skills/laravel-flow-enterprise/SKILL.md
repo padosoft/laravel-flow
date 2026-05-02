@@ -26,8 +26,9 @@ If the current branch or progress file disagree, trust Git first and update `doc
 
 ## Product Defaults
 
-- Enterprise target: Laravel 13-only, PHP `^8.3`.
-- Current v0.1 baseline still supports Laravel 12/13 until Macro Task 1 narrows it.
+- Current implementation target: active Composer/CI matrix compatibility.
+- Today the active matrix is Laravel 12/13 and PHP `^8.3`.
+- Enterprise target: Laravel 13-only after Macro Task 1 narrows Composer and CI.
 - Dashboard: companion app.
 - Core package: standalone-agnostic and headless.
 

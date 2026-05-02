@@ -9,7 +9,7 @@ Current baseline after fetch:
 - `origin/main`: `208a9d1`
 - Tag: `v0.1.0`
 - v0.1 status: code complete for the in-memory engine core.
-- Enterprise target selected by user: Laravel 13-only, PHP `^8.3`.
+- Enterprise target selected by user: Laravel 13-only, PHP `^8.3`, after Macro Task 1 narrows Composer and CI.
 - Dashboard selected by user: companion app.
 
 ## Macro Task 0 - Durable Agent Operating System
@@ -241,7 +241,7 @@ For every subtask:
 5. Run relevant local gates.
 6. Open PR into the macro branch.
 7. Request GitHub Copilot Code Review.
-8. Wait for CI and review. CI is expected to run for PRs targeting `main` and `task/**` macro branches.
+8. Wait for CI and review. CI is expected to run for PRs targeting `main` and `task/**`; `task/**` is intentionally PR-base scope only because macro and subtask branches both use the `task/` prefix.
 9. Fix all failures/comments.
 10. Repeat until clean.
 11. Merge.
@@ -254,7 +254,7 @@ For every macro:
 
 ## Assumptions
 
-- Laravel 13-only is the desired enterprise target even though v0.1 still supports Laravel 12/13.
+- Laravel 13-only is the desired enterprise target, but implementation must stay Laravel 12/13-compatible until Macro Task 1 changes Composer and CI.
 - The dashboard remains a companion app unless the user explicitly changes the architecture.
 - Package code remains standalone-agnostic.
 - GitHub/Copilot access must be verified, not assumed.

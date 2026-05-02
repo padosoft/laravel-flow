@@ -6,6 +6,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+### Changed
+
+- **Baseline compatibility policy** — Composer constraints and CI now target Laravel 13 only, with PHP 8.3 and 8.4 as stable hard gates. Package quality commands are exposed through Composer scripts: `format:test`, `analyse`, `test`, and `quality`.
+
+## [0.1.0] - 2026-05-02
+
 ### Added
 
 - **W5 — full scaffold expansion + initial Flow engine core.**
@@ -25,4 +31,5 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 - N/A.
 
-[Unreleased]: https://github.com/padosoft/laravel-flow/commits/main
+[Unreleased]: https://github.com/padosoft/laravel-flow/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/padosoft/laravel-flow/releases/tag/v0.1.0

@@ -3,7 +3,7 @@
 [![Tests](https://github.com/padosoft/laravel-flow/actions/workflows/ci.yml/badge.svg)](https://github.com/padosoft/laravel-flow/actions/workflows/ci.yml)
 [![Latest Version](https://img.shields.io/packagist/v/padosoft/laravel-flow.svg?style=flat-square)](https://packagist.org/packages/padosoft/laravel-flow)
 [![PHP Version](https://img.shields.io/packagist/php-v/padosoft/laravel-flow.svg?style=flat-square)](https://packagist.org/packages/padosoft/laravel-flow)
-[![Laravel Version](https://img.shields.io/badge/Laravel-12.x%20%7C%2013.x-red?style=flat-square&logo=laravel)](https://laravel.com)
+[![Laravel Version](https://img.shields.io/badge/Laravel-13.x-red?style=flat-square&logo=laravel)](https://laravel.com)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg?style=flat-square)](LICENSE)
 [![Total Downloads](https://img.shields.io/packagist/dt/padosoft/laravel-flow.svg?style=flat-square)](https://packagist.org/packages/padosoft/laravel-flow)
 
@@ -107,7 +107,7 @@ Every transition (`FlowStepStarted`, `FlowStepCompleted`, `FlowStepFailed`, `Flo
 - **Multi-strategy compensation knob** — `reverse-order` (default), `parallel` (v0.2).
 - **Testbench-friendly** — TestCase + stubs ready to copy.
 - **🚀 AI vibe-coding pack included** — `.claude/` directory with skills, rules, agents, commands, and the Padosoft Copilot review loop pre-wired.
-- **PHP 8.3 / 8.4 / 8.5 × Laravel 12 / 13** matrix on every CI run.
+- **PHP 8.3 / 8.4 × Laravel 13** matrix on every CI run.
 
 ---
 
@@ -146,7 +146,7 @@ That's it. v0.1 has no migrations.
 
 > **Requirements**
 > - PHP 8.3+
-> - Laravel 12.x or 13.x
+> - Laravel 13.x
 
 ---
 
@@ -238,7 +238,7 @@ Flow::define('promotion.create')
 
 $dryRun = Flow::dryRun('promotion.create', $input);
 
-dd($dryRun->stepResults['simulate']->businessImpact);
+$businessImpact = $dryRun->stepResults['simulate']->businessImpact;
 // ['expected_users_reached' => 12400, 'projected_revenue_eur' => 18900.00]
 ```
 
@@ -339,7 +339,7 @@ Every box is one PHP class under `src/`. The engine is in-memory and synchronous
 🚀 **Every Padosoft package ships with the same vibe-coding pack** — drop the `.claude/` directory into Claude Code or GitHub Copilot and you get:
 
 - **Skills** under `.claude/skills/` — reviewer-validated playbooks for `copilot-pr-review-loop`, `pre-push-self-review`, `test-count-readme-sync`, and more.
-- **Rules** under `.claude/rules/` — coding standards (type hints, early return, no debug in commits, code structure, naming conventions, PR workflow). For `laravel-flow`, repo-local rules override imported Laravel 13 defaults until the Composer/CI matrix is narrowed.
+- **Rules** under `.claude/rules/` — coding standards (type hints, early return, no debug in commits, code structure, naming conventions, PR workflow). For `laravel-flow`, repo-local rules define the Laravel 13 package baseline and PR workflow.
 - **Agents** under `.claude/agents/` — pre-wired sub-agent definitions (`admin-interface-architect`, `playwright-enterprise-tester`).
 - **Commands** under `.claude/commands/` — slash-command templates (`/create-job`, `/domain-scaffold`, `/playwright-tester`, `/pagespeed-review`).
 - **Instructions** under `.claude/instructions/` — runtime safety guardrails (`testing-safety.md`).
@@ -354,8 +354,10 @@ The default `phpunit` invocation runs only the offline `Unit` + `Architecture` t
 
 ```bash
 composer install
-vendor/bin/phpunit --testsuite Unit
-vendor/bin/phpunit --testsuite Architecture
+composer validate --strict --no-check-publish
+composer format:test
+composer analyse
+composer test
 ```
 
 The `Live` testsuite is **opt-in** and reserved for v0.2+ scenarios that need a real external dependency (queue worker, webhook receiver). Every Live test self-skips unless `LARAVEL_FLOW_LIVE=1` is set:
@@ -364,7 +366,7 @@ The `Live` testsuite is **opt-in** and reserved for v0.2+ scenarios that need a 
 LARAVEL_FLOW_LIVE=1 vendor/bin/phpunit --testsuite Live
 ```
 
-CI runs Pint (style), PHPStan (level 6), and the Unit + Architecture suites on the full PHP 8.3 / 8.4 / 8.5 × Laravel 12 / 13 matrix for pushes to `main` and PRs targeting `main` or `task/**`.
+CI runs Pint (style), PHPStan (level 6), and the Unit + Architecture suites through Composer scripts on the PHP 8.3 / 8.4 × Laravel 13 matrix for pushes to `main` and PRs targeting `main` or `task/**`. PHP 8.5 is intentionally not a hard gate until Laravel/Testbench dependency support is reliable enough for this package.
 
 ---
 

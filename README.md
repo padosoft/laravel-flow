@@ -102,7 +102,7 @@ Every transition (`FlowStepStarted`, `FlowStepCompleted`, `FlowStepFailed`, `Flo
 - **Reverse-order saga compensation** — `compensateWith(Compensator::class)` per step; failures unwind cleanly.
 - **Immutable audit trail** — four Laravel events per transition; subscribe once.
 - **Business-impact projection** — handlers return `businessImpact: [...]` alongside output, surfaced on every step result.
-- **Publishable persistence foundation** — `flow_runs`, `flow_steps`, and `flow_audit` migrations, Eloquent repositories, immutable run identity updates, timestamped atomic step upserts, clock-aware audit timestamps, and redacted JSON payload storage for v0.2 wiring.
+- **Opt-in persisted execution** — `flow_runs`, `flow_steps`, and `flow_audit` migrations, Eloquent repositories, immutable run identity updates, timestamped atomic step upserts, clock-aware audit timestamps, and redacted JSON payload storage.
 - **Container-resolved handlers** — full DI, type hints, and stack traces.
 - **Strict input validation** — `withInput(['a','b'])` throws `FlowInputException` if a key is missing.
 - **Multi-strategy compensation knob** — `reverse-order` (default), `parallel` (v0.2).
@@ -122,7 +122,7 @@ Every transition (`FlowStepStarted`, `FlowStepCompleted`, `FlowStepFailed`, `Flo
 | Container-resolved handlers      | ✅                            | ⚠️ partial                  | ✅                          | ✅ (via worker DI)         | ❌ (Lambda fanout)      |
 | Audit trail (events)             | ✅ 4 events / transition      | ⚠️ via state machine hooks  | ✅                          | ✅                         | ✅ (CloudWatch)         |
 | Business-impact projection       | ✅ on every result            | ❌                          | ❌                          | ❌                         | ❌                      |
-| Persistence model                | in-memory engine + publishable DB schema/repos with immutable run updates and timestamped atomic step upserts | DB                          | DB                          | dedicated cluster         | managed                |
+| Persistence model                | in-memory by default; opt-in DB runs/steps/audit with immutable run updates and atomic step upserts | DB                          | DB                          | dedicated cluster         | managed                |
 | Setup time                       | `composer require` + 1 file  | medium                      | medium                      | run a Temporal cluster    | AWS account + IAM      |
 | Self-hosted, zero infra          | ✅                            | ✅                           | ✅                          | ❌ (cluster needed)        | ❌ (AWS-only)           |
 | License                          | Apache-2.0                   | MIT                         | MIT                         | MIT                       | proprietary            |
@@ -150,7 +150,7 @@ php artisan vendor:publish --tag=laravel-flow-migrations
 php artisan migrate
 ```
 
-The in-memory engine path still works without migrations. Runtime writes to these tables are wired in the v0.2 persistence workstream.
+The in-memory engine path still works without migrations. To persist runtime runs, enable `LARAVEL_FLOW_PERSISTENCE_ENABLED=true`; dry-runs remain simulation-only and do not write to the database.
 
 > **Requirements**
 > - PHP 8.3+
@@ -289,7 +289,7 @@ return [
             'keys'        => ['api_key', 'authorization', 'password', 'secret', 'token'],
         ],
     ],
-    'audit_trail_enabled'    => env('LARAVEL_FLOW_AUDIT_ENABLED', true), // event emission
+    'audit_trail_enabled'    => env('LARAVEL_FLOW_AUDIT_ENABLED', true), // events + persisted audit rows
     'dry_run_default'        => env('LARAVEL_FLOW_DRY_RUN_DEFAULT', false),
     'step_timeout_seconds'   => (int) env('LARAVEL_FLOW_STEP_TIMEOUT', 300), // v0.2
     'compensation_strategy'  => env('LARAVEL_FLOW_COMPENSATION', 'reverse-order'),
@@ -299,9 +299,9 @@ return [
 | Key                       | Default          | Effect                                                                                            |
 | ------------------------- | ---------------- | ------------------------------------------------------------------------------------------------- |
 | `default_storage`         | `null`           | DB connection used by persistence repositories. Inherits app default when `null`.                 |
-| `persistence.enabled`     | `false`          | Reserved switch for engine-level DB writes; repository APIs are available for v0.2 integration.   |
+| `persistence.enabled`     | `false`          | Enables synchronous engine writes to `flow_runs`, `flow_steps`, and `flow_audit`; dry-runs do not write. |
 | `persistence.redaction`   | common secrets   | Redacts configured JSON payload keys before run, step, and audit payloads are stored.             |
-| `audit_trail_enabled`     | `true`           | When `false`, the engine suppresses every `FlowStep*` / `FlowCompensated` event.                  |
+| `audit_trail_enabled`     | `true`           | When `false`, suppresses every `FlowStep*` / `FlowCompensated` event and persisted audit row.     |
 | `dry_run_default`         | `false`          | When `true`, `Flow::execute()` behaves like `dryRun()` — guard rail for staging environments.     |
 | `step_timeout_seconds`    | `300`            | Reserved for v0.2 queued workers.                                                                 |
 | `compensation_strategy`   | `reverse-order`  | `parallel` reserved for v0.2 — currently falls back to reverse-order.                             |
@@ -348,7 +348,7 @@ return [
                                                    └─────────────────────┘
 ```
 
-Every box is one PHP class under `src/`. The engine path is still in-memory and synchronous, while the v0.2 persistence foundation now ships `flow_runs`, `flow_steps`, and `flow_audit` records/repositories. The next v0.2 slices wire engine execution, queues, and replay onto those records.
+Every box is one PHP class under `src/`. The engine path is still synchronous and in-memory by default; when persistence is enabled, runtime runs, steps, and audit transitions are written to `flow_runs`, `flow_steps`, and `flow_audit`. The next v0.2 slices add idempotency/correlation ergonomics, retention pruning, queues, and replay.
 
 ---
 

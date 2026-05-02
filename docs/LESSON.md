@@ -51,6 +51,8 @@
 - Laravel connection `transaction()` expects a `Closure(static): TReturn`; when adapting a package-level `callable(): TReturn`, wrap it in a closure that accepts the connection argument and invokes the package callback.
 - Tests that enable Laravel's query log must disable it in a `finally` block; flushing collected queries is not enough because the connection keeps recording subsequent statements.
 - Persistence timestamp defaults should use Laravel's model/Date clock (`freshTimestamp()` / `Date::setTestNow()` compatible) instead of raw `new DateTimeImmutable`, and a single `$now` should be reused for fields that should match.
+- Engine-level persistence must stay gated by both `persistence.enabled` and `!dryRun`; native dry-run semantics mean no database writes even when the host app has persistence enabled.
+- Step finish upserts must include insert-required invariants (`sequence`, handler, input, started_at) as well as finish fields; atomic upsert SQL still needs a valid insert payload even when the row normally exists.
 - Public README examples should avoid Laravel dump-and-die or other debug helpers; use normal variable assignment or assertions so docs do not teach debug output patterns.
 - When `composer validate --strict --no-check-publish` is a hard CI/PR gate, list it explicitly in contributor quick starts and PR expectation checklists, not only in CI or PR templates.
 - README comparison updates must stay factual. If a feature only reaches parity with a competitor, document parity rather than implying an advantage.

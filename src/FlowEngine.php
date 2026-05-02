@@ -5,8 +5,11 @@ declare(strict_types=1);
 namespace Padosoft\LaravelFlow;
 
 use DateTimeImmutable;
+use DateTimeInterface;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Contracts\Events\Dispatcher;
+use Illuminate\Support\Facades\Date;
+use Padosoft\LaravelFlow\Contracts\FlowStore;
 use Padosoft\LaravelFlow\Events\FlowCompensated;
 use Padosoft\LaravelFlow\Events\FlowStepCompleted;
 use Padosoft\LaravelFlow\Events\FlowStepFailed;
@@ -21,8 +24,8 @@ use Throwable;
  * Main entry point for laravel-flow.
  *
  * Holds the registry of {@see FlowDefinition}s and exposes execute /
- * dryRun. Definitions are stored in-memory in v0.1; v0.2 will optionally
- * persist them to a `flow_definitions` table.
+ * dryRun. Definitions stay in-memory; v0.2 can optionally persist runtime
+ * runs, steps, and audit records when configured.
  */
 class FlowEngine
 {
@@ -34,8 +37,16 @@ class FlowEngine
     public function __construct(
         private readonly Container $container,
         private readonly Dispatcher $events,
-        /** @var array{compensation_strategy?: string, audit_trail_enabled?: bool, dry_run_default?: bool} */
+        /**
+         * @var array{
+         *     compensation_strategy?: string,
+         *     audit_trail_enabled?: bool,
+         *     dry_run_default?: bool,
+         *     persistence?: array{enabled?: bool}
+         * }
+         */
         private readonly array $config = [],
+        private readonly ?FlowStore $store = null,
     ) {}
 
     public function define(string $name): FlowDefinitionBuilder
@@ -95,14 +106,17 @@ class FlowEngine
     {
         $definition = $this->definition($name);
         $this->validateInput($definition, $input);
+        $persist = $this->shouldPersist($dryRun);
+        $startedAt = $this->now();
 
         $run = new FlowRun(
             id: $this->generateId(),
             definitionName: $definition->name,
             dryRun: $dryRun,
-            startedAt: $this->now(),
+            startedAt: $startedAt,
         );
         $run->markRunning();
+        $this->persistRunStarted($persist, $run, $input);
 
         $context = new FlowContext(
             flowRunId: $run->id,
@@ -113,21 +127,76 @@ class FlowEngine
         );
 
         $completedSteps = [];
+        $sequence = 0;
 
         foreach ($definition->steps as $step) {
+            $sequence++;
+            $stepStartedAt = $this->now();
+            $this->persistStepStarted($persist, $run, $step, $sequence, $context, $stepStartedAt);
+            $this->recordAudit($persist, 'FlowStepStarted', $run, $step->name, [
+                'definition_name' => $definition->name,
+                'dry_run' => $dryRun,
+                'status' => 'running',
+            ]);
             $this->dispatch(new FlowStepStarted($run->id, $definition->name, $step->name, $dryRun));
 
             $result = $this->executeStep($step, $context);
+            $stepFinishedAt = $this->now();
             $run->recordStepResult($step->name, $result);
 
             if (! $result->success) {
+                $this->persistStepFinished(
+                    $persist,
+                    $run,
+                    $step,
+                    $sequence,
+                    $context,
+                    $result,
+                    $stepStartedAt,
+                    $stepFinishedAt,
+                );
+                $error = $result->error;
+                $this->recordAudit($persist, 'FlowStepFailed', $run, $step->name, [
+                    'definition_name' => $definition->name,
+                    'dry_run' => $dryRun,
+                    'error_class' => $error instanceof Throwable ? $error::class : null,
+                    'error_message' => $error instanceof Throwable ? $error->getMessage() : null,
+                    'status' => 'failed',
+                ]);
                 $this->dispatch(new FlowStepFailed($run->id, $definition->name, $step->name, $result, $dryRun));
-                $run->markFailed($step->name, $this->now());
-                $this->compensate($definition, $context, $completedSteps, $run);
+                $run->markFailed($step->name, $stepFinishedAt);
+                $this->persistRunFinished($persist, $run);
+
+                try {
+                    $this->compensate($definition, $context, $completedSteps, $run, $persist);
+                } catch (Throwable $e) {
+                    $this->persistRunFinished($persist, $run, 'failed');
+
+                    throw $e;
+                }
+
+                $this->persistRunFinished($persist, $run, $run->compensated ? 'succeeded' : null);
 
                 return $run;
             }
 
+            $this->persistStepFinished(
+                $persist,
+                $run,
+                $step,
+                $sequence,
+                $context,
+                $result,
+                $stepStartedAt,
+                $stepFinishedAt,
+            );
+            $this->recordAudit($persist, 'FlowStepCompleted', $run, $step->name, [
+                'definition_name' => $definition->name,
+                'dry_run' => $dryRun,
+                'dry_run_skipped' => $result->dryRunSkipped,
+                'output' => $result->output,
+                'status' => $result->dryRunSkipped ? 'skipped' : 'succeeded',
+            ], $result->businessImpact);
             $this->dispatch(new FlowStepCompleted($run->id, $definition->name, $step->name, $result, $dryRun));
 
             // Accumulate output into context for downstream steps (skip dry-run-skipped).
@@ -139,6 +208,7 @@ class FlowEngine
         }
 
         $run->markSucceeded($this->now());
+        $this->persistRunFinished($persist, $run);
 
         return $run;
     }
@@ -179,8 +249,13 @@ class FlowEngine
      *
      * @param  list<FlowStep>  $completedSteps  steps that finished BEFORE the failure (the failing step is included if it had any compensator-relevant side effect — currently we exclude it for clarity).
      */
-    private function compensate(FlowDefinition $definition, FlowContext $context, array $completedSteps, FlowRun $run): void
-    {
+    private function compensate(
+        FlowDefinition $definition,
+        FlowContext $context,
+        array $completedSteps,
+        FlowRun $run,
+        bool $persist,
+    ): void {
         // 'parallel' compensation strategy is reserved for v0.2; always reverse-order for now.
         $reversed = array_reverse($completedSteps);
 
@@ -234,6 +309,11 @@ class FlowEngine
             }
 
             $this->dispatch(new FlowCompensated($run->id, $definition->name, $step->name, $context->dryRun));
+            $this->recordAudit($persist, 'FlowCompensated', $run, $step->name, [
+                'definition_name' => $definition->name,
+                'dry_run' => $context->dryRun,
+                'status' => 'compensated',
+            ]);
             $compensatedAtLeastOne = true;
         }
 
@@ -263,6 +343,205 @@ class FlowEngine
     /**
      * @param  array<string, mixed>  $input
      */
+    private function persistRunStarted(bool $persist, FlowRun $run, array $input): void
+    {
+        $store = $this->storeFor($persist);
+
+        if ($store === null) {
+            return;
+        }
+
+        $store->runs()->create([
+            'definition_name' => $run->definitionName,
+            'dry_run' => $run->dryRun,
+            'id' => $run->id,
+            'input' => $input,
+            'started_at' => $run->startedAt,
+            'status' => $run->status,
+        ]);
+    }
+
+    private function persistRunFinished(bool $persist, FlowRun $run, ?string $compensationStatus = null): void
+    {
+        $store = $this->storeFor($persist);
+
+        if ($store === null) {
+            return;
+        }
+
+        $store->runs()->update($run->id, [
+            'business_impact' => $this->runBusinessImpact($run),
+            'compensated' => $run->compensated,
+            'compensation_status' => $compensationStatus,
+            'duration_ms' => $this->durationMs($run->startedAt, $run->finishedAt),
+            'failed_step' => $run->failedStep,
+            'finished_at' => $run->finishedAt,
+            'output' => $this->runOutput($run),
+            'status' => $run->status,
+        ]);
+    }
+
+    private function persistStepStarted(
+        bool $persist,
+        FlowRun $run,
+        FlowStep $step,
+        int $sequence,
+        FlowContext $context,
+        DateTimeInterface $startedAt,
+    ): void {
+        $store = $this->storeFor($persist);
+
+        if ($store === null) {
+            return;
+        }
+
+        $store->steps()->createOrUpdate($run->id, $step->name, [
+            'dry_run_skipped' => false,
+            'handler' => $step->handlerFqcn,
+            'input' => [
+                'flow_input' => $context->input,
+                'step_outputs' => $context->stepOutputs,
+            ],
+            'sequence' => $sequence,
+            'started_at' => $startedAt,
+            'status' => 'running',
+        ]);
+    }
+
+    private function persistStepFinished(
+        bool $persist,
+        FlowRun $run,
+        FlowStep $step,
+        int $sequence,
+        FlowContext $context,
+        FlowStepResult $result,
+        DateTimeInterface $startedAt,
+        DateTimeInterface $finishedAt,
+    ): void {
+        $store = $this->storeFor($persist);
+
+        if ($store === null) {
+            return;
+        }
+
+        $error = $result->error;
+
+        $store->steps()->createOrUpdate($run->id, $step->name, [
+            'business_impact' => $result->businessImpact,
+            'duration_ms' => $this->durationMs($startedAt, $finishedAt),
+            'dry_run_skipped' => $result->dryRunSkipped,
+            'error_class' => $error instanceof Throwable ? $error::class : null,
+            'error_message' => $error instanceof Throwable ? $error->getMessage() : null,
+            'finished_at' => $finishedAt,
+            'handler' => $step->handlerFqcn,
+            'input' => [
+                'flow_input' => $context->input,
+                'step_outputs' => $context->stepOutputs,
+            ],
+            'output' => $result->success ? $result->output : null,
+            'sequence' => $sequence,
+            'started_at' => $startedAt,
+            'status' => $result->success ? ($result->dryRunSkipped ? 'skipped' : 'succeeded') : 'failed',
+        ]);
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @param  array<string, mixed>|null  $businessImpact
+     */
+    private function recordAudit(
+        bool $persist,
+        string $event,
+        FlowRun $run,
+        ?string $stepName,
+        array $payload,
+        ?array $businessImpact = null,
+    ): void {
+        $store = $this->storeFor($persist);
+
+        if ($store === null || ! $this->auditEnabled()) {
+            return;
+        }
+
+        $store->audit()->append(
+            runId: $run->id,
+            event: $event,
+            payload: $payload,
+            stepName: $stepName,
+            businessImpact: $businessImpact,
+        );
+    }
+
+    private function shouldPersist(bool $dryRun): bool
+    {
+        $persistence = $this->config['persistence'] ?? [];
+
+        return ! $dryRun
+            && is_array($persistence)
+            && (bool) ($persistence['enabled'] ?? false)
+            && $this->store instanceof FlowStore;
+    }
+
+    private function storeFor(bool $persist): ?FlowStore
+    {
+        if (! $persist || ! $this->store instanceof FlowStore) {
+            return null;
+        }
+
+        return $this->store;
+    }
+
+    /**
+     * @return array<string, array<string, mixed>>
+     */
+    private function runOutput(FlowRun $run): array
+    {
+        $output = [];
+
+        foreach ($run->stepResults as $stepName => $result) {
+            if ($result->dryRunSkipped || $result->output === []) {
+                continue;
+            }
+
+            $output[$stepName] = $result->output;
+        }
+
+        return $output;
+    }
+
+    /**
+     * @return array<string, array<string, mixed>>|null
+     */
+    private function runBusinessImpact(FlowRun $run): ?array
+    {
+        $businessImpact = [];
+
+        foreach ($run->stepResults as $stepName => $result) {
+            if ($result->businessImpact === null) {
+                continue;
+            }
+
+            $businessImpact[$stepName] = $result->businessImpact;
+        }
+
+        return $businessImpact === [] ? null : $businessImpact;
+    }
+
+    private function durationMs(DateTimeInterface $startedAt, ?DateTimeInterface $finishedAt): ?int
+    {
+        if ($finishedAt === null) {
+            return null;
+        }
+
+        $started = (float) $startedAt->format('U.u');
+        $finished = (float) $finishedAt->format('U.u');
+
+        return max(0, (int) round(($finished - $started) * 1000));
+    }
+
+    /**
+     * @param  array<string, mixed>  $input
+     */
     private function validateInput(FlowDefinition $definition, array $input): void
     {
         $missing = [];
@@ -284,18 +563,21 @@ class FlowEngine
 
     private function dispatch(object $event): void
     {
-        $auditEnabled = (bool) ($this->config['audit_trail_enabled'] ?? true);
-
-        if (! $auditEnabled) {
+        if (! $this->auditEnabled()) {
             return;
         }
 
         $this->events->dispatch($event);
     }
 
+    private function auditEnabled(): bool
+    {
+        return (bool) ($this->config['audit_trail_enabled'] ?? true);
+    }
+
     private function now(): DateTimeImmutable
     {
-        return new DateTimeImmutable;
+        return Date::now()->toDateTimeImmutable();
     }
 
     private function generateId(): string

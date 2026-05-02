@@ -65,7 +65,7 @@ The Laravel ecosystem has plenty of tools for *some* of these — `Bus::chain()`
 
 `laravel-flow` is that surface.
 
-It is **deliberately small**. v0.1 is in-memory, synchronous, container-resolved. v0.2 will bring queued workers, persisted runs, and a web dashboard. The core engine fits in ~250 lines of PHP and 30+ unit tests describe every transition.
+It is **deliberately small**. v0.1 is in-memory, synchronous, container-resolved. v0.2 will bring queued workers, persisted runs, and companion dashboard contracts/app integration. The core engine fits in ~250 lines of PHP and 30+ unit tests describe every transition.
 
 ---
 

@@ -53,3 +53,8 @@
   - `.github/PULL_REQUEST_TEMPLATE.md` still referenced v4.0 plan IDs and PHPStan level 8
   - the PR review-reading fallback still depended on `gh pr view --comments`, which can fail without `read:project`
   - `.claude/rules/rule-laravel-flow-enterprise.md` was missing the mandatory README `Comparison vs alternatives` rule
+- Pushed `94ce87a` to finish the PR template, review-reading fallback, rule-file comparison requirement, and PR body alignment. Local gates and CI were green.
+- Copilot reviewed `94ce87a` and flagged three final consistency issues:
+  - README introduction still described v0.2 as adding a generic web dashboard instead of companion dashboard contracts/app integration
+  - `AGENTS.md` did not include `.claude/skills/laravel-flow-enterprise/SKILL.md` in the required restart/subagent context list
+  - `docs/ENTERPRISE_PLAN.md` did not include the same repo-local skill in the background-agent guardrail

@@ -327,7 +327,7 @@ return [
             'days' => env('LARAVEL_FLOW_RETENTION_DAYS', null),
         ],
     ],
-    'audit_trail_enabled'    => env('LARAVEL_FLOW_AUDIT_ENABLED', true), // events; DB audit rows require persistence.enabled=true and dry_run=false
+    'audit_trail_enabled'    => env('LARAVEL_FLOW_AUDIT_ENABLED', true), // events; DB audit rows require this=true, persistence.enabled=true, and dry_run=false
     'dry_run_default'        => env('LARAVEL_FLOW_DRY_RUN_DEFAULT', false),
     'step_timeout_seconds'   => (int) env('LARAVEL_FLOW_STEP_TIMEOUT', 300), // v0.2
     'compensation_strategy'  => env('LARAVEL_FLOW_COMPENSATION', 'reverse-order'),

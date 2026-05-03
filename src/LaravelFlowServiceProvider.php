@@ -13,6 +13,7 @@ use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
 use Padosoft\LaravelFlow\Contracts\RunRepository;
 use Padosoft\LaravelFlow\Contracts\StepRunRepository;
 use Padosoft\LaravelFlow\Persistence\EloquentFlowStore;
+use Padosoft\LaravelFlow\Persistence\ExecutionScopedPayloadRedactor;
 use Padosoft\LaravelFlow\Persistence\KeyBasedPayloadRedactor;
 
 /**
@@ -54,23 +55,15 @@ final class LaravelFlowServiceProvider extends ServiceProvider
             );
         });
 
+        $this->app->singleton(ExecutionScopedPayloadRedactor::class, fn (Container $app): ExecutionScopedPayloadRedactor => new ExecutionScopedPayloadRedactor($app));
+
         $this->app->singleton(FlowStore::class, function (Container $app): FlowStore {
             /** @var string|null $connection */
             $connection = $app['config']->get('laravel-flow.default_storage');
 
             return new EloquentFlowStore(
                 connection: $connection,
-                redactor: new class($app) implements PayloadRedactor
-                {
-                    public function __construct(
-                        private readonly Container $app,
-                    ) {}
-
-                    public function redact(array $payload): array
-                    {
-                        return $this->app->make(PayloadRedactor::class)->redact($payload);
-                    }
-                },
+                redactor: $app->make(ExecutionScopedPayloadRedactor::class),
             );
         });
 

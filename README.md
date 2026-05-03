@@ -290,7 +290,7 @@ return [
             'keys'        => ['api_key', 'authorization', 'password', 'secret', 'token'],
         ],
     ],
-    'audit_trail_enabled'    => env('LARAVEL_FLOW_AUDIT_ENABLED', true), // events + persisted audit rows
+    'audit_trail_enabled'    => env('LARAVEL_FLOW_AUDIT_ENABLED', true), // events; DB audit rows also require persistence.enabled=true
     'dry_run_default'        => env('LARAVEL_FLOW_DRY_RUN_DEFAULT', false),
     'step_timeout_seconds'   => (int) env('LARAVEL_FLOW_STEP_TIMEOUT', 300), // v0.2
     'compensation_strategy'  => env('LARAVEL_FLOW_COMPENSATION', 'reverse-order'),

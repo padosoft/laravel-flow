@@ -316,6 +316,81 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         $this->assertSame($failedStep->error_message, $failedAudit->payload['error_message']);
     }
 
+    public function test_engine_freezes_payload_redactor_for_text_and_json_persistence_during_execution(): void
+    {
+        $this->migrateFlowTables();
+        $this->app['config']->set('laravel-flow.persistence.enabled', true);
+
+        $this->app->make(FlowStore::class);
+
+        /** @var FlowEngine $engine */
+        $engine = $this->app->make(FlowEngine::class);
+        $counter = new class
+        {
+            public int $value = 0;
+        };
+
+        $this->app->bind(PayloadRedactor::class, static function () use ($counter): PayloadRedactor {
+            $counter->value++;
+
+            return new class($counter->value) implements PayloadRedactor
+            {
+                public function __construct(
+                    private readonly int $instance,
+                ) {}
+
+                public function redact(array $payload): array
+                {
+                    foreach ($payload as $key => $value) {
+                        $payload[$key] = $this->redactValue($value);
+                    }
+
+                    return $payload;
+                }
+
+                private function redactValue(mixed $value): mixed
+                {
+                    if (is_array($value)) {
+                        foreach ($value as $key => $nested) {
+                            $value[$key] = $this->redactValue($nested);
+                        }
+
+                        return $value;
+                    }
+
+                    return is_string($value)
+                        ? str_replace('custom-secret', '[scoped-redacted-'.$this->instance.']', $value)
+                        : $value;
+                }
+            };
+        });
+
+        $engine->define('flow.persist.scoped-redactor')
+            ->step('charge', CustomSecretFailsHandler::class)
+            ->register();
+
+        $run = $engine->execute('flow.persist.scoped-redactor', ['token' => 'custom-secret']);
+
+        $runRecord = FlowRunRecord::query()->find($run->id);
+        $failedStep = FlowStepRecord::query()
+            ->where('run_id', $run->id)
+            ->where('step_name', 'charge')
+            ->first();
+        $failedAudit = FlowAuditRecord::query()
+            ->where('run_id', $run->id)
+            ->where('event', 'FlowStepFailed')
+            ->where('step_name', 'charge')
+            ->first();
+
+        $this->assertInstanceOf(FlowRunRecord::class, $runRecord);
+        $this->assertInstanceOf(FlowStepRecord::class, $failedStep);
+        $this->assertInstanceOf(FlowAuditRecord::class, $failedAudit);
+        $this->assertSame(1, $counter->value);
+        $this->assertSame('[scoped-redacted-1]', $runRecord->input['token']);
+        $this->assertStringContainsString('[scoped-redacted-1]', (string) $failedStep->error_message);
+        $this->assertSame($failedStep->error_message, $failedAudit->payload['error_message']);
+    }
+
     public function test_persisted_error_messages_redact_normalized_key_variants(): void
     {
         $this->migrateFlowTables();

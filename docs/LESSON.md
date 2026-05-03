@@ -106,3 +106,4 @@
 - `FlowCompensated` dispatch should happen only after its audit row is durable. If compensation audit persistence fails, rollback should continue but subscribers should not observe an event without matching durable audit state.
 - Freeze the runtime `PayloadRedactor` once per engine execution and pass it through text-redaction helpers so step error rows and audit error payloads cannot diverge because of transient redactor bindings.
 - README comparison wording should avoid "lossless output" claims while runtime-abort recovery can intentionally persist a previously successful transition as failed with null step output.
+- Repository JSON redaction must share the engine's execution-scoped `PayloadRedactor`; resolving the redactor per repository write can diverge from text error redaction when applications bind transient redactors.

@@ -31,7 +31,7 @@ final class ExecutionScopedPayloadRedactor implements CurrentPayloadRedactorProv
             return $this->fallbackRedactor();
         }
 
-        return PayloadRedactorResolution::current($redactor);
+        return $this->unwrapCurrentRedactor($redactor);
     }
 
     private function fallbackRedactor(): PayloadRedactor
@@ -44,5 +44,33 @@ final class ExecutionScopedPayloadRedactor implements CurrentPayloadRedactorProv
             keys: array_values(array_filter((array) ($redaction['keys'] ?? []), 'is_string')),
             replacement: (string) ($redaction['replacement'] ?? '[redacted]'),
         );
+    }
+
+    private function unwrapCurrentRedactor(PayloadRedactor $redactor): PayloadRedactor
+    {
+        $seen = [];
+
+        while ($redactor instanceof CurrentPayloadRedactorProvider) {
+            if ($redactor instanceof self) {
+                return $this->fallbackRedactor();
+            }
+
+            $id = spl_object_id($redactor);
+
+            if (isset($seen[$id])) {
+                return $redactor;
+            }
+
+            $seen[$id] = true;
+            $next = $redactor->currentRedactor();
+
+            if ($next === $redactor) {
+                return $redactor;
+            }
+
+            $redactor = $next;
+        }
+
+        return $redactor;
     }
 }

@@ -336,6 +336,33 @@ final class PersistenceRepositoryTest extends PersistenceTestCase
         $this->assertSame('[redacted]', $redacted['token']);
     }
 
+    public function test_execution_scoped_payload_redactor_falls_back_when_decorator_returns_scope(): void
+    {
+        /** @var ExecutionScopedPayloadRedactor $scope */
+        $scope = $this->app->make(ExecutionScopedPayloadRedactor::class);
+
+        $this->app->instance(PayloadRedactor::class, new class($scope) implements CurrentPayloadRedactorProvider
+        {
+            public function __construct(
+                private readonly ExecutionScopedPayloadRedactor $scope,
+            ) {}
+
+            public function currentRedactor(): PayloadRedactor
+            {
+                return $this->scope;
+            }
+
+            public function redact(array $payload): array
+            {
+                return $this->scope->redact($payload);
+            }
+        });
+
+        $redacted = $scope->redact(['token' => 'plain-secret']);
+
+        $this->assertSame('[redacted]', $redacted['token']);
+    }
+
     public function test_flow_store_runs_repository_operations_inside_transactions(): void
     {
         $this->migrateFlowTables();

@@ -1,6 +1,6 @@
 # Progress
 
-## 2026-05-02 - Durable Handoff
+## 2026-05-03 - Durable Handoff
 
 This file is a durable handoff summary, not a per-poll CI/Copilot log. Detailed PR iteration history belongs in the relevant GitHub PR.
 
@@ -40,7 +40,7 @@ Validation summary:
 
 Completed in Macro Task 2:
 
-- Added publishable `flow_runs`, `flow_steps`, and `flow_audit` migrations with SQLite-tested schema and MySQL/Postgres-friendly indexes.
+- Added one publishable migration file that creates `flow_runs`, `flow_steps`, and `flow_audit` with SQLite-tested schema and MySQL/Postgres-friendly indexes.
 - Added public `FlowStore`, `RunRepository`, `StepRunRepository`, `AuditRepository`, `RedactorAwareFlowStore`, and `CurrentPayloadRedactorProvider` contracts.
 - Added Eloquent-backed persistence repositories with redacted JSON payload storage, append-only audit protections, immutable run identity updates, and atomic step upserts.
 - Wired the synchronous engine to persist opt-in run/step/audit transitions, business impact, output aggregates, failures, compensation state, timestamps, durations, correlation IDs, and idempotency keys.

@@ -6,9 +6,8 @@ namespace Padosoft\LaravelFlow\Tests\Unit;
 
 use DateTimeImmutable;
 use Illuminate\Support\Carbon;
-use Illuminate\Support\Facades\Date;
 use Padosoft\LaravelFlow\FlowRun;
-use Padosoft\LaravelFlow\Tests\TestCase;
+use PHPUnit\Framework\TestCase;
 
 final class FlowRunTest extends TestCase
 {
@@ -22,12 +21,12 @@ final class FlowRunTest extends TestCase
         );
 
         $now = Carbon::parse('2026-05-02 10:00:05');
-        Date::setTestNow($now);
+        Carbon::setTestNow($now);
 
         try {
             $run->markCompensated();
         } finally {
-            Date::setTestNow();
+            Carbon::setTestNow();
         }
 
         $this->assertSame(FlowRun::STATUS_COMPENSATED, $run->status);

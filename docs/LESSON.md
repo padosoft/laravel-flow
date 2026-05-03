@@ -120,7 +120,7 @@
 - Compensation failure paths should advance `finishedAt` to the rollback failure time so persisted duration includes partial rollback work.
 - Current-redactor provider chains should be unwrapped recursively, and execution-scope redactor self-resolution guards should treat any scope wrapper instance as recursive.
 - Cyclic current-redactor provider chains should fail before invoking `redact()` again; returning a provider from the cycle just moves the stack overflow to the caller.
-- Zero-argument timestamp fallbacks should use Laravel's `Date` clock, not `new DateTimeImmutable`, so `Date::setTestNow()` remains deterministic in tests and hosts.
+- Zero-argument timestamp fallbacks should avoid facade roots but still respect Laravel/Carbon test clocks; `Carbon::now()` keeps direct value-object use framework-safe.
 - Engine text redaction and repository JSON redaction must unwrap `CurrentPayloadRedactorProvider` the same way; otherwise custom decorators can diverge within one execution.
 - Audit appends with empty payload and no business impact should not resolve the payload redactor.
 - Step input snapshots should not duplicate cumulative step outputs into every row; store bounded metadata such as output keys and reconstruct full history from ordered step rows.

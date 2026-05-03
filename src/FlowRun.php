@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Padosoft\LaravelFlow;
 
 use DateTimeImmutable;
-use Illuminate\Support\Facades\Date;
+use Illuminate\Support\Carbon;
 
 /**
  * Mutable value object representing one execution of a {@see FlowDefinition}.
@@ -78,7 +78,7 @@ final class FlowRun
     {
         $this->status = self::STATUS_COMPENSATED;
         $this->compensated = true;
-        $this->finishedAt = $now ?? Date::now()->toDateTimeImmutable();
+        $this->finishedAt = $now ?? Carbon::now()->toDateTimeImmutable();
     }
 
     public function markAborted(DateTimeImmutable $now): void

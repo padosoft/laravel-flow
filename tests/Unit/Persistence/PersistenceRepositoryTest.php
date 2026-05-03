@@ -435,6 +435,49 @@ final class PersistenceRepositoryTest extends PersistenceTestCase
         PayloadRedactorResolution::current($first);
     }
 
+    public function test_execution_scoped_payload_redactor_fails_provider_cycles_without_recursive_redaction(): void
+    {
+        /** @var ExecutionScopedPayloadRedactor $scope */
+        $scope = $this->app->make(ExecutionScopedPayloadRedactor::class);
+        $first = new class implements CurrentPayloadRedactorProvider
+        {
+            public CurrentPayloadRedactorProvider $next;
+
+            public function currentRedactor(): PayloadRedactor
+            {
+                return $this->next;
+            }
+
+            public function redact(array $payload): array
+            {
+                return $payload;
+            }
+        };
+        $second = new class implements CurrentPayloadRedactorProvider
+        {
+            public CurrentPayloadRedactorProvider $next;
+
+            public function currentRedactor(): PayloadRedactor
+            {
+                return $this->next;
+            }
+
+            public function redact(array $payload): array
+            {
+                return $payload;
+            }
+        };
+        $first->next = $second;
+        $second->next = $first;
+
+        $this->app->instance(PayloadRedactor::class, $first);
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('Cyclic CurrentPayloadRedactorProvider chain detected.');
+
+        $scope->redact(['token' => 'plain-secret']);
+    }
+
     public function test_flow_store_runs_repository_operations_inside_transactions(): void
     {
         $this->migrateFlowTables();

@@ -6,6 +6,8 @@ namespace Padosoft\LaravelFlow\Tests\Unit;
 
 use Illuminate\Contracts\Queue\ShouldQueueAfterCommit;
 use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\Cache;
+use Padosoft\LaravelFlow\Exceptions\FlowExecutionException;
 use Padosoft\LaravelFlow\Exceptions\FlowInputException;
 use Padosoft\LaravelFlow\Facades\Flow;
 use Padosoft\LaravelFlow\FlowEngine;
@@ -43,6 +45,9 @@ final class FlowDispatchTest extends TestCase
             RunFlowJob::class,
             static fn (RunFlowJob $job): bool => $job->name === 'flow.dispatch'
                 && $job instanceof ShouldQueueAfterCommit
+                && $job->dispatchId !== null
+                && $job->lockSeconds === 3600
+                && str_starts_with($job->lockKey(), 'laravel-flow:run:')
                 && $job->input === ['tenant' => 'acme']
                 && $job->options?->correlationId === 'corr-1'
                 && $job->options?->idempotencyKey === 'idem-1',
@@ -77,10 +82,34 @@ final class FlowDispatchTest extends TestCase
             ->step('one', AlwaysSucceedsHandler::class)
             ->register();
 
-        $run = (new RunFlowJob('flow.job.handle'))->handle($engine);
+        $run = (new RunFlowJob('flow.job.handle', dispatchId: 'dispatch-1'))->handle($engine, $this->app->make('cache'));
 
         $this->assertInstanceOf(FlowRun::class, $run);
         $this->assertSame(FlowRun::STATUS_SUCCEEDED, $run->status);
         $this->assertSame(1, AlwaysSucceedsHandler::$callCount);
+    }
+
+    public function test_run_flow_job_does_not_execute_when_dispatch_lock_is_held(): void
+    {
+        /** @var FlowEngine $engine */
+        $engine = $this->app->make(FlowEngine::class);
+        $engine->define('flow.job.locked')
+            ->step('one', AlwaysSucceedsHandler::class)
+            ->register();
+
+        $job = new RunFlowJob('flow.job.locked', dispatchId: 'locked-dispatch');
+        $lock = Cache::store()->getStore()->lock($job->lockKey(), 60);
+        $this->assertTrue($lock->get());
+
+        try {
+            $this->expectException(FlowExecutionException::class);
+            $this->expectExceptionMessage('already being processed');
+
+            $job->handle($engine, $this->app->make('cache'));
+        } finally {
+            $lock->release();
+        }
+
+        $this->assertSame(0, AlwaysSucceedsHandler::$callCount);
     }
 }

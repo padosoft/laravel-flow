@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+$queueLockSeconds = env('LARAVEL_FLOW_QUEUE_LOCK_SECONDS', 3600);
+
 return [
 
     /*
@@ -35,6 +37,23 @@ return [
         'retention' => [
             'days' => env('LARAVEL_FLOW_RETENTION_DAYS', null),
         ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Queue execution
+    |--------------------------------------------------------------------------
+    |
+    | Flow::dispatch() queues a RunFlowJob. Each queued job uses a per-dispatch
+    | cache lock before executing so duplicate delivery cannot run the same
+    | queued flow concurrently. The store must support Laravel atomic locks.
+    |
+    */
+    'queue' => [
+        'lock_store' => env('LARAVEL_FLOW_QUEUE_LOCK_STORE', null),
+        'lock_seconds' => is_numeric($queueLockSeconds) && (int) $queueLockSeconds >= 1
+            ? (int) $queueLockSeconds
+            : 3600,
     ],
 
     /*

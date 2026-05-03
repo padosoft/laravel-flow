@@ -127,3 +127,14 @@
 - Audit appends with empty payload and no business impact should not resolve the payload redactor.
 - When persistence is enabled, broken redactor bindings must surface; swallowing them can silently persist unsanitized error text.
 - Step input snapshots should not duplicate cumulative step outputs into every row; store bounded metadata such as output keys and reconstruct full history from ordered step rows.
+
+## 2026-05-03
+
+- Retention pruning is an explicit operational exception to append-only audit storage: keep normal runtime audit append-only, but let `flow:prune` delete old terminal run, step, and audit rows through query-builder transactions.
+- Prune commands should delete only terminal runs with non-null `finished_at` older than the cutoff; pending/running rows must survive even if their `started_at` is old.
+- If migration FKs already cascade child rows, retention pruning should rely on the cascade instead of issuing redundant child deletes; count child rows before deleting parent runs when reporting pruned totals.
+- Operational commands for opt-in persistence must fail cleanly when migrations have not been published/run, because the in-memory package path is still supported without tables.
+- Avoid redundant standalone indexes when a new composite index has the same leading column and covers the known query pattern.
+- Artisan commands that accept a database connection name should catch invalid-connection and query exceptions around schema guards and return actionable failures instead of surfacing raw framework exceptions.
+- Prune indexes should lead with the range/order column (`finished_at`) rather than a low-cardinality status column when the command scans old terminal runs by age.
+- Dry-run counts should use the same chunked scan as destructive pruning; repeated independent subquery counts can be slower and internally inconsistent under concurrent writes.

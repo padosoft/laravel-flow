@@ -254,14 +254,16 @@ class FlowEngine
                     throw $e;
                 }
 
-                try {
-                    $this->persistAtomically($persist, function () use ($persist, $run): void {
-                        $this->persistRunFinished($persist, $run, $run->compensated ? 'succeeded' : null);
-                    });
-                } catch (Throwable $e) {
-                    $this->persistRunFinishedBestEffort($persist, $run, $run->compensated ? 'succeeded' : null);
+                if ($run->compensated) {
+                    try {
+                        $this->persistAtomically($persist, function () use ($persist, $run): void {
+                            $this->persistRunFinished($persist, $run, 'succeeded');
+                        });
+                    } catch (Throwable $e) {
+                        $this->persistRunFinishedBestEffort($persist, $run, 'succeeded');
 
-                    throw $e;
+                        throw $e;
+                    }
                 }
 
                 return $run;
@@ -468,7 +470,7 @@ class FlowEngine
                 // Persistence/audit outages must not interrupt rollback.
             }
 
-            $this->dispatchCompensatedAndCaptureListenerFailure(
+            $this->dispatchCompensatedAndIgnoreListenerFailure(
                 $definition,
                 $context,
                 $run,
@@ -779,19 +781,17 @@ class FlowEngine
         }
     }
 
-    private function dispatchCompensatedAndCaptureListenerFailure(
+    private function dispatchCompensatedAndIgnoreListenerFailure(
         FlowDefinition $definition,
         FlowContext $context,
         FlowRun $run,
         FlowStep $step,
-    ): ?Throwable {
+    ): void {
         try {
             $this->dispatch(new FlowCompensated($run->id, $definition->name, $step->name, $context->dryRun));
-        } catch (Throwable $e) {
-            return $e;
+        } catch (Throwable) {
+            // Compensation listener failures must not interrupt rollback.
         }
-
-        return null;
     }
 
     private function eventName(object $event): string

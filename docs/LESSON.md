@@ -59,7 +59,7 @@
 - Compensated runs should advance `finishedAt` after the compensation unwind finishes so persisted durations include rollback time, not only time-to-failure.
 - Runtime persistence transitions should include run-state updates, step rows, and audit rows in `FlowStore::transaction()` boundaries wherever they belong to the same logical transition; listener-failure recovery must not write the failed step and failed run in separate statements.
 - Persisted audit `occurred_at` should receive the engine-captured transition timestamp instead of letting the repository stamp a fresh value, otherwise audit rows drift from their matching step/run timestamps.
-- In persisted compensation, a throwing `FlowCompensated` listener must be recorded but must not abort the remaining reverse-order rollback after the compensator already succeeded.
+- In persisted compensation, a throwing `FlowCompensated` listener must not abort the remaining reverse-order rollback after the compensator already succeeded.
 - Once a business step has succeeded, persistence/listener failures become runtime aborts that must compensate completed steps before rethrowing; otherwise an observability/database outage can leave external side effects applied.
 - Runtime abort recovery must close the active `flow_steps` row best-effort as well as the run row; a previously committed `FlowStepStarted` row should not remain `running` after a later transition/audit write fails.
 - Listener-failure persistence must not overwrite the in-memory successful `FlowStepResult` used by compensators; persisted failure telemetry and compensation input are separate concerns.
@@ -71,7 +71,7 @@
 - Redact bearer tokens before generic `key=value` replacements; otherwise `authorization=Bearer token` can leave the token behind after the key/value pass consumes only `Bearer`.
 - Final success persistence failures are infrastructure aborts, not handler failures; use `aborted`/no `failed_step` rather than blaming the last successful business step.
 - Recovery can need progressive best-effort tiers: first try run+step+audit together for consistency, then step+audit if run update is the failing dependency, then step-only if audit is also unavailable so rows do not remain `running`.
-- Compensation listener failures should annotate the single `FlowCompensated` audit transition when possible, not append a duplicate compensation event for the same rollback.
+- `FlowCompensated` audit rows are appended before event dispatch; listener failures are swallowed so subscribers get durable transition ordering and rollback is never interrupted.
 - Step listener failures should be marked once and consumed by the outer runtime-abort recovery; otherwise inner listener recovery plus outer compensation recovery can duplicate `FlowStepFailed` audit rows.
 - A throwing `FlowStepFailed` listener happens after the failed transition was already stored; recovery must compensate without appending a second `FlowStepFailed` audit row for the same step failure.
 - Text redaction keys configured in normalized form (`apikey`) must still match quoted JSON-style variants (`api-key`, `apiKey`) inside free-form error messages.
@@ -86,10 +86,12 @@
 - Runtime-abort compensation failures must not mask the original listener/repository exception that aborted execution; persist compensation status best-effort and let the original catch block rethrow.
 - `FlowCompensated` audit rows should be appended before dispatching `FlowCompensated` so event subscribers see the same durable-transition ordering as `FlowStep*` events.
 - Keep `FlowStore` resolution aligned with the active `PayloadRedactor`; if the store is singleton-cached before a redactor swap, JSON and text redaction can diverge.
+- If `FlowStore` lifetime changes to protect redaction consistency, add an explicit service-provider/repository test; tests that manually forget the store do not guard the lifetime contract.
 - README roadmap rows must distinguish shipped/in-progress slices from future slices once a roadmap item starts landing, especially for persistence.
 - Avoid redundant best-effort run updates in recovery once the same final run state has already been persisted with compensation status.
+- Normal business failures with no compensators do not need a second final run update; the failed transition transaction already stored the final failed state.
 - README persistence docs must call out that opt-in synchronous persistence can rethrow listener/repository infrastructure failures after best-effort recovery and compensation.
-- README exception docs should distinguish `FlowStep*` listener failures, which are rethrown, from `FlowCompensated` listener failures, which are swallowed after best-effort telemetry.
+- README exception docs should distinguish `FlowStep*` listener failures, which are rethrown, from `FlowCompensated` listener failures, which are swallowed after the compensation audit row is durable.
 - Shared test recorders need one documented invocation shape across all writer stubs, otherwise helper phpdoc becomes misleading after a single stub extension.
 - Public README examples should avoid Laravel dump-and-die or other debug helpers; use normal variable assignment or assertions so docs do not teach debug output patterns.
 - When `composer validate --strict --no-check-publish` is a hard CI/PR gate, list it explicitly in contributor quick starts and PR expectation checklists, not only in CI or PR templates.

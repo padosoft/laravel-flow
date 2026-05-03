@@ -307,7 +307,7 @@ return [
 | `step_timeout_seconds`    | `300`            | Reserved for v0.2 queued workers.                                                                 |
 | `compensation_strategy`   | `reverse-order`  | `parallel` reserved for v0.2 — currently falls back to reverse-order.                             |
 
-When persistence is enabled, synchronous `FlowStep*` listener or persistence failures are rethrown after the engine records best-effort recovery state and compensates completed steps. `FlowCompensated` listener failures are recorded best-effort and do not interrupt rollback. Wrap `Flow::execute()` in application-level exception handling anywhere infrastructure outages must be surfaced separately from business step failures.
+When persistence is enabled, synchronous `FlowStep*` listener or persistence failures are rethrown after the engine records best-effort recovery state and compensates completed steps. `FlowCompensated` listener failures are swallowed after the compensation audit row is durable so rollback is not interrupted. Wrap `Flow::execute()` in application-level exception handling anywhere infrastructure outages must be surfaced separately from business step failures.
 
 ---
 

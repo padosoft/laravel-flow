@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\DB;
 use LogicException;
 use Padosoft\LaravelFlow\Contracts\AuditRepository;
 use Padosoft\LaravelFlow\Contracts\FlowStore;
+use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
 use Padosoft\LaravelFlow\Contracts\RunRepository;
 use Padosoft\LaravelFlow\Contracts\StepRunRepository;
 use Padosoft\LaravelFlow\FlowRun;
@@ -79,6 +80,53 @@ final class PersistenceRepositoryTest extends PersistenceTestCase
         $this->assertSame('[redacted]', $auditRecord->business_impact['secret']);
         $this->assertSame('visible', $auditRecord->business_impact['safe']);
         $this->assertCount(1, $audit->forRun($run->id));
+    }
+
+    public function test_flow_store_resolves_with_the_current_payload_redactor_binding(): void
+    {
+        $this->migrateFlowTables();
+        $this->app->bind(PayloadRedactor::class, static fn (): PayloadRedactor => new class implements PayloadRedactor
+        {
+            public function redact(array $payload): array
+            {
+                foreach ($payload as $key => $value) {
+                    if (is_string($value)) {
+                        $payload[$key] = 'first-redactor';
+                    }
+                }
+
+                return $payload;
+            }
+        });
+
+        $firstStore = $this->app->make(FlowStore::class);
+
+        $this->app->bind(PayloadRedactor::class, static fn (): PayloadRedactor => new class implements PayloadRedactor
+        {
+            public function redact(array $payload): array
+            {
+                foreach ($payload as $key => $value) {
+                    if (is_string($value)) {
+                        $payload[$key] = 'second-redactor';
+                    }
+                }
+
+                return $payload;
+            }
+        });
+
+        $secondStore = $this->app->make(FlowStore::class);
+        $run = $secondStore->runs()->create([
+            'definition_name' => 'flow.redactor.current',
+            'dry_run' => false,
+            'id' => 'run-current-redactor',
+            'input' => ['token' => 'plain-secret'],
+            'started_at' => new DateTimeImmutable('2026-05-02 11:00:00'),
+            'status' => FlowRun::STATUS_RUNNING,
+        ]);
+
+        $this->assertNotSame($firstStore, $secondStore);
+        $this->assertSame('second-redactor', $run->input['token']);
     }
 
     public function test_flow_store_runs_repository_operations_inside_transactions(): void

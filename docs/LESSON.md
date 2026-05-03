@@ -146,3 +146,4 @@
 - Public execution identity values should validate against the persisted schema length before repository writes so callers get package-level input errors instead of database exceptions.
 - On Windows, PHPUnit `--filter` regexes containing `|` can be consumed by the `.bat` wrapper shell even when quoted; run separate filters or the full suite instead of trusting that pattern.
 - Character limits in public DTOs should count UTF-8 characters, not bytes, and should include normalization tests when docs promise trim/blank semantics.
+- README audit persistence wording must mention both gates: persisted audit rows require `persistence.enabled=true` and `audit_trail_enabled=true`.

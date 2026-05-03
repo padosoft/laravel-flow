@@ -87,7 +87,7 @@ Saga semantics: when step N fails, the engine walks the previously-completed ste
 
 ### 4. The audit trail is event-driven
 
-Every transition (`FlowStepStarted`, `FlowStepCompleted`, `FlowStepFailed`, `FlowCompensated`) is a Laravel event. The host application subscribes once and routes them to the logger, DB, or metrics backend it already runs. When persistence is enabled, v0.2 also records default audit rows in `flow_audit`.
+Every transition (`FlowStepStarted`, `FlowStepCompleted`, `FlowStepFailed`, `FlowCompensated`) is a Laravel event. The host application subscribes once and routes them to the logger, DB, or metrics backend it already runs. When both persistence and `audit_trail_enabled` are enabled, v0.2 also records default audit rows in `flow_audit`.
 
 ### 5. Standalone-agnostic — zero AskMyDocs symbols
 

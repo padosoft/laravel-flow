@@ -141,3 +141,5 @@
 - Execution identity should use a structured options DTO instead of positional string parameters so future run metadata can grow without ambiguous call sites.
 - Synchronous idempotency should check the persisted run repository before creating a new run; returning the existing run state prevents duplicate handler side effects.
 - Idempotency keys must not return runs from a different flow definition; reject cross-definition reuse before any handler side effects.
+- Idempotent persisted-run reuse must rehydrate stored step results, otherwise duplicate callers see the same run id/status but lose per-step outputs and business impact.
+- Idempotency lookup/create needs a create-race fallback: if the create path loses to an already-committed key, re-query and return that existing run before invoking any handlers.

@@ -20,6 +20,7 @@ use Padosoft\LaravelFlow\Exceptions\FlowExecutionException;
 use Padosoft\LaravelFlow\Exceptions\FlowInputException;
 use Padosoft\LaravelFlow\Exceptions\FlowNotRegisteredException;
 use Padosoft\LaravelFlow\Models\FlowRunRecord;
+use Padosoft\LaravelFlow\Models\FlowStepRecord;
 use Padosoft\LaravelFlow\Persistence\PayloadRedactorResolution;
 use Throwable;
 
@@ -119,16 +120,10 @@ class FlowEngine
         $redactor = $store instanceof FlowStore ? $this->redactorForExecution() : null;
         $store = $this->storeWithExecutionRedactor($store, $redactor);
 
-        if ($store instanceof FlowStore && $options->idempotencyKey !== null) {
-            $existingRun = $store->runs()->findByIdempotencyKey($options->idempotencyKey);
+        $existingRun = $this->existingRunForIdempotency($store, $definition, $options);
 
-            if ($existingRun instanceof FlowRunRecord) {
-                if ($existingRun->definition_name !== $definition->name) {
-                    throw new FlowExecutionException('The supplied idempotency key is already associated with a different flow definition.');
-                }
-
-                return $this->flowRunFromRecord($existingRun);
-            }
+        if ($existingRun instanceof FlowRun) {
+            return $existingRun;
         }
 
         $startedAt = $this->now();
@@ -142,9 +137,20 @@ class FlowEngine
             idempotencyKey: $options->idempotencyKey,
         );
         $run->markRunning();
-        $this->persistAtomically($store, function () use ($store, $run, $input): void {
-            $this->persistRunStarted($store, $run, $input);
-        });
+
+        try {
+            $this->persistAtomically($store, function () use ($store, $run, $input): void {
+                $this->persistRunStarted($store, $run, $input);
+            });
+        } catch (Throwable $e) {
+            $existingRun = $this->existingRunForIdempotency($store, $definition, $options);
+
+            if ($existingRun instanceof FlowRun) {
+                return $existingRun;
+            }
+
+            throw $e;
+        }
 
         $context = new FlowContext(
             flowRunId: $run->id,
@@ -884,7 +890,29 @@ class FlowEngine
         ]);
     }
 
-    private function flowRunFromRecord(FlowRunRecord $record): FlowRun
+    private function existingRunForIdempotency(
+        ?FlowStore $store,
+        FlowDefinition $definition,
+        FlowExecutionOptions $options,
+    ): ?FlowRun {
+        if (! $store instanceof FlowStore || $options->idempotencyKey === null) {
+            return null;
+        }
+
+        $existingRun = $store->runs()->findByIdempotencyKey($options->idempotencyKey);
+
+        if (! $existingRun instanceof FlowRunRecord) {
+            return null;
+        }
+
+        if ($existingRun->definition_name !== $definition->name) {
+            throw new FlowExecutionException('The supplied idempotency key is already associated with a different flow definition.');
+        }
+
+        return $this->flowRunFromRecord($existingRun, $store);
+    }
+
+    private function flowRunFromRecord(FlowRunRecord $record, ?FlowStore $store = null): FlowRun
     {
         $run = new FlowRun(
             id: $record->id,
@@ -899,7 +927,36 @@ class FlowEngine
         $run->compensated = (bool) $record->compensated;
         $run->finishedAt = $this->immutableDate($record->finished_at);
 
+        if ($store instanceof FlowStore) {
+            foreach ($store->steps()->forRun($record->id) as $stepRecord) {
+                $result = $this->flowStepResultFromRecord($stepRecord);
+
+                if ($result instanceof FlowStepResult) {
+                    $run->recordStepResult($stepRecord->step_name, $result);
+                }
+            }
+        }
+
         return $run;
+    }
+
+    private function flowStepResultFromRecord(FlowStepRecord $record): ?FlowStepResult
+    {
+        if ($record->status === 'failed') {
+            return FlowStepResult::failed(new FlowExecutionException(
+                $record->error_message ?? 'Persisted flow step failed.',
+            ));
+        }
+
+        if ($record->status === 'skipped' || $record->dry_run_skipped) {
+            return FlowStepResult::dryRunSkipped();
+        }
+
+        if ($record->status !== 'succeeded') {
+            return null;
+        }
+
+        return FlowStepResult::success($record->output ?? [], $record->business_impact);
     }
 
     private function immutableDate(mixed $value): ?DateTimeImmutable

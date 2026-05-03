@@ -6,6 +6,7 @@ namespace Padosoft\LaravelFlow;
 
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Contracts\Events\Dispatcher;
+use Illuminate\Support\Facades\Date;
 use Illuminate\Support\ServiceProvider;
 use Padosoft\LaravelFlow\Contracts\AuditRepository;
 use Padosoft\LaravelFlow\Contracts\FlowStore;
@@ -41,6 +42,7 @@ final class LaravelFlowServiceProvider extends ServiceProvider
                 $app,
                 $events,
                 $config,
+                clock: static fn (): \DateTimeImmutable => Date::now()->toDateTimeImmutable(),
             );
         });
 

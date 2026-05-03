@@ -235,6 +235,7 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         $this->assertStringNotContainsString('json-camel-secret', (string) $failedStep->error_message);
         $this->assertStringNotContainsString('auth-secret', (string) $failedStep->error_message);
         $this->assertStringNotContainsString('abc123', (string) $failedStep->error_message);
+        $this->assertStringNotContainsString('[redacted] [redacted]', (string) $failedStep->error_message);
         $this->assertStringContainsString('[redacted]', (string) $failedStep->error_message);
         $this->assertSame($failedStep->error_message, $failedAudit->payload['error_message']);
     }

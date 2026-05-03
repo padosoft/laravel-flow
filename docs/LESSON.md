@@ -121,7 +121,8 @@
 - Current-redactor provider chains should be unwrapped recursively, and execution-scope redactor self-resolution guards should treat any scope wrapper instance as recursive.
 - Cyclic current-redactor provider chains should fail before invoking `redact()` again; returning a provider from the cycle just moves the stack overflow to the caller.
 - Provider cycle guards need a max-depth fallback in addition to object identity; decorators can allocate fresh wrapper objects on every hop.
-- Zero-argument timestamp fallbacks should avoid facade roots but still respect Laravel/Carbon test clocks; `Carbon::now()` keeps direct value-object use framework-safe.
+- Core classes should avoid facade roots and Laravel support dependencies; inject Laravel clocks from the service provider and keep DTO legacy fallbacks framework-agnostic.
+- Text redaction should treat `key=Bearer token` as a single keyed value; otherwise bearer and key/value passes can leave noisy duplicate replacement tokens.
 - Engine text redaction and repository JSON redaction must unwrap `CurrentPayloadRedactorProvider` the same way; otherwise custom decorators can diverge within one execution.
 - Audit appends with empty payload and no business impact should not resolve the payload redactor.
 - Step input snapshots should not duplicate cumulative step outputs into every row; store bounded metadata such as output keys and reconstruct full history from ordered step rows.

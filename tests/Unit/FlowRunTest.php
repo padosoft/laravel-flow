@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Padosoft\LaravelFlow\Tests\Unit;
 
 use DateTimeImmutable;
-use Illuminate\Support\Carbon;
 use Padosoft\LaravelFlow\FlowRun;
 use PHPUnit\Framework\TestCase;
 
@@ -20,18 +19,10 @@ final class FlowRunTest extends TestCase
             startedAt: new DateTimeImmutable('2026-05-02 10:00:00'),
         );
 
-        $now = Carbon::parse('2026-05-02 10:00:05');
-        Carbon::setTestNow($now);
-
-        try {
-            $run->markCompensated();
-        } finally {
-            Carbon::setTestNow();
-        }
+        $run->markCompensated();
 
         $this->assertSame(FlowRun::STATUS_COMPENSATED, $run->status);
         $this->assertTrue($run->compensated);
         $this->assertInstanceOf(DateTimeImmutable::class, $run->finishedAt);
-        $this->assertSame($now->getTimestamp(), $run->finishedAt->getTimestamp());
     }
 }

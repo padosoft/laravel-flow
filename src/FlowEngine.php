@@ -8,7 +8,6 @@ use DateTimeImmutable;
 use DateTimeInterface;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Contracts\Events\Dispatcher;
-use Illuminate\Support\Facades\Date;
 use Padosoft\LaravelFlow\Contracts\FlowStore;
 use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
 use Padosoft\LaravelFlow\Contracts\RedactorAwareFlowStore;
@@ -54,6 +53,7 @@ class FlowEngine
         private readonly array $config = [],
         private readonly ?FlowStore $store = null,
         private readonly ?PayloadRedactor $redactor = null,
+        private readonly mixed $clock = null,
     ) {}
 
     public function define(string $name): FlowDefinitionBuilder
@@ -976,7 +976,7 @@ class FlowEngine
         foreach ($keys as $key) {
             $keyPattern = $this->redactionKeyPattern($key);
             $message = preg_replace_callback(
-                '/\b('.$keyPattern.')\b(\s*[:=]\s*)([^\s,;]+)/i',
+                '/\b('.$keyPattern.')\b(\s*[:=]\s*)(?:Bearer\s+)?([^\s,;]+)/i',
                 static fn (array $matches): string => $matches[1].$matches[2].$replacement,
                 $message,
             ) ?? $message;
@@ -1006,7 +1006,7 @@ class FlowEngine
         }
 
         return preg_replace_callback(
-            '/\b([A-Za-z][A-Za-z0-9_-]*)\b(\s*[:=]\s*)([^\s,;]+)/',
+            '/\b([A-Za-z][A-Za-z0-9_-]*)\b(\s*[:=]\s*)(?:Bearer\s+)?([^\s,;]+)/i',
             function (array $matches) use ($normalizedKeys, $replacement): string {
                 if (! isset($normalizedKeys[$this->normalizeRedactionKey((string) $matches[1])])) {
                     return (string) $matches[0];
@@ -1241,7 +1241,14 @@ class FlowEngine
 
     private function now(): DateTimeImmutable
     {
-        return Date::now()->toDateTimeImmutable();
+        if (is_callable($this->clock)) {
+            /** @var DateTimeImmutable $now */
+            $now = ($this->clock)();
+
+            return $now;
+        }
+
+        return new DateTimeImmutable;
     }
 
     private function generateId(): string

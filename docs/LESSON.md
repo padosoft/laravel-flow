@@ -119,5 +119,6 @@
 - Engine execution redactor freeze should be expressed through store/redactor capability contracts, not concrete class checks, so decorators can preserve JSON/text redaction and transaction consistency.
 - Compensation failure paths should advance `finishedAt` to the rollback failure time so persisted duration includes partial rollback work.
 - Current-redactor provider chains should be unwrapped recursively, and execution-scope redactor self-resolution guards should treat any scope wrapper instance as recursive.
+- Cyclic current-redactor provider chains should fail before invoking `redact()` again; returning a provider from the cycle just moves the stack overflow to the caller.
 - Zero-argument timestamp fallbacks should use Laravel's `Date` clock, not `new DateTimeImmutable`, so `Date::setTestNow()` remains deterministic in tests and hosts.
 - Step input snapshots should not duplicate cumulative step outputs into every row; store bounded metadata such as output keys and reconstruct full history from ordered step rows.

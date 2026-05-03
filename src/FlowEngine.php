@@ -20,6 +20,7 @@ use Padosoft\LaravelFlow\Exceptions\FlowCompensationException;
 use Padosoft\LaravelFlow\Exceptions\FlowExecutionException;
 use Padosoft\LaravelFlow\Exceptions\FlowInputException;
 use Padosoft\LaravelFlow\Exceptions\FlowNotRegisteredException;
+use Padosoft\LaravelFlow\Persistence\PayloadRedactorResolution;
 use Throwable;
 
 /**
@@ -1024,6 +1025,8 @@ class FlowEngine
         if (! $redactor instanceof PayloadRedactor) {
             return $message;
         }
+
+        $redactor = PayloadRedactorResolution::current($redactor);
 
         $redacted = $redactor->redact([
             'error_message' => $message,

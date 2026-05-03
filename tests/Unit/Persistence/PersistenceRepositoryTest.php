@@ -20,6 +20,7 @@ use Padosoft\LaravelFlow\Models\FlowAuditRecord;
 use Padosoft\LaravelFlow\Persistence\EloquentAuditRepository;
 use Padosoft\LaravelFlow\Persistence\EloquentRunRepository;
 use Padosoft\LaravelFlow\Persistence\ExecutionScopedPayloadRedactor;
+use Padosoft\LaravelFlow\Persistence\PayloadRedactorResolution;
 use RuntimeException;
 
 final class PersistenceRepositoryTest extends PersistenceTestCase
@@ -361,6 +362,45 @@ final class PersistenceRepositoryTest extends PersistenceTestCase
         $redacted = $scope->redact(['token' => 'plain-secret']);
 
         $this->assertSame('[redacted]', $redacted['token']);
+    }
+
+    public function test_current_payload_redactor_provider_cycles_fail_without_recursive_redaction(): void
+    {
+        $first = new class implements CurrentPayloadRedactorProvider
+        {
+            public CurrentPayloadRedactorProvider $next;
+
+            public function currentRedactor(): PayloadRedactor
+            {
+                return $this->next;
+            }
+
+            public function redact(array $payload): array
+            {
+                return $payload;
+            }
+        };
+        $second = new class implements CurrentPayloadRedactorProvider
+        {
+            public CurrentPayloadRedactorProvider $next;
+
+            public function currentRedactor(): PayloadRedactor
+            {
+                return $this->next;
+            }
+
+            public function redact(array $payload): array
+            {
+                return $payload;
+            }
+        };
+        $first->next = $second;
+        $second->next = $first;
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('Cyclic CurrentPayloadRedactorProvider chain detected.');
+
+        PayloadRedactorResolution::current($first);
     }
 
     public function test_flow_store_runs_repository_operations_inside_transactions(): void

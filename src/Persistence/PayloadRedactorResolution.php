@@ -6,6 +6,7 @@ namespace Padosoft\LaravelFlow\Persistence;
 
 use Padosoft\LaravelFlow\Contracts\CurrentPayloadRedactorProvider;
 use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
+use RuntimeException;
 
 final class PayloadRedactorResolution
 {
@@ -17,7 +18,7 @@ final class PayloadRedactorResolution
             $id = spl_object_id($redactor);
 
             if (isset($seen[$id])) {
-                return $redactor;
+                throw new RuntimeException('Cyclic CurrentPayloadRedactorProvider chain detected.');
             }
 
             $seen[$id] = true;

@@ -131,7 +131,7 @@ Legend: `✅ YES` means the capability is first-class in the current product, `�
 | Runtime-abort recovery before surfacing infrastructure failures | ✅ YES - best-effort failure state plus compensation before rethrow | ⚠️ PARTIAL - retries/error handling, recovery policy is workflow-defined | ⚠️ PARTIAL - app-defined | ✅ YES - durable execution/retry recovery | ⚠️ PARTIAL - `Retry`, `Catch`, and redrive behavior |
 | Retention pruning for persisted telemetry | ✅ YES - `flow:prune` keeps pending/running rows intact | ❌ NO - not documented as built-in | ❌ NO - app-defined | ⚠️ PARTIAL - service retention configuration, not package command | ⚠️ PARTIAL - managed history/log retention, not app command |
 | Business-impact projection on every result | ✅ YES - `businessImpact` is part of every `FlowStepResult` | ❌ NO - not documented | ❌ NO - not a workflow component concern | ❌ NO - app-defined | ❌ NO - app-defined |
-| Queue-backed workers today | ⚠️ PARTIAL - `Flow::dispatch()` queues an after-commit `RunFlowJob` with per-dispatch locking; retry/backoff and database-queue integration remain follow-up v0.2 slices | ✅ YES - Laravel queue/worker support | ❌ NO - not native | ✅ YES - worker-based execution | ✅ YES - managed orchestration |
+| Queue-backed workers today | ⚠️ PARTIAL - `Flow::dispatch()` queues an after-commit `RunFlowJob` with per-dispatch locking and duplicate-delivery no-op handling; retry/backoff and database-queue integration remain follow-up v0.2 slices | ✅ YES - Laravel queue/worker support | ❌ NO - not native | ✅ YES - worker-based execution | ✅ YES - managed orchestration |
 | Replay/redrive of failed executions today | ❌ NO - planned v0.2 slice | ⚠️ PARTIAL - durable long-running workflow model; exact replay semantics differ | ❌ NO - not native | ✅ YES - deterministic replay/event history | ✅ YES - Standard Workflow redrive |
 | Low setup friction | ✅ YES - `composer require` plus optional config/migration publish | ⚠️ PARTIAL - Laravel queues/workers and optional Waterline UI | ✅ YES - Composer package and framework config | ❌ NO - service/cluster plus workers | ❌ NO - AWS account, IAM, state-machine definitions |
 | Self-hosted with no external workflow service | ✅ YES - runs inside the Laravel app; DB optional | ✅ YES - Laravel app/queue infrastructure | ✅ YES - application component | ❌ NO - requires Temporal service/cluster | ❌ NO - AWS-managed service |
@@ -251,7 +251,7 @@ Flow::dispatch(
 );
 ```
 
-`Flow::dispatch()` validates the registered definition and required input before queuing `RunFlowJob`. The job dispatches after the current database transaction commits and takes a per-dispatch cache lock before execution; whether it runs asynchronously or inline still depends on the application's configured Laravel queue driver. The worker resolves the current `FlowEngine` and executes the same definition with the serialized input and execution options. Retry/backoff policy, database-queue integration tests, replay, and parallel compensation are still planned v0.2 follow-up slices.
+`Flow::dispatch()` validates the registered definition and required input before queuing `RunFlowJob`. The job dispatches after the current database transaction commits and takes a per-dispatch cache lock before execution; duplicate deliveries that find the lock held are acknowledged as no-ops instead of consuming retry attempts. Whether the job runs asynchronously or inline still depends on the application's configured Laravel queue driver. The worker resolves the current `FlowEngine` and executes the same definition with the serialized input and execution options. Retry/backoff policy, database-queue integration tests, replay, and parallel compensation are still planned v0.2 follow-up slices.
 
 ### Compensation chain (saga rollback)
 
@@ -363,7 +363,7 @@ return [
 | `persistence.redaction`   | common secrets   | Redacts configured JSON payload keys before run, step, and audit payloads are stored.             |
 | `persistence.retention.days` | `null`         | Default retention window for `php artisan flow:prune`; pass `--days` to override per run.         |
 | `queue.lock_store`        | `null`           | Cache store used for queued run locks. Inherits app default when `null`; the store must support atomic locks. |
-| `queue.lock_seconds`      | `3600`           | TTL for the per-dispatch queue lock used by `RunFlowJob`.                                         |
+| `queue.lock_seconds`      | `3600`           | TTL for the per-dispatch queue lock used by `RunFlowJob`; set it longer than the expected maximum flow runtime because Laravel's portable lock contract cannot renew it. |
 | `audit_trail_enabled`     | `true`           | When `false`, suppresses every `FlowStep*` / `FlowCompensated` event and persisted audit row; persisted audit rows also require persistence and a non-dry-run execution. |
 | `dry_run_default`         | `false`          | When `true`, `Flow::execute()` behaves like `dryRun()` — guard rail for staging environments.     |
 | `step_timeout_seconds`    | `300`            | Reserved for follow-up queued step execution; the current `RunFlowJob` dispatch slice does not enforce per-step timeouts. |

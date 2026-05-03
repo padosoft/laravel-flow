@@ -7,7 +7,6 @@ namespace Padosoft\LaravelFlow\Jobs;
 use Illuminate\Contracts\Cache\Factory as CacheFactory;
 use Illuminate\Contracts\Cache\LockProvider;
 use Illuminate\Contracts\Queue\ShouldQueueAfterCommit;
-use Padosoft\LaravelFlow\Exceptions\FlowExecutionException;
 use Padosoft\LaravelFlow\FlowEngine;
 use Padosoft\LaravelFlow\FlowExecutionOptions;
 use Padosoft\LaravelFlow\FlowRun;
@@ -27,7 +26,7 @@ final class RunFlowJob implements ShouldQueueAfterCommit
         public readonly int $lockSeconds = 3600,
     ) {}
 
-    public function handle(FlowEngine $flow, CacheFactory $cache): FlowRun
+    public function handle(FlowEngine $flow, CacheFactory $cache): ?FlowRun
     {
         $store = $cache->store($this->lockStore)->getStore();
 
@@ -35,18 +34,17 @@ final class RunFlowJob implements ShouldQueueAfterCommit
             throw new RuntimeException('Laravel Flow queued execution requires a cache store that supports atomic locks.');
         }
 
-        $run = $store->lock($this->lockKey(), max(1, $this->lockSeconds))->get(
-            fn (): FlowRun => $flow->execute($this->name, $this->input, $this->options),
-        );
+        $lock = $store->lock($this->lockKey(), $this->lockSeconds());
 
-        if (! $run instanceof FlowRun) {
-            throw new FlowExecutionException(sprintf(
-                'Flow dispatch [%s] is already being processed.',
-                $this->dispatchId(),
-            ));
+        if (! $lock->get()) {
+            return null;
         }
 
-        return $run;
+        try {
+            return $flow->execute($this->name, $this->input, $this->options);
+        } finally {
+            $lock->release();
+        }
     }
 
     public function lockKey(): string
@@ -57,5 +55,10 @@ final class RunFlowJob implements ShouldQueueAfterCommit
     private function dispatchId(): string
     {
         return $this->dispatchId ?? sha1($this->name.'|'.serialize($this->input).'|'.serialize($this->options));
+    }
+
+    private function lockSeconds(): int
+    {
+        return max(1, $this->lockSeconds);
     }
 }

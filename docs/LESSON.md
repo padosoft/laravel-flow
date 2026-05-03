@@ -151,3 +151,4 @@
 - README audit claims should distinguish runtime events from append-only persisted rows; `flow:prune` means persisted audit rows are not immutable forever.
 - README event wording must include the `audit_trail_enabled` gate and avoid saying every transition emits all event classes.
 - README event wording should qualify event dispatch as normal-case behavior: with persistence enabled, `FlowStep*` events dispatch only after the corresponding audit append succeeds, and `FlowCompensated` is skipped when its compensation audit append fails.
+- Published config comments must carry the same audit gates as README docs: persisted `flow_audit` rows require persistence, `audit_trail_enabled=true`, and a non-dry-run execution.

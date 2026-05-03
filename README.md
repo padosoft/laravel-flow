@@ -64,7 +64,7 @@ The Laravel ecosystem has plenty of tools for *some* of these — `Bus::chain()`
 
 `laravel-flow` is that surface.
 
-It is **deliberately small**. v0.1 is in-memory, synchronous, container-resolved. The current v0.2 foundation adds opt-in DB persistence for runs, steps, and audit rows; queued workers, replay, and compensation strategy expansion remain planned v0.2 slices, with approvals/webhooks and the companion dashboard in later macros.
+It is **deliberately small**. v0.1 is in-memory, synchronous, container-resolved. The current v0.2 foundation adds opt-in DB persistence for runs, steps, and audit rows; queued workers, replay, and compensation strategy expansion remain planned v0.2 slices, with v0.3 human checkpoint/webhook support and the companion dashboard in later macros.
 
 ---
 
@@ -99,7 +99,7 @@ When `audit_trail_enabled` is enabled, normal-case step and compensation transit
 - **Fluent definition builder** — `Flow::define($name)->withInput([...])->step(...)->register()`.
 - **Native dry-run** — `Flow::dryRun($name, $input)` simulates without persisting; supporting handlers project impact, others self-skip.
 - **Reverse-order saga compensation** — `compensateWith(Compensator::class)` per step; failures unwind cleanly.
-- **Audit events and persisted audit rows** — normal-case transitions dispatch matching `FlowStep*` / `FlowCompensated` events when audit is enabled; with persistence enabled, those events are emitted only after required audit appends succeed. Optional persisted audit rows are append-only during normal runtime and can be retention-pruned with `flow:prune`.
+- **Audit events and persisted audit rows** — normal-case transitions dispatch matching `FlowStep*` / `FlowCompensated` events when `audit_trail_enabled=true`; persisted `flow_audit` rows are written only for non-dry-run executions with both `persistence.enabled=true` and `audit_trail_enabled=true`, and those rows are append-only during normal runtime but retention-prunable with `flow:prune`.
 - **Business-impact projection** — handlers return `businessImpact: [...]` alongside output, surfaced on every step result.
 - **Opt-in persisted execution** — `flow_runs`, `flow_steps`, and `flow_audit` migrations, Eloquent repositories, immutable run identity updates, correlation/idempotency keys, transaction-scoped run/step/audit transitions, compensate-first runtime-abort recovery, sanitized listener/error storage, clock-aware audit timestamps, redacted JSON payload storage, and retention pruning.
 - **Container-resolved handlers** — full DI, type hints, and stack traces.
@@ -117,7 +117,7 @@ When `audit_trail_enabled` is enabled, normal-case step and compensation transit
 | -------------------------------- | ---------------------------- | --------------------------- | --------------------------- | ------------------------- | ---------------------- |
 | Native dry-run                   | ✅ first-class; no persistence writes or compensator side effects | ❌                          | ❌                          | ❌                         | ❌                      |
 | Reverse-order saga compensation  | ✅ built-in                   | ⚠️ manual                   | ⚠️ manual                   | ✅ via SDK                 | ⚠️ via Catch + state    |
-| Approval gate as a step type     | planned v0.3                  | ⚠️ via guards               | ✅ via transition guard     | ⚠️ via `Workflow.await`   | ✅ via task token        |
+| Approval gate as a step type     | ❌ planned v0.3                | ⚠️ via guards               | ✅ via transition guard     | ⚠️ via `Workflow.await`   | ✅ via task token        |
 | Container-resolved handlers      | ✅                            | ⚠️ partial                  | ✅                          | ✅ (via worker DI)         | ❌ (Lambda fanout)      |
 | Audit trail (events)             | ✅ transition events when enabled | ⚠️ via state machine hooks  | ✅                          | ✅                         | ✅ (CloudWatch)         |
 | Business-impact projection       | ✅ on every result            | ❌                          | ❌                          | ❌                         | ❌                      |

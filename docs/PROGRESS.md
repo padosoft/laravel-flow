@@ -29,7 +29,7 @@ Completed in Macro Task 0:
 - Recorded the durable rule that README section `Comparison vs alternatives` must be reviewed for every new or materially improved feature, with competitor research when claims are uncertain.
 - Aligned README, CONTRIBUTING, PR template, Copilot instructions, repo rules, and repo skills around the macro/subtask workflow, the pre-Macro-1 Laravel 12/13 compatibility state, companion-dashboard scope, and mandatory Copilot review.
 
-Validation summary:
+Macro Task 0 validation summary:
 
 - Macro Task 0 was validated with:
   - `composer validate --strict --no-check-publish`
@@ -38,7 +38,7 @@ Validation summary:
   - `vendor/bin/phpunit --testsuite Unit` => 32 tests, 97 assertions
   - `vendor/bin/phpunit --testsuite Architecture` => 2 tests, 7 assertions
 
-Completed in Macro Task 2:
+Completed in Macro Task 2 (v0.2 persistence layer):
 
 - Added one publishable migration file that creates `flow_runs`, `flow_steps`, and `flow_audit` with SQLite-tested schema and MySQL/Postgres-friendly indexes.
 - Added public `FlowStore`, `RunRepository`, `StepRunRepository`, `AuditRepository`, `RedactorAwareFlowStore`, and `CurrentPayloadRedactorProvider` contracts.
@@ -47,7 +47,7 @@ Completed in Macro Task 2:
 - Added `FlowExecutionOptions` for normalized, length-validated correlation/idempotency metadata and idempotent persisted-run reuse with step-result rehydration and create-race fallback.
 - Added `flow:prune` retention cleanup for old terminal runs while keeping pending/running rows intact.
 
-Macro Task 2 validation baseline:
+Macro Task 2 current validation baseline:
 
 - `composer validate --strict --no-check-publish`
 - `composer quality` => Pint format test, PHPStan, Unit 106 tests / 463 assertions, Architecture 2 tests / 7 assertions

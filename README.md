@@ -327,7 +327,7 @@ return [
             'days' => env('LARAVEL_FLOW_RETENTION_DAYS', null),
         ],
     ],
-    'audit_trail_enabled'    => env('LARAVEL_FLOW_AUDIT_ENABLED', true), // events; DB audit rows also require persistence.enabled=true and non-dry-run
+    'audit_trail_enabled'    => env('LARAVEL_FLOW_AUDIT_ENABLED', true), // events; DB audit rows require persistence.enabled=true and dry_run=false
     'dry_run_default'        => env('LARAVEL_FLOW_DRY_RUN_DEFAULT', false),
     'step_timeout_seconds'   => (int) env('LARAVEL_FLOW_STEP_TIMEOUT', 300), // v0.2
     'compensation_strategy'  => env('LARAVEL_FLOW_COMPENSATION', 'reverse-order'),
@@ -337,10 +337,10 @@ return [
 | Key                       | Default          | Effect                                                                                            |
 | ------------------------- | ---------------- | ------------------------------------------------------------------------------------------------- |
 | `default_storage`         | `null`           | DB connection used by persistence repositories. Inherits app default when `null`.                 |
-| `persistence.enabled`     | `false`          | Enables synchronous engine writes to `flow_runs` and `flow_steps`; `flow_audit` writes also require `audit_trail_enabled=true` and a non-dry-run execution. Dry-runs do not write. |
+| `persistence.enabled`     | `false`          | Enables synchronous engine writes to `flow_runs` and `flow_steps`; `flow_audit` writes also require `audit_trail_enabled=true` and `dry_run=false`. Dry-runs do not write. |
 | `persistence.redaction`   | common secrets   | Redacts configured JSON payload keys before run, step, and audit payloads are stored.             |
 | `persistence.retention.days` | `null`         | Default retention window for `php artisan flow:prune`; pass `--days` to override per run.         |
-| `audit_trail_enabled`     | `true`           | When `false`, suppresses every `FlowStep*` / `FlowCompensated` event and persisted audit row; persisted audit rows also require persistence and non-dry-run execution. |
+| `audit_trail_enabled`     | `true`           | When `false`, suppresses every `FlowStep*` / `FlowCompensated` event and persisted audit row; persisted audit rows also require persistence and `dry_run=false`. |
 | `dry_run_default`         | `false`          | When `true`, `Flow::execute()` behaves like `dryRun()` — guard rail for staging environments.     |
 | `step_timeout_seconds`    | `300`            | Reserved for v0.2 queued workers.                                                                 |
 | `compensation_strategy`   | `reverse-order`  | `parallel` reserved for v0.2 — currently falls back to reverse-order.                             |

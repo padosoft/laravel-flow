@@ -24,6 +24,8 @@ final class FlowDispatchTest extends TestCase
         parent::setUp();
 
         AlwaysSucceedsHandler::$callCount = 0;
+        Cache::store('file')->flush();
+        Cache::store('array')->flush();
     }
 
     public function test_dispatch_queues_a_run_flow_job_after_validation(): void
@@ -105,14 +107,17 @@ final class FlowDispatchTest extends TestCase
             ->step('one', AlwaysSucceedsHandler::class)
             ->register();
 
-        $run = (new RunFlowJob('flow.job.handle', dispatchId: 'dispatch-1', lockStore: 'file'))->handle($engine, $this->app->make('cache'));
+        $job = new RunFlowJob('flow.job.handle', dispatchId: 'dispatch-1', lockStore: 'file');
+
+        $run = $job->handle($engine, $this->app->make('cache'), $this->app['config']);
 
         $this->assertInstanceOf(FlowRun::class, $run);
         $this->assertSame(FlowRun::STATUS_SUCCEEDED, $run->status);
+        $this->assertTrue(Cache::store('file')->get($job->completionKey()));
         $this->assertSame(1, AlwaysSucceedsHandler::$callCount);
     }
 
-    public function test_run_flow_job_acknowledges_duplicate_delivery_when_dispatch_lock_is_held(): void
+    public function test_run_flow_job_releases_duplicate_delivery_when_dispatch_lock_is_held(): void
     {
         /** @var FlowEngine $engine */
         $engine = $this->app->make(FlowEngine::class);
@@ -120,22 +125,45 @@ final class FlowDispatchTest extends TestCase
             ->step('one', AlwaysSucceedsHandler::class)
             ->register();
 
-        $job = new RunFlowJob('flow.job.locked', dispatchId: 'locked-dispatch', lockStore: 'file');
+        $job = new RunFlowJob('flow.job.locked', dispatchId: 'locked-dispatch', lockStore: 'file', lockSeconds: 60);
+        $job->withFakeQueueInteractions();
         $lock = Cache::store('file')->getStore()->lock($job->lockKey(), 60);
         $this->assertTrue($lock->get());
 
         try {
-            $run = $job->handle($engine, $this->app->make('cache'));
+            $run = $job->handle($engine, $this->app->make('cache'), $this->app['config']);
         } finally {
             $lock->release();
         }
 
         $this->assertNull($run);
+        $job->assertReleased(60);
+        $this->assertSame(0, AlwaysSucceedsHandler::$callCount);
+    }
+
+    public function test_run_flow_job_acknowledges_completed_duplicate_delivery(): void
+    {
+        /** @var FlowEngine $engine */
+        $engine = $this->app->make(FlowEngine::class);
+        $engine->define('flow.job.completed-duplicate')
+            ->step('one', AlwaysSucceedsHandler::class)
+            ->register();
+
+        $job = new RunFlowJob('flow.job.completed-duplicate', dispatchId: 'completed-dispatch', lockStore: 'file');
+        $job->withFakeQueueInteractions();
+        Cache::store('file')->put($job->completionKey(), true, 60);
+
+        $run = $job->handle($engine, $this->app->make('cache'), $this->app['config']);
+
+        $this->assertNull($run);
+        $job->assertNotReleased();
         $this->assertSame(0, AlwaysSucceedsHandler::$callCount);
     }
 
     public function test_run_flow_job_rejects_process_local_array_lock_store(): void
     {
+        $this->app['config']->set('queue.default', 'database');
+
         /** @var FlowEngine $engine */
         $engine = $this->app->make(FlowEngine::class);
         $engine->define('flow.job.array-lock')
@@ -146,6 +174,23 @@ final class FlowDispatchTest extends TestCase
         $this->expectExceptionMessage('array store is process-local');
 
         (new RunFlowJob('flow.job.array-lock', dispatchId: 'array-lock-dispatch', lockStore: 'array'))
-            ->handle($engine, $this->app->make('cache'));
+            ->handle($engine, $this->app->make('cache'), $this->app['config']);
+    }
+
+    public function test_run_flow_job_allows_process_local_array_lock_store_with_sync_queue_driver(): void
+    {
+        $this->app['config']->set('queue.default', 'sync');
+
+        /** @var FlowEngine $engine */
+        $engine = $this->app->make(FlowEngine::class);
+        $engine->define('flow.job.array-lock-sync')
+            ->step('one', AlwaysSucceedsHandler::class)
+            ->register();
+
+        $run = (new RunFlowJob('flow.job.array-lock-sync', dispatchId: 'array-lock-sync-dispatch', lockStore: 'array'))
+            ->handle($engine, $this->app->make('cache'), $this->app['config']);
+
+        $this->assertInstanceOf(FlowRun::class, $run);
+        $this->assertSame(1, AlwaysSucceedsHandler::$callCount);
     }
 }

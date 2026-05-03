@@ -47,10 +47,11 @@ return [
     | Flow::dispatch() queues a RunFlowJob. Each queued job uses a per-dispatch
     | cache lock before executing so duplicate delivery cannot run the same
     | queued flow concurrently. Duplicate deliveries that find the lock held
-    | are acknowledged as no-ops. Set the lock TTL longer than the expected
-    | maximum flow runtime; Laravel's portable lock contract cannot renew it.
-    | The store must support shared Laravel atomic locks; the process-local
-    | array store is rejected for queued execution.
+    | are released for another attempt; duplicates that arrive after a run has
+    | completed are acknowledged as no-ops. Set the lock TTL longer than the
+    | expected maximum flow runtime; Laravel's portable lock contract cannot
+    | renew it. The store must support shared Laravel atomic locks; the
+    | process-local array store is accepted only when the queue driver is sync.
     |
     */
     'queue' => [

@@ -49,4 +49,4 @@ Completed in Macro Task 2:
 
 Next active macro:
 
-- Continue Macro Task 3 from `docs/ENTERPRISE_PLAN.md`: v0.2 queues, replay, and compensation strategies.
+- Continue Macro Task 3 from `docs/ENTERPRISE_PLAN.md`: v0.2 queues, replay, and compensation strategies. Preserve the shipped `reverse-order` config spelling when adding `parallel`.

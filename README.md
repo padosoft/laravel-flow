@@ -86,7 +86,7 @@ Saga semantics: when step N fails, the engine walks the previously-completed ste
 
 ### 4. The audit trail is event-driven
 
-When `audit_trail_enabled` is enabled, step and compensation transitions dispatch Laravel events such as `FlowStepStarted`, `FlowStepCompleted`, `FlowStepFailed`, and `FlowCompensated`. The host application subscribes once and routes them to the logger, DB, or metrics backend it already runs. For non-dry-run executions, when both persistence and `audit_trail_enabled` are enabled, v0.2 also records default audit rows in `flow_audit`.
+When `audit_trail_enabled` is enabled, step and compensation transitions dispatch Laravel events such as `FlowStepStarted`, `FlowStepCompleted`, `FlowStepFailed`, and `FlowCompensated`. The host application subscribes once and routes them to the logger, DB, or metrics backend it already runs. For non-dry-run executions, when both persistence and `audit_trail_enabled` are enabled, v0.2 also records default audit rows in `flow_audit`. Dry-runs never write run, step, or audit rows.
 
 ### 5. Standalone-agnostic — zero AskMyDocs symbols
 
@@ -382,7 +382,7 @@ Custom `FlowStore` implementations that need the same per-execution `PayloadReda
                                                    └─────────────────────┘
 ```
 
-Every box is one PHP class under `src/`. The engine path is still synchronous and in-memory by default; when persistence is enabled, runtime runs and steps are written to `flow_runs` and `flow_steps`. Audit transitions are written to `flow_audit` only for non-dry-run executions while persistence and `audit_trail_enabled` are both enabled. The next v0.2 slices add queues, replay, and compensation strategy expansion.
+Every box is one PHP class under `src/`. The engine path is still synchronous and in-memory by default; when persistence is enabled, runtime runs and steps are written to `flow_runs` and `flow_steps` for non-dry-run executions. Audit transitions are written to `flow_audit` only for non-dry-run executions while persistence and `audit_trail_enabled` are both enabled. Dry-runs never write audit rows. The next v0.2 slices add queues, replay, and compensation strategy expansion.
 
 ---
 

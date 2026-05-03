@@ -370,7 +370,7 @@ return [
 | `persistence.enabled`     | `false`          | Enables synchronous engine writes to `flow_runs` and `flow_steps`; `flow_audit` writes also require `audit_trail_enabled=true` and a non-dry-run execution. Dry-runs do not write. |
 | `persistence.redaction`   | common secrets   | Redacts configured JSON payload keys before run, step, and audit payloads are stored.             |
 | `persistence.retention.days` | `null`         | Default retention window for `php artisan flow:prune`; pass `--days` to override per run.         |
-| `queue.lock_store`        | `null`           | Cache store used for queued run locks. Inherits app default when `null`; queued workers require a shared atomic lock store, while process-local `array` is accepted only with the `sync` queue driver. |
+| `queue.lock_store`        | `null`           | Cache store used for queued run locks. When `null`, `Flow::dispatch()` captures the current `cache.default` store into the job; queued workers require a shared atomic lock store, while process-local `array` is accepted only with the `sync` queue driver. |
 | `queue.lock_seconds`      | `3600`           | TTL for the per-dispatch queue lock used by `RunFlowJob`; set it longer than the expected maximum flow runtime because Laravel's portable lock contract cannot renew it. |
 | `queue.lock_retry_seconds` | `30`            | Delay before a duplicate delivery retries when the per-dispatch lock is still held; the job caps it at `queue.lock_seconds`. |
 | `audit_trail_enabled`     | `true`           | When `false`, suppresses every `FlowStep*` / `FlowCompensated` event and persisted audit row; persisted audit rows also require persistence and a non-dry-run execution. |

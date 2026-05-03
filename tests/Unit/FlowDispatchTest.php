@@ -50,6 +50,7 @@ final class FlowDispatchTest extends TestCase
             static fn (RunFlowJob $job): bool => $job->name === 'flow.dispatch'
                 && $job instanceof ShouldQueueAfterCommit
                 && $job->dispatchId !== null
+                && $job->lockStore === 'array'
                 && $job->lockSeconds === 3600
                 && $job->lockRetrySeconds === 30
                 && str_starts_with($job->lockKey(), 'laravel-flow:run:')

@@ -1361,7 +1361,13 @@ class FlowEngine
     {
         $store = $this->config['queue']['lock_store'] ?? null;
 
-        return is_string($store) && $store !== '' ? $store : null;
+        if (is_string($store) && $store !== '') {
+            return $store;
+        }
+
+        $defaultStore = $this->container->make('config')->get('cache.default');
+
+        return is_string($defaultStore) && $defaultStore !== '' ? $defaultStore : null;
     }
 
     private function queueLockSeconds(): int

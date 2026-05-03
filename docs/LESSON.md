@@ -79,6 +79,8 @@
 - Persisted aggregate run output should exclude failed step outputs; failed results also carry `[]`, and including them makes failed steps indistinguishable from successful empty-output steps.
 - Dry-run rollback must not invoke compensators. Dry-run-aware handlers may simulate work and then fail later, but compensators can perform real cleanup I/O.
 - Runtime-abort recovery after a successful step needs two contexts: pre-step context for persisted step input, post-step context for compensators.
+- Listener-failure metadata must be local to a single `run()` execution; `FlowEngine` is singleton-resolved, so mutable object state can leak across overlapping or nested executions.
+- Infrastructure aborts after all business steps succeeded should remain `aborted` even when rollback succeeds; do not let compensation status overwrite the abort cause.
 - README persistence docs must call out that opt-in synchronous persistence can rethrow listener/repository infrastructure failures after best-effort recovery and compensation.
 - README exception docs should distinguish `FlowStep*` listener failures, which are rethrown, from `FlowCompensated` listener failures, which are swallowed after best-effort telemetry.
 - Shared test recorders need one documented invocation shape across all writer stubs, otherwise helper phpdoc becomes misleading after a single stub extension.

@@ -625,6 +625,12 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
             $this->assertSame('run update down for succeeded', $exception->getMessage());
         }
 
+        $runRecord = FlowRunRecord::query()->first();
+
+        $this->assertInstanceOf(FlowRunRecord::class, $runRecord);
+        $this->assertSame(FlowRun::STATUS_ABORTED, $runRecord->status);
+        $this->assertTrue($runRecord->compensated);
+        $this->assertNull($runRecord->failed_step);
         $this->assertCount(1, RecordingCompensator::$invocations);
     }
 

@@ -35,8 +35,6 @@ class FlowEngine
      */
     private array $definitions = [];
 
-    private ?string $pendingListenerFailureEvent = null;
-
     public function __construct(
         private readonly Container $container,
         private readonly Dispatcher $events,
@@ -141,6 +139,8 @@ class FlowEngine
         foreach ($definition->steps as $step) {
             $sequence++;
             $stepStartedAt = $this->now();
+            $listenerFailureEvent = null;
+
             try {
                 $this->persistAtomically($persist, function () use (
                     $persist,
@@ -168,6 +168,7 @@ class FlowEngine
                     $context,
                     $stepStartedAt,
                     false,
+                    $listenerFailureEvent,
                 );
             } catch (Throwable $e) {
                 $failedAt = $this->now();
@@ -182,6 +183,7 @@ class FlowEngine
                     FlowStepResult::failed($e),
                     $stepStartedAt,
                     $failedAt,
+                    listenerEvent: $listenerFailureEvent,
                 );
 
                 throw $e;
@@ -194,6 +196,8 @@ class FlowEngine
             if (! $result->success) {
                 $error = $result->error;
                 $run->markFailed($step->name, $stepFinishedAt);
+                $listenerFailureEvent = null;
+
                 try {
                     $this->persistAtomically($persist, function () use (
                         $persist,
@@ -236,6 +240,7 @@ class FlowEngine
                         $context,
                         $stepStartedAt,
                         true,
+                        $listenerFailureEvent,
                     );
                 } catch (Throwable $e) {
                     $this->compensateAfterRuntimeAbort(
@@ -249,6 +254,7 @@ class FlowEngine
                         $result,
                         $stepStartedAt,
                         $stepFinishedAt,
+                        listenerEvent: $listenerFailureEvent,
                     );
 
                     throw $e;
@@ -282,6 +288,7 @@ class FlowEngine
             }
 
             $completedSteps[] = $step;
+            $listenerFailureEvent = null;
 
             try {
                 $this->persistAtomically($persist, function () use (
@@ -323,6 +330,7 @@ class FlowEngine
                     $context,
                     $stepStartedAt,
                     true,
+                    $listenerFailureEvent,
                 );
             } catch (Throwable $e) {
                 $failedAt = $this->now();
@@ -337,6 +345,7 @@ class FlowEngine
                     FlowStepResult::failed($e),
                     $stepStartedAt,
                     $failedAt,
+                    listenerEvent: $listenerFailureEvent,
                     failedStepPersistenceContext: $context,
                 );
 
@@ -495,7 +504,10 @@ class FlowEngine
             $compensatedAtLeastOne = true;
         }
 
-        if ($compensatedAtLeastOne) {
+        if ($compensatedAtLeastOne && $run->status === FlowRun::STATUS_ABORTED) {
+            $run->compensated = true;
+            $run->finishedAt = $this->now();
+        } elseif ($compensatedAtLeastOne) {
             $run->markCompensated($this->now());
         }
 
@@ -532,13 +544,12 @@ class FlowEngine
         ?FlowStepResult $failedResult = null,
         ?DateTimeInterface $stepStartedAt = null,
         ?DateTimeImmutable $failedAt = null,
+        ?string $listenerEvent = null,
         ?FlowContext $failedStepPersistenceContext = null,
         bool $markRunAborted = false,
     ): void {
         $failedAt ??= $this->now();
         $failedStepPersistenceContext ??= $context;
-        $listenerEvent = $this->pendingListenerFailureEvent;
-        $this->pendingListenerFailureEvent = null;
         $shouldMarkRunFailed = $failedStep !== null
             && ! in_array($run->status, [FlowRun::STATUS_FAILED, FlowRun::STATUS_COMPENSATED], true);
         $shouldMarkRunAborted = $failedStep === null
@@ -780,11 +791,12 @@ class FlowEngine
         FlowContext $context,
         DateTimeInterface $stepStartedAt,
         bool $stepAlreadyFinished,
+        ?string &$listenerFailureEvent,
     ): void {
         try {
             $this->dispatch($event);
         } catch (Throwable $e) {
-            $this->pendingListenerFailureEvent = $this->eventName($event);
+            $listenerFailureEvent = $this->eventName($event);
 
             if (! $persist) {
                 throw $e;

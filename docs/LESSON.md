@@ -109,3 +109,5 @@
 - Repository JSON redaction must share the engine's execution-scoped `PayloadRedactor`; resolving the redactor per repository write can diverge from text error redaction when applications bind transient redactors.
 - Repository methods that redact more than one JSON payload in a single write should batch those payloads through one redactor call so transient redactor bindings stay consistent within the stored record.
 - Execution-scoped mutable state in singleton services must be isolated by Fiber/request context or avoided; a plain singleton stack is unsafe under overlapping worker executions.
+- A runtime-scope wrapper must not bind to its own public contract without a safe fallback, otherwise self-resolution can silently bypass the underlying redaction policy.
+- Do not mark a run `compensated` until all compensators that should run have succeeded; partial rollback with aggregated compensation errors must remain visibly failed.

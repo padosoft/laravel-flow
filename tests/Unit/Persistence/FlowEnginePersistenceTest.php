@@ -1035,6 +1035,38 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         } catch (FlowCompensationException $exception) {
             $this->assertStringContainsString('compensation completed with 1 failed compensator', $exception->getMessage());
         }
+
+        $runRecord = FlowRunRecord::query()->first();
+
+        $this->assertInstanceOf(FlowRunRecord::class, $runRecord);
+        $this->assertSame(FlowRun::STATUS_FAILED, $runRecord->status);
+        $this->assertFalse($runRecord->compensated);
+    }
+
+    public function test_compensation_failure_persists_failed_state_without_marking_run_compensated(): void
+    {
+        $this->migrateFlowTables();
+        $engine = $this->engineWithPersistence();
+
+        $engine->define('flow.persist.compensation-fails')
+            ->step('create', AlwaysSucceedsHandler::class)
+            ->compensateWith(ThrowingCompensator::class)
+            ->step('charge', AlwaysFailsHandler::class)
+            ->register();
+
+        try {
+            $engine->execute('flow.persist.compensation-fails', []);
+            $this->fail('The throwing compensator should abort execution.');
+        } catch (FlowCompensationException $exception) {
+            $this->assertStringContainsString('compensation completed with 1 failed compensator', $exception->getMessage());
+        }
+
+        $runRecord = FlowRunRecord::query()->first();
+
+        $this->assertInstanceOf(FlowRunRecord::class, $runRecord);
+        $this->assertSame(FlowRun::STATUS_FAILED, $runRecord->status);
+        $this->assertFalse($runRecord->compensated);
+        $this->assertSame('failed', $runRecord->compensation_status);
     }
 
     private function engineWithPersistence(): FlowEngine

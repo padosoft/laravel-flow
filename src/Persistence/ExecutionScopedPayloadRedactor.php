@@ -46,10 +46,6 @@ final class ExecutionScopedPayloadRedactor implements PayloadRedactor
     {
         $redactor = $this->currentRedactor();
 
-        if ($redactor === $this) {
-            return $payload;
-        }
-
         return $redactor->redact($payload);
     }
 
@@ -75,14 +71,30 @@ final class ExecutionScopedPayloadRedactor implements PayloadRedactor
         $stack = $this->stacks[$this->scopeKey()] ?? [];
         $scoped = end($stack);
 
-        if ($scoped instanceof PayloadRedactor) {
+        if ($scoped instanceof PayloadRedactor && $scoped !== $this) {
             return $scoped;
         }
 
         /** @var PayloadRedactor $redactor */
         $redactor = $this->container->make(PayloadRedactor::class);
 
+        if ($redactor === $this) {
+            return $this->fallbackRedactor();
+        }
+
         return $redactor;
+    }
+
+    private function fallbackRedactor(): PayloadRedactor
+    {
+        /** @var array<string, mixed> $redaction */
+        $redaction = $this->container['config']->get('laravel-flow.persistence.redaction', []);
+
+        return new KeyBasedPayloadRedactor(
+            enabled: (bool) ($redaction['enabled'] ?? true),
+            keys: array_values(array_filter((array) ($redaction['keys'] ?? []), 'is_string')),
+            replacement: (string) ($redaction['replacement'] ?? '[redacted]'),
+        );
     }
 
     private function scopeKey(): string

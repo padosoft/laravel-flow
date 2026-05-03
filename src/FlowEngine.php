@@ -505,13 +505,6 @@ class FlowEngine
             $compensatedAtLeastOne = true;
         }
 
-        if ($compensatedAtLeastOne && $run->status === FlowRun::STATUS_ABORTED) {
-            $run->compensated = true;
-            $run->finishedAt = $this->now();
-        } elseif ($compensatedAtLeastOne) {
-            $run->markCompensated($this->now());
-        }
-
         if ($compensationErrors !== []) {
             $summary = implode('; ', array_map(
                 static fn (array $entry): string => sprintf(
@@ -528,6 +521,13 @@ class FlowEngine
                 count($compensationErrors),
                 $summary,
             ), previous: $compensationErrors[0]['error']);
+        }
+
+        if ($compensatedAtLeastOne && $run->status === FlowRun::STATUS_ABORTED) {
+            $run->compensated = true;
+            $run->finishedAt = $this->now();
+        } elseif ($compensatedAtLeastOne) {
+            $run->markCompensated($this->now());
         }
     }
 

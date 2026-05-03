@@ -158,3 +158,5 @@
 - README comparison atomicity claims must distinguish transaction-scoped step transitions and atomic step upserts from compensation audit/finalization writes, which can be separate best-effort operations.
 - Until Macro Task 3 implements strategy selection, `compensation_strategy` must be documented as reserved metadata only; the current engine ignores the value and always compensates in reverse order.
 - Even when `flow_audit` has a run foreign key, `flow:prune` should explicitly delete matching audit rows until there is an additive migration story for installations that already published older tables without that FK.
+- `ExecutionScopedPayloadRedactor` must delegate provider-chain cycle/depth handling to `PayloadRedactorResolution`; keep only the scope-specific self fallback outside the shared resolver so JSON and execution-scoped redaction cannot drift.
+- Laravel transaction callbacks should accept the connection argument even when unused, matching `EloquentFlowStore::transaction()` and avoiding arity drift across connection implementations.

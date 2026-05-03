@@ -63,6 +63,8 @@ return new class extends Migration
             $table->json('business_impact')->nullable();
             $table->timestampTz('occurred_at')->nullable()->index();
             $table->timestampTz('created_at')->nullable();
+
+            $table->foreign('run_id')->references('id')->on('flow_runs')->cascadeOnDelete();
         });
     }
 

@@ -20,6 +20,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property string|null $error_class
  * @property string|null $error_message
  * @property bool $dry_run_skipped
+ * @property int|null $duration_ms
  */
 final class FlowStepRecord extends Model
 {
@@ -36,10 +37,12 @@ final class FlowStepRecord extends Model
     protected $casts = [
         'business_impact' => 'array',
         'created_at' => 'immutable_datetime',
+        'duration_ms' => 'integer',
         'dry_run_skipped' => 'boolean',
         'finished_at' => 'immutable_datetime',
         'input' => 'array',
         'output' => 'array',
+        'sequence' => 'integer',
         'started_at' => 'immutable_datetime',
         'updated_at' => 'immutable_datetime',
     ];

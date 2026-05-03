@@ -12,7 +12,10 @@ final class PayloadRedactorResolution
 {
     private const MAX_PROVIDER_DEPTH = 32;
 
-    public static function current(PayloadRedactor $redactor): PayloadRedactor
+    /**
+     * @param  null|callable(CurrentPayloadRedactorProvider): PayloadRedactor  $resolveCurrentRedactor
+     */
+    public static function current(PayloadRedactor $redactor, ?callable $resolveCurrentRedactor = null): PayloadRedactor
     {
         $seen = [];
         $depth = 0;
@@ -31,7 +34,9 @@ final class PayloadRedactorResolution
             }
 
             $seen[$id] = true;
-            $next = $redactor->currentRedactor();
+            $next = $resolveCurrentRedactor !== null
+                ? $resolveCurrentRedactor($redactor)
+                : $redactor->currentRedactor();
 
             if ($next === $redactor) {
                 throw new RuntimeException('Cyclic CurrentPayloadRedactorProvider chain detected.');

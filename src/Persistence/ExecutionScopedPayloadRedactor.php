@@ -31,7 +31,12 @@ final class ExecutionScopedPayloadRedactor implements CurrentPayloadRedactorProv
             return $this->fallbackRedactor();
         }
 
-        return $this->unwrapCurrentRedactor($redactor);
+        return PayloadRedactorResolution::current(
+            $redactor,
+            fn (CurrentPayloadRedactorProvider $provider): PayloadRedactor => $provider instanceof self
+                ? $this->fallbackRedactor()
+                : $provider->currentRedactor(),
+        );
     }
 
     private function fallbackRedactor(): PayloadRedactor
@@ -44,40 +49,5 @@ final class ExecutionScopedPayloadRedactor implements CurrentPayloadRedactorProv
             keys: array_values(array_filter((array) ($redaction['keys'] ?? []), 'is_string')),
             replacement: (string) ($redaction['replacement'] ?? '[redacted]'),
         );
-    }
-
-    private function unwrapCurrentRedactor(PayloadRedactor $redactor): PayloadRedactor
-    {
-        $seen = [];
-        $depth = 0;
-
-        while ($redactor instanceof CurrentPayloadRedactorProvider) {
-            $depth++;
-
-            if ($depth > 32) {
-                throw new \RuntimeException('Cyclic CurrentPayloadRedactorProvider chain detected.');
-            }
-
-            if ($redactor instanceof self) {
-                return $this->fallbackRedactor();
-            }
-
-            $id = spl_object_id($redactor);
-
-            if (isset($seen[$id])) {
-                throw new \RuntimeException('Cyclic CurrentPayloadRedactorProvider chain detected.');
-            }
-
-            $seen[$id] = true;
-            $next = $redactor->currentRedactor();
-
-            if ($next === $redactor) {
-                throw new \RuntimeException('Cyclic CurrentPayloadRedactorProvider chain detected.');
-            }
-
-            $redactor = $next;
-        }
-
-        return $redactor;
     }
 }

@@ -57,6 +57,9 @@
 - Step/audit persistence for the same transition should be grouped with `FlowStore::transaction()` so a failed audit write does not leave a half-persisted step transition.
 - Persisted exception messages need text-level sanitization in addition to key-based JSON redaction; secrets can be interpolated into free-form exception strings.
 - Compensated runs should advance `finishedAt` after the compensation unwind finishes so persisted durations include rollback time, not only time-to-failure.
+- Runtime persistence transitions should include run-state updates, step rows, and audit rows in `FlowStore::transaction()` boundaries wherever they belong to the same logical transition; listener-failure recovery must not write the failed step and failed run in separate statements.
+- Persisted audit `occurred_at` should receive the engine-captured transition timestamp instead of letting the repository stamp a fresh value, otherwise audit rows drift from their matching step/run timestamps.
+- In persisted compensation, a throwing `FlowCompensated` listener must be recorded but must not abort the remaining reverse-order rollback after the compensator already succeeded.
 - Public README examples should avoid Laravel dump-and-die or other debug helpers; use normal variable assignment or assertions so docs do not teach debug output patterns.
 - When `composer validate --strict --no-check-publish` is a hard CI/PR gate, list it explicitly in contributor quick starts and PR expectation checklists, not only in CI or PR templates.
 - README comparison updates must stay factual. If a feature only reaches parity with a competitor, document parity rather than implying an advantage.

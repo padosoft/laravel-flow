@@ -119,7 +119,9 @@ class FlowEngine
             startedAt: $startedAt,
         );
         $run->markRunning();
-        $this->persistRunStarted($persist, $run, $input);
+        $this->persistAtomically($persist, function () use ($persist, $run, $input): void {
+            $this->persistRunStarted($persist, $run, $input);
+        });
 
         $context = new FlowContext(
             flowRunId: $run->id,
@@ -150,7 +152,7 @@ class FlowEngine
                     'definition_name' => $definition->name,
                     'dry_run' => $dryRun,
                     'status' => 'running',
-                ]);
+                ], occurredAt: $stepStartedAt);
             });
             $this->dispatchOrPersistListenerFailure(
                 $persist,
@@ -169,6 +171,7 @@ class FlowEngine
 
             if (! $result->success) {
                 $error = $result->error;
+                $run->markFailed($step->name, $stepFinishedAt);
                 $this->persistAtomically($persist, function () use (
                     $persist,
                     $run,
@@ -198,7 +201,8 @@ class FlowEngine
                         'error_class' => $error instanceof Throwable ? $error::class : null,
                         'error_message' => $this->safeErrorMessage($error),
                         'status' => 'failed',
-                    ]);
+                    ], occurredAt: $stepFinishedAt);
+                    $this->persistRunFinished($persist, $run);
                 });
                 $this->dispatchOrPersistListenerFailure(
                     $persist,
@@ -210,18 +214,20 @@ class FlowEngine
                     $stepStartedAt,
                     true,
                 );
-                $run->markFailed($step->name, $stepFinishedAt);
-                $this->persistRunFinished($persist, $run);
 
                 try {
                     $this->compensate($definition, $context, $completedSteps, $run, $persist);
                 } catch (Throwable $e) {
-                    $this->persistRunFinished($persist, $run, 'failed');
+                    $this->persistAtomically($persist, function () use ($persist, $run): void {
+                        $this->persistRunFinished($persist, $run, 'failed');
+                    });
 
                     throw $e;
                 }
 
-                $this->persistRunFinished($persist, $run, $run->compensated ? 'succeeded' : null);
+                $this->persistAtomically($persist, function () use ($persist, $run): void {
+                    $this->persistRunFinished($persist, $run, $run->compensated ? 'succeeded' : null);
+                });
 
                 return $run;
             }
@@ -254,7 +260,7 @@ class FlowEngine
                     'dry_run_skipped' => $result->dryRunSkipped,
                     'output' => $result->output,
                     'status' => $result->dryRunSkipped ? 'skipped' : 'succeeded',
-                ], $result->businessImpact);
+                ], $result->businessImpact, $stepFinishedAt);
             });
             $this->dispatchOrPersistListenerFailure(
                 $persist,
@@ -276,7 +282,9 @@ class FlowEngine
         }
 
         $run->markSucceeded($this->now());
-        $this->persistRunFinished($persist, $run);
+        $this->persistAtomically($persist, function () use ($persist, $run): void {
+            $this->persistRunFinished($persist, $run);
+        });
 
         return $run;
     }
@@ -376,13 +384,21 @@ class FlowEngine
                 continue;
             }
 
+            $compensatedAt = $this->now();
             $this->recordAudit($persist, 'FlowCompensated', $run, $step->name, [
                 'definition_name' => $definition->name,
                 'dry_run' => $context->dryRun,
                 'status' => 'compensated',
-            ]);
-            $this->dispatch(new FlowCompensated($run->id, $definition->name, $step->name, $context->dryRun));
+            ], occurredAt: $compensatedAt);
             $compensatedAtLeastOne = true;
+            $this->dispatchCompensatedOrRecordListenerFailure(
+                $persist,
+                $definition,
+                $context,
+                $run,
+                $step,
+                $compensatedAt,
+            );
         }
 
         if ($compensatedAtLeastOne) {
@@ -418,40 +434,100 @@ class FlowEngine
         DateTimeInterface $stepStartedAt,
         bool $stepAlreadyFinished,
     ): void {
-        if (! $persist) {
-            $this->dispatch($event);
-
-            return;
-        }
-
         try {
             $this->dispatch($event);
         } catch (Throwable $e) {
+            if (! $persist) {
+                throw $e;
+            }
+
             $failedAt = $this->now();
+            $failedResult = FlowStepResult::failed($e);
+            $shouldPersistStepFailure = ! $stepAlreadyFinished || $event instanceof FlowStepCompleted;
 
-            if (! $stepAlreadyFinished) {
-                $result = FlowStepResult::failed($e);
-                $run->recordStepResult($step->name, $result);
-                $this->persistStepFinished(
-                    true,
-                    $run,
-                    $step,
-                    $sequence,
-                    $context,
-                    $result,
-                    $stepStartedAt,
-                    $failedAt,
-                );
-            }
+            $this->persistAtomically(true, function () use (
+                $run,
+                $step,
+                $sequence,
+                $context,
+                $stepStartedAt,
+                $stepAlreadyFinished,
+                $shouldPersistStepFailure,
+                $failedResult,
+                $failedAt,
+                $event,
+                $e,
+            ): void {
+                if ($shouldPersistStepFailure) {
+                    $run->recordStepResult($step->name, $failedResult);
+                    $this->persistStepFinished(
+                        true,
+                        $run,
+                        $step,
+                        $sequence,
+                        $context,
+                        $failedResult,
+                        $stepStartedAt,
+                        $failedAt,
+                    );
+                }
 
-            if ($run->finishedAt === null) {
-                $run->markFailed($step->name, $failedAt);
-            }
+                if ($run->finishedAt === null) {
+                    $run->markFailed($step->name, $failedAt);
+                }
 
-            $this->persistRunFinished(true, $run);
+                $this->recordAudit(true, 'FlowStepFailed', $run, $step->name, [
+                    'definition_name' => $context->definitionName,
+                    'dry_run' => $context->dryRun,
+                    'error_class' => $e::class,
+                    'error_message' => $this->safeErrorMessage($e),
+                    'listener_event' => $this->eventName($event),
+                    'previous_step_state_finished' => $stepAlreadyFinished,
+                    'status' => 'failed',
+                ], occurredAt: $failedAt);
+
+                $this->persistRunFinished(true, $run);
+            });
 
             throw $e;
         }
+    }
+
+    private function dispatchCompensatedOrRecordListenerFailure(
+        bool $persist,
+        FlowDefinition $definition,
+        FlowContext $context,
+        FlowRun $run,
+        FlowStep $step,
+        DateTimeInterface $occurredAt,
+    ): void {
+        try {
+            $this->dispatch(new FlowCompensated($run->id, $definition->name, $step->name, $context->dryRun));
+        } catch (Throwable $e) {
+            if (! $persist) {
+                throw $e;
+            }
+
+            $this->persistAtomically(true, function () use ($definition, $context, $run, $step, $occurredAt, $e): void {
+                $this->recordAudit(true, 'FlowCompensated', $run, $step->name, [
+                    'definition_name' => $definition->name,
+                    'dry_run' => $context->dryRun,
+                    'listener_error_class' => $e::class,
+                    'listener_error_message' => $this->safeErrorMessage($e),
+                    'listener_event' => 'FlowCompensated',
+                    'listener_failed' => true,
+                    'status' => 'compensated',
+                ], occurredAt: $occurredAt);
+            });
+        }
+    }
+
+    private function eventName(object $event): string
+    {
+        $class = $event::class;
+        $separator = strrpos($class, '\\');
+
+        return $separator === false ? $class : substr($class, $separator + 1);
     }
 
     /**
@@ -626,6 +702,7 @@ class FlowEngine
         ?string $stepName,
         array $payload,
         ?array $businessImpact = null,
+        ?DateTimeInterface $occurredAt = null,
     ): void {
         $store = $this->storeFor($persist);
 
@@ -639,6 +716,7 @@ class FlowEngine
             payload: $payload,
             stepName: $stepName,
             businessImpact: $businessImpact,
+            occurredAt: $occurredAt,
         );
     }
 

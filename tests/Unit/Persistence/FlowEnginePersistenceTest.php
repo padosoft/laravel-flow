@@ -6,6 +6,8 @@ namespace Padosoft\LaravelFlow\Tests\Unit\Persistence;
 
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Date;
+use Padosoft\LaravelFlow\Events\FlowCompensated;
+use Padosoft\LaravelFlow\Events\FlowStepCompleted;
 use Padosoft\LaravelFlow\Events\FlowStepStarted;
 use Padosoft\LaravelFlow\FlowEngine;
 use Padosoft\LaravelFlow\FlowRun;
@@ -157,6 +159,14 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         $this->assertSame(FlowRun::STATUS_COMPENSATED, $runRecord->status);
         $this->assertSame($compensated->getTimestamp(), $runRecord->finished_at->getTimestamp());
         $this->assertSame(5000, $runRecord->duration_ms);
+
+        $compensatedAudit = FlowAuditRecord::query()
+            ->where('run_id', $run->id)
+            ->where('event', 'FlowCompensated')
+            ->first();
+
+        $this->assertInstanceOf(FlowAuditRecord::class, $compensatedAudit);
+        $this->assertSame($compensated->getTimestamp(), $compensatedAudit->occurred_at->getTimestamp());
     }
 
     public function test_persisted_error_messages_are_sanitized_before_storage(): void
@@ -269,6 +279,90 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         $this->assertSame('failed', $stepRecord->status);
         $this->assertSame(RuntimeException::class, $stepRecord->error_class);
         $this->assertSame('listener exploded', $stepRecord->error_message);
+
+        $failedAudit = FlowAuditRecord::query()
+            ->where('run_id', $runRecord->id)
+            ->where('event', 'FlowStepFailed')
+            ->first();
+
+        $this->assertInstanceOf(FlowAuditRecord::class, $failedAudit);
+        $this->assertSame('FlowStepStarted', $failedAudit->payload['listener_event']);
+    }
+
+    public function test_persisted_completed_listener_failure_is_recorded_as_failed_transition(): void
+    {
+        $this->migrateFlowTables();
+        $engine = $this->engineWithPersistence();
+
+        $this->app['events']->listen(
+            FlowStepCompleted::class,
+            static fn (): never => throw new RuntimeException('listener token=plain-secret'),
+        );
+
+        $engine->define('flow.persist.completed-listener')
+            ->step('create', AlwaysSucceedsHandler::class)
+            ->register();
+
+        try {
+            $engine->execute('flow.persist.completed-listener', []);
+            $this->fail('The throwing listener should abort execution.');
+        } catch (RuntimeException $exception) {
+            $this->assertSame('listener token=plain-secret', $exception->getMessage());
+        }
+
+        $runRecord = FlowRunRecord::query()->first();
+        $stepRecord = FlowStepRecord::query()->first();
+        $failedAudit = FlowAuditRecord::query()
+            ->where('event', 'FlowStepFailed')
+            ->first();
+
+        $this->assertInstanceOf(FlowRunRecord::class, $runRecord);
+        $this->assertInstanceOf(FlowStepRecord::class, $stepRecord);
+        $this->assertInstanceOf(FlowAuditRecord::class, $failedAudit);
+        $this->assertSame(FlowRun::STATUS_FAILED, $runRecord->status);
+        $this->assertSame('failed', $stepRecord->status);
+        $this->assertSame(RuntimeException::class, $stepRecord->error_class);
+        $this->assertStringNotContainsString('plain-secret', (string) $stepRecord->error_message);
+        $this->assertSame('FlowStepCompleted', $failedAudit->payload['listener_event']);
+        $this->assertStringNotContainsString('plain-secret', (string) $failedAudit->payload['error_message']);
+    }
+
+    public function test_persisted_compensation_listener_failure_does_not_abort_rollback(): void
+    {
+        $this->migrateFlowTables();
+        $engine = $this->engineWithPersistence();
+
+        $this->app['events']->listen(
+            FlowCompensated::class,
+            static fn (): never => throw new RuntimeException('compensation token=plain-secret'),
+        );
+
+        $engine->define('flow.persist.compensation-listener')
+            ->step('one', AlwaysSucceedsHandler::class)
+            ->compensateWith(RecordingCompensator::class)
+            ->step('two', AlwaysSucceedsHandler::class)
+            ->compensateWith(RecordingCompensator::class)
+            ->step('fail', AlwaysFailsHandler::class)
+            ->register();
+
+        $run = $engine->execute('flow.persist.compensation-listener', []);
+
+        $runRecord = FlowRunRecord::query()->find($run->id);
+        $listenerFailureAudits = FlowAuditRecord::query()
+            ->where('run_id', $run->id)
+            ->where('event', 'FlowCompensated')
+            ->get()
+            ->filter(static fn (FlowAuditRecord $record): bool => ($record->payload['listener_failed'] ?? false) === true)
+            ->values();
+
+        $this->assertInstanceOf(FlowRunRecord::class, $runRecord);
+        $this->assertSame(FlowRun::STATUS_COMPENSATED, $runRecord->status);
+        $this->assertCount(2, RecordingCompensator::$invocations);
+        $this->assertCount(2, $listenerFailureAudits);
+        $this->assertStringNotContainsString(
+            'plain-secret',
+            (string) $listenerFailureAudits[0]->payload['listener_error_message'],
+        );
     }
 
     private function engineWithPersistence(): FlowEngine

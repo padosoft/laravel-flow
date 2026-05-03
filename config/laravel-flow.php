@@ -79,7 +79,7 @@ return [
     |--------------------------------------------------------------------------
     |
     | Reserved for future concurrent compensation work. The current engine
-    | does not read this setting: every compensation walk is reverse-order
+    | does not read this setting: every compensation walk is in reverse order
     | regardless of the configured value.
     |
     */

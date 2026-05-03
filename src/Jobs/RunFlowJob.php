@@ -51,6 +51,8 @@ final class RunFlowJob implements ShouldQueueAfterCommit
         $lock = $store->lock($this->lockKey(), $this->lockSeconds());
 
         if (! $lock->get()) {
+            // InteractsWithQueue marks the underlying Laravel job as released;
+            // CallQueuedHandler will not delete a released job.
             $this->release($this->lockSeconds());
 
             return null;

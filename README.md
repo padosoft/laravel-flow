@@ -7,7 +7,7 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg?style=flat-square)](LICENSE)
 [![Total Downloads](https://img.shields.io/packagist/dt/padosoft/laravel-flow.svg?style=flat-square)](https://packagist.org/packages/padosoft/laravel-flow)
 
-> **DX-first workflow / saga / compensation engine for Laravel — with native dry-run, reverse-order rollback, business-impact projection, opt-in persistence, and audit events. Built for the Laravel team that needs Temporal-class semantics without leaving Eloquent.**
+> **DX-first workflow / saga / compensation engine for Laravel — with native dry-run, reverse-order rollback, business-impact projection, opt-in persistence, and audit events. Built for Laravel teams that need explicit saga semantics without leaving Eloquent.**
 
 `laravel-flow` is the third deliverable of the [Padosoft v4.0 cycle](https://github.com/lopadova/AskMyDocs) (W5). It is a community Apache-2.0 package, **standalone-agnostic** (zero references to AskMyDocs / sister packages), and ships with the Padosoft AI vibe-coding pack so you can extend it with Claude Code or GitHub Copilot in minutes — not days.
 
@@ -113,21 +113,30 @@ When `audit_trail_enabled` is enabled, normal-case step and compensation transit
 
 ## Comparison vs alternatives
 
-| Feature                          | `laravel-flow`               | Spatie Workflow             | Symfony Workflow            | Temporal                  | AWS Step Functions     |
-| -------------------------------- | ---------------------------- | --------------------------- | --------------------------- | ------------------------- | ---------------------- |
-| Native dry-run                   | ✅ first-class; no persistence writes or compensator side effects | ❌                          | ❌                          | ❌                         | ❌                      |
-| Reverse-order saga compensation  | ✅ built-in                   | ⚠️ manual                   | ⚠️ manual                   | ✅ via SDK                 | ⚠️ via Catch + state    |
-| Approval gate as a step type     | ❌ planned v0.3                | ⚠️ via guards               | ✅ via transition guard     | ⚠️ via `Workflow.await`   | ✅ via task token        |
-| Container-resolved handlers      | ✅                            | ⚠️ partial                  | ✅                          | ✅ (via worker DI)         | ❌ (Lambda fanout)      |
-| Audit trail (events)             | ✅ transition events when enabled | ⚠️ via state machine hooks  | ✅                          | ✅                         | ✅ (CloudWatch)         |
-| Business-impact projection       | ✅ on every result            | ❌                          | ❌                          | ❌                         | ❌                      |
-| Persistence model                | in-memory by default; opt-in DB runs/steps/audit with immutable run updates, correlation/idempotency keys, atomic step upserts, successful-step output aggregation, and terminal-run pruning | DB                          | DB                          | dedicated cluster         | managed                |
-| Persisted transition safety      | ✅ transaction-scoped writes + compensate-first runtime-abort recovery | ⚠️ package/app-defined      | ⚠️ app-defined marking store | ✅ managed event history | ✅ managed execution history |
-| Setup time                       | `composer require` + 1 file  | medium                      | medium                      | run a Temporal cluster    | AWS account + IAM      |
-| Self-hosted, zero infra          | ✅                            | ✅                           | ✅                          | ❌ (cluster needed)        | ❌ (AWS-only)           |
-| License                          | Apache-2.0                   | MIT                         | MIT                         | MIT                       | proprietary            |
+Legend: `✅ YES` means the capability is first-class in the current product, `⚠️ PARTIAL` means it is possible but manual, narrower, or provided through a different model, and `❌ NO` means it is not available today.
 
-`laravel-flow` is **deliberately positioned** as the lightest dependency in the table. If you are already running a Temporal cluster, use Temporal. If you are running zero infra and want saga semantics in your existing Laravel app, this is the package.
+| Feature | `laravel-flow` | Durable Workflow (Laravel) | Symfony Workflow | Temporal | AWS Step Functions |
+| --- | --- | --- | --- | --- | --- |
+| Native dry-run with no persistence writes | ✅ YES - first-class `Flow::dryRun()`; no run, step, audit, or compensator writes | ❌ NO - not documented as a first-class mode | ❌ NO - app must model preview behavior | ❌ NO - app must model simulation separately | ❌ NO - app must model simulation separately |
+| Reverse-order saga compensation | ✅ YES - built-in per-step `compensateWith()` | ⚠️ PARTIAL - sagas/error handling are possible, but compensation policy is workflow-defined | ⚠️ PARTIAL - manual transition/state design | ⚠️ PARTIAL - compensation pattern via workflow code/SDKs | ⚠️ PARTIAL - manual cleanup states via `Catch` |
+| Approval gate as a step type | ❌ NO - planned for v0.3 approval/webhook macro | ⚠️ PARTIAL - model manually as a long-running workflow/activity | ⚠️ PARTIAL - guards can block transitions but are not resumable approval steps | ⚠️ PARTIAL - signals/await patterns, not Laravel step gates | ✅ YES - callback/task-token pattern |
+| Container-resolved PHP handlers | ✅ YES - handlers and compensators resolve through Laravel's container | ✅ YES - PHP workflow/activity classes | ✅ YES - Symfony services/listeners | ❌ NO - worker model is outside Laravel's container | ❌ NO - Lambda/service fanout |
+| Audit trail and event hooks | ✅ YES - `FlowStep*` / `FlowCompensated` events plus optional `flow_audit` rows | ⚠️ PARTIAL - status tracking and Laravel event integration | ✅ YES - workflow events and optional audit trail | ✅ YES - managed workflow event history | ✅ YES - execution history plus CloudWatch/CloudTrail integrations |
+| In-memory default with opt-in app DB persistence | ✅ YES - memory by default; DB runs/steps/audit only when enabled | ❌ NO - durable persistence is central to the engine | ⚠️ PARTIAL - marking store is app-defined | ❌ NO - dedicated Temporal service/cluster | ❌ NO - managed AWS service |
+| Redacted JSON persistence | ✅ YES - configurable key redaction before run/step/audit payload storage | ❌ NO - not documented as built-in | ❌ NO - app-defined storage concern | ⚠️ PARTIAL - custom payload codecs/converters, not Laravel key config | ⚠️ PARTIAL - service-level data handling, not Laravel key config |
+| Correlation and idempotency keys | ✅ YES - first-class `FlowExecutionOptions` with length validation and persisted reuse | ❌ NO - not documented as first-class execution metadata | ❌ NO - app-defined | ⚠️ PARTIAL - workflow/activity IDs and idempotency patterns | ⚠️ PARTIAL - execution names/tokens, service-specific semantics |
+| Successful-step output aggregation | ✅ YES - persisted successful outputs rehydrate idempotent run reuse | ⚠️ PARTIAL - workflow/activity outputs exist, but this package contract is not documented | ❌ NO - app-defined | ✅ YES - workflow history/result model | ⚠️ PARTIAL - state input/output paths, not Laravel step result objects |
+| Transaction-scoped transition writes | ✅ YES - run, step, and audit transitions share repository transactions | ⚠️ PARTIAL - package/app persistence model | ⚠️ PARTIAL - marking store/app transaction concern | ✅ YES - managed event-history durability | ✅ YES - managed execution-history durability |
+| Runtime-abort recovery before surfacing infrastructure failures | ✅ YES - best-effort failure state plus compensation before rethrow | ⚠️ PARTIAL - retries/error handling, recovery policy is workflow-defined | ⚠️ PARTIAL - app-defined | ✅ YES - durable execution/retry recovery | ⚠️ PARTIAL - `Retry`, `Catch`, and redrive behavior |
+| Retention pruning for persisted telemetry | ✅ YES - `flow:prune` keeps pending/running rows intact | ❌ NO - not documented as built-in | ❌ NO - app-defined | ⚠️ PARTIAL - service retention configuration, not package command | ⚠️ PARTIAL - managed history/log retention, not app command |
+| Business-impact projection on every result | ✅ YES - `businessImpact` is part of every `FlowStepResult` | ❌ NO - not documented | ❌ NO - not a workflow component concern | ❌ NO - app-defined | ❌ NO - app-defined |
+| Queue-backed workers today | ❌ NO - planned v0.2 slice | ✅ YES - Laravel queue/worker support | ❌ NO - not native | ✅ YES - worker-based execution | ✅ YES - managed orchestration |
+| Replay/redrive of failed executions today | ❌ NO - planned v0.2 slice | ⚠️ PARTIAL - durable long-running workflow model; exact replay semantics differ | ❌ NO - not native | ✅ YES - deterministic replay/event history | ✅ YES - Standard Workflow redrive |
+| Low setup friction | ✅ YES - `composer require` plus optional config/migration publish | ⚠️ PARTIAL - Laravel queues/workers and optional Waterline UI | ✅ YES - Composer package and framework config | ❌ NO - service/cluster plus workers | ❌ NO - AWS account, IAM, state-machine definitions |
+| Self-hosted with no external workflow service | ✅ YES - runs inside the Laravel app; DB optional | ✅ YES - Laravel app/queue infrastructure | ✅ YES - application component | ❌ NO - requires Temporal service/cluster | ❌ NO - AWS-managed service |
+| Open-source package/license | ✅ YES - Apache-2.0 | ✅ YES - MIT | ✅ YES - MIT | ✅ YES - MIT core/server and SDKs | ❌ NO - proprietary managed service |
+
+Competitor snapshot checked against Durable Workflow, Symfony Workflow, Temporal, and AWS Step Functions documentation on 2026-05-03. `laravel-flow` is **deliberately positioned** as the lightest Laravel-native dependency in the table. If you already run Temporal or AWS Step Functions and need their queue/replay/redrive guarantees today, use them. If you want saga semantics, dry-run, business-impact projection, and opt-in persistence inside an existing Laravel app, this is the package.
 
 ---
 
@@ -429,7 +438,7 @@ CI runs Pint (style), PHPStan (level 6), and the Unit + Architecture suites thro
 | v0.1    | In-memory engine, fluent builder, dry-run, reverse-order compensation, four audit event classes, business-impact field on results, Facade. Architecture test enforces standalone-agnostic.                                                                            | code complete     |
 | v0.2    | Persistence core: `flow_runs` / `flow_steps` / `flow_audit` tables, synchronous engine writes, redacted payload storage, correlation/idempotency keys, and terminal-run retention pruning. Queue-backed workers, replay command, and parallel compensation strategy remain next. | Q3 2026           |
 | v0.3    | Approval-gate primitive (a step type that pauses until an external token is presented), webhooks for resume.                                                                                                                                                         | Q4 2026           |
-| v1.0    | Stable API, semver guarantee, full migration helpers from Spatie Workflow / Symfony Workflow.                                                                                                                                                                        | 2027              |
+| v1.0    | Stable API, semver guarantee, full migration helpers from Durable Workflow / Symfony Workflow.                                                                                                                                                                       | 2027              |
 
 ---
 

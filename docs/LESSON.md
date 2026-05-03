@@ -150,3 +150,4 @@
 - README feature and comparison sections must not advertise approval gates as shipped until the approval/webhook macro lands.
 - README audit claims should distinguish runtime events from append-only persisted rows; `flow:prune` means persisted audit rows are not immutable forever.
 - README event wording must include the `audit_trail_enabled` gate and avoid saying every transition emits all event classes.
+- README event wording should qualify event dispatch as normal-case behavior: with persistence enabled, `FlowStep*` events dispatch only after the corresponding audit append succeeds, and `FlowCompensated` is skipped when its compensation audit append fails.

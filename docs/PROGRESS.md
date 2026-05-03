@@ -47,6 +47,11 @@ Completed in Macro Task 2:
 - Added `FlowExecutionOptions` for normalized, length-validated correlation/idempotency metadata and idempotent persisted-run reuse with step-result rehydration and create-race fallback.
 - Added `flow:prune` retention cleanup for old terminal runs while keeping pending/running rows intact.
 
+Macro Task 2 validation baseline:
+
+- `composer validate --strict --no-check-publish`
+- `composer quality` => Pint format test, PHPStan, Unit 106 tests / 463 assertions, Architecture 2 tests / 7 assertions
+
 Next active macro:
 
 - Continue Macro Task 3 from `docs/ENTERPRISE_PLAN.md`: v0.2 queues, replay, and compensation strategies. Preserve the shipped `reverse-order` config spelling when adding `parallel`.

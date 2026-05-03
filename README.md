@@ -55,7 +55,7 @@ Laravel applications routinely need to orchestrate **multi-step business workflo
 
 - **Validations** (some safe to skip, some load-bearing).
 - **Simulations** (project the impact of an operation without writing).
-- **Approval gates** (future macro: a human signs off before persistence).
+- **Manual sign-off checkpoints** (planned for the v0.3 approval/webhook macro; not shipped in the current core).
 - **Side-effecting writes** (DB rows, queue jobs, vendor API calls).
 - **Compensation chains** (when step N fails, undo step N-1 ... step 1).
 - **Audit trails** (regulators want to see *who did what, when, with which inputs, in which order*).
@@ -86,7 +86,7 @@ Saga semantics: when step N fails, the engine walks the previously-completed ste
 
 ### 4. The audit trail is event-driven
 
-When `audit_trail_enabled` is enabled, step and compensation transitions dispatch Laravel events such as `FlowStepStarted`, `FlowStepCompleted`, `FlowStepFailed`, and `FlowCompensated`. The host application subscribes once and routes them to the logger, DB, or metrics backend it already runs. For non-dry-run executions, when both persistence and `audit_trail_enabled` are enabled, v0.2 also records default audit rows in `flow_audit`. Dry-runs never write run, step, or audit rows.
+When `audit_trail_enabled` is enabled, normal-case step and compensation transitions dispatch the matching Laravel event, such as `FlowStepStarted`, `FlowStepCompleted`, `FlowStepFailed`, or `FlowCompensated`. When persistence is enabled, step events are dispatched only after the matching audit append succeeds, and compensation events are skipped if their audit append fails. The host application subscribes once and routes those events to the logger, DB, or metrics backend it already runs. For non-dry-run executions, when both persistence and `audit_trail_enabled` are enabled, v0.2 also records default audit rows in `flow_audit`. Dry-runs never write run, step, or audit rows.
 
 ### 5. Standalone-agnostic — zero AskMyDocs symbols
 
@@ -99,12 +99,12 @@ When `audit_trail_enabled` is enabled, step and compensation transitions dispatc
 - **Fluent definition builder** — `Flow::define($name)->withInput([...])->step(...)->register()`.
 - **Native dry-run** — `Flow::dryRun($name, $input)` simulates without persisting; supporting handlers project impact, others self-skip.
 - **Reverse-order saga compensation** — `compensateWith(Compensator::class)` per step; failures unwind cleanly.
-- **Audit events and persisted audit rows** — step started/completed/failed and compensated events when audit is enabled; optional persisted audit rows are append-only during normal runtime and can be retention-pruned with `flow:prune`.
+- **Audit events and persisted audit rows** — normal-case transitions dispatch matching `FlowStep*` / `FlowCompensated` events when audit is enabled; with persistence enabled, those events are emitted only after required audit appends succeed. Optional persisted audit rows are append-only during normal runtime and can be retention-pruned with `flow:prune`.
 - **Business-impact projection** — handlers return `businessImpact: [...]` alongside output, surfaced on every step result.
 - **Opt-in persisted execution** — `flow_runs`, `flow_steps`, and `flow_audit` migrations, Eloquent repositories, immutable run identity updates, correlation/idempotency keys, transaction-scoped run/step/audit transitions, compensate-first runtime-abort recovery, sanitized listener/error storage, clock-aware audit timestamps, redacted JSON payload storage, and retention pruning.
 - **Container-resolved handlers** — full DI, type hints, and stack traces.
 - **Strict input validation** — `withInput(['a','b'])` throws `FlowInputException` if a key is missing.
-- **Compensation strategy config** — `reverse-order` today; `parallel` is reserved for a future v0.2 slice and currently falls back to reverse-order.
+- **Compensation strategy config** — the shipped value is `reverse-order`; `parallel` is documented only as a reserved future value and currently executes reverse-order.
 - **Testbench-friendly** — TestCase + stubs ready to copy.
 - **🚀 AI vibe-coding pack included** — `.claude/` directory with skills, rules, agents, commands, and the Padosoft Copilot review loop pre-wired.
 - **PHP 8.3 / 8.4 × Laravel 13** matrix on every CI run.

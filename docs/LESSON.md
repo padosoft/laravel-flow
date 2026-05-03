@@ -74,6 +74,10 @@
 - Compensation listener failures should annotate the single `FlowCompensated` audit transition when possible, not append a duplicate compensation event for the same rollback.
 - Step listener failures should be marked once and consumed by the outer runtime-abort recovery; otherwise inner listener recovery plus outer compensation recovery can duplicate `FlowStepFailed` audit rows.
 - A throwing `FlowStepFailed` listener happens after the failed transition was already stored; recovery must compensate without appending a second `FlowStepFailed` audit row for the same step failure.
+- Text redaction keys configured in normalized form (`apikey`) must still match quoted JSON-style variants (`api-key`, `apiKey`) inside free-form error messages.
+- Persisted aggregate run output should include successful empty-array outputs; omitting them makes "step ran and returned []" indistinguishable from "step absent".
+- README persistence docs must call out that opt-in synchronous persistence can rethrow listener/repository infrastructure failures after best-effort recovery and compensation.
+- Shared test recorders need one documented invocation shape across all writer stubs, otherwise helper phpdoc becomes misleading after a single stub extension.
 - Public README examples should avoid Laravel dump-and-die or other debug helpers; use normal variable assignment or assertions so docs do not teach debug output patterns.
 - When `composer validate --strict --no-check-publish` is a hard CI/PR gate, list it explicitly in contributor quick starts and PR expectation checklists, not only in CI or PR templates.
 - README comparison updates must stay factual. If a feature only reaches parity with a competitor, document parity rather than implying an advantage.

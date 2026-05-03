@@ -29,6 +29,7 @@ use Padosoft\LaravelFlow\Tests\Unit\Stubs\AlwaysSucceedsHandler;
 use Padosoft\LaravelFlow\Tests\Unit\Stubs\ClockAdvancingCompensator;
 use Padosoft\LaravelFlow\Tests\Unit\Stubs\CustomSecretFailsHandler;
 use Padosoft\LaravelFlow\Tests\Unit\Stubs\DryRunAwareHandler;
+use Padosoft\LaravelFlow\Tests\Unit\Stubs\EmptyOutputHandler;
 use Padosoft\LaravelFlow\Tests\Unit\Stubs\FirstStepCompensator;
 use Padosoft\LaravelFlow\Tests\Unit\Stubs\RecordingCompensator;
 use Padosoft\LaravelFlow\Tests\Unit\Stubs\SecretFailsHandler;
@@ -104,6 +105,23 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
             'FlowStepStarted',
             'FlowStepCompleted',
         ], $auditEvents);
+    }
+
+    public function test_successful_empty_step_output_is_preserved_in_persisted_run_output(): void
+    {
+        $this->migrateFlowTables();
+        $engine = $this->engineWithPersistence();
+
+        $engine->define('flow.persist.empty-output')
+            ->step('noop', EmptyOutputHandler::class)
+            ->register();
+
+        $run = $engine->execute('flow.persist.empty-output', []);
+        $runRecord = FlowRunRecord::query()->find($run->id);
+
+        $this->assertInstanceOf(FlowRunRecord::class, $runRecord);
+        $this->assertArrayHasKey('noop', $runRecord->output);
+        $this->assertSame([], $runRecord->output['noop']);
     }
 
     public function test_failed_flow_persists_failed_step_and_compensation_state(): void
@@ -206,6 +224,8 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         $this->assertStringNotContainsString('plain-secret', (string) $failedStep->error_message);
         $this->assertStringNotContainsString('camel-secret', (string) $failedStep->error_message);
         $this->assertStringNotContainsString('dash-secret', (string) $failedStep->error_message);
+        $this->assertStringNotContainsString('json-dash-secret', (string) $failedStep->error_message);
+        $this->assertStringNotContainsString('json-camel-secret', (string) $failedStep->error_message);
         $this->assertStringNotContainsString('auth-secret', (string) $failedStep->error_message);
         $this->assertStringNotContainsString('abc123', (string) $failedStep->error_message);
         $this->assertStringContainsString('[redacted]', (string) $failedStep->error_message);
@@ -267,6 +287,8 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         $this->assertInstanceOf(FlowStepRecord::class, $failedStep);
         $this->assertStringNotContainsString('camel-secret', (string) $failedStep->error_message);
         $this->assertStringNotContainsString('dash-secret', (string) $failedStep->error_message);
+        $this->assertStringNotContainsString('json-dash-secret', (string) $failedStep->error_message);
+        $this->assertStringNotContainsString('json-camel-secret', (string) $failedStep->error_message);
         $this->assertStringNotContainsString('auth-secret', (string) $failedStep->error_message);
     }
 

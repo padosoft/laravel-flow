@@ -122,7 +122,7 @@ Every transition (`FlowStepStarted`, `FlowStepCompleted`, `FlowStepFailed`, `Flo
 | Container-resolved handlers      | ✅                            | ⚠️ partial                  | ✅                          | ✅ (via worker DI)         | ❌ (Lambda fanout)      |
 | Audit trail (events)             | ✅ 4 events / transition      | ⚠️ via state machine hooks  | ✅                          | ✅                         | ✅ (CloudWatch)         |
 | Business-impact projection       | ✅ on every result            | ❌                          | ❌                          | ❌                         | ❌                      |
-| Persistence model                | in-memory by default; opt-in DB runs/steps/audit with immutable run updates and atomic step upserts | DB                          | DB                          | dedicated cluster         | managed                |
+| Persistence model                | in-memory by default; opt-in DB runs/steps/audit with immutable run updates, atomic step upserts, and lossless per-step output | DB                          | DB                          | dedicated cluster         | managed                |
 | Persisted transition safety      | ✅ transaction-scoped writes + compensate-first failure handling | ⚠️ package/app-defined      | ⚠️ app-defined marking store | ✅ managed event history | ✅ managed execution history |
 | Setup time                       | `composer require` + 1 file  | medium                      | medium                      | run a Temporal cluster    | AWS account + IAM      |
 | Self-hosted, zero infra          | ✅                            | ✅                           | ✅                          | ❌ (cluster needed)        | ❌ (AWS-only)           |
@@ -306,6 +306,8 @@ return [
 | `dry_run_default`         | `false`          | When `true`, `Flow::execute()` behaves like `dryRun()` — guard rail for staging environments.     |
 | `step_timeout_seconds`    | `300`            | Reserved for v0.2 queued workers.                                                                 |
 | `compensation_strategy`   | `reverse-order`  | `parallel` reserved for v0.2 — currently falls back to reverse-order.                             |
+
+When persistence is enabled, synchronous listener or persistence failures are rethrown after the engine records best-effort recovery state and compensates completed steps. Wrap `Flow::execute()` in application-level exception handling anywhere infrastructure outages must be surfaced separately from business step failures.
 
 ---
 

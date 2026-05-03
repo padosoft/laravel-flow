@@ -1076,7 +1076,16 @@ class FlowEngine
         $parts = preg_split('/[^A-Za-z0-9]+/', $normalized, -1, PREG_SPLIT_NO_EMPTY);
 
         if ($parts === false || count($parts) <= 1) {
-            return preg_quote($key, '/');
+            $characters = preg_split('//', $key, -1, PREG_SPLIT_NO_EMPTY);
+
+            if ($characters === false || $characters === []) {
+                return '(?!)';
+            }
+
+            return implode('[_\-\s]*', array_map(
+                static fn (string $character): string => preg_quote($character, '/'),
+                $characters,
+            ));
         }
 
         return implode('[_\-\s]*', array_map(
@@ -1146,7 +1155,7 @@ class FlowEngine
         $output = [];
 
         foreach ($run->stepResults as $stepName => $result) {
-            if ($result->dryRunSkipped || $result->output === []) {
+            if ($result->dryRunSkipped) {
                 continue;
             }
 

@@ -13,6 +13,8 @@ final class SecretFailsHandler implements FlowStepHandler
 {
     public function execute(FlowContext $context): FlowStepResult
     {
-        return FlowStepResult::failed(new RuntimeException('gateway rejected token=plain-secret Bearer abc123'));
+        return FlowStepResult::failed(new RuntimeException(
+            'gateway rejected token=plain-secret apiKey=camel-secret api-key=dash-secret Bearer abc123',
+        ));
     }
 }

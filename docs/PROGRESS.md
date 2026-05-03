@@ -10,7 +10,7 @@ Known workstreams:
 | --- | --- |
 | Macro Task 0 - durable agent operating system | Completed after merge of the macro PR to `main`. |
 | Macro Task 1 - baseline tooling and Laravel 13 policy | Completed after merge of the macro PR to `main`; Composer/CI/docs now narrow to Laravel 13, PHP 8.3/8.4, and Composer-script quality gates. |
-| Macro Task 2 - v0.2 persistence layer | In progress; schema/repositories are merged into the macro branch, and opt-in engine wiring is the active subtask. Current hardening covers transaction-scoped transition writes, sanitized listener/error persistence, clock-aligned audit timestamps, dry-run no-write semantics, and persisted compensation listener safety. |
+| Macro Task 2 - v0.2 persistence layer | In progress; schema/repositories are merged into the macro branch, and opt-in engine wiring is the active subtask. Current hardening covers transaction-scoped transition writes, compensate-first runtime aborts after side effects, sanitized listener/error persistence, clock-aligned audit timestamps, dry-run no-write semantics, and persisted compensation listener safety. |
 
 Concurrent subtasks should add rows here instead of replacing existing workstreams.
 

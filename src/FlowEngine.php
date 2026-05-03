@@ -137,33 +137,39 @@ class FlowEngine
         foreach ($definition->steps as $step) {
             $sequence++;
             $stepStartedAt = $this->now();
-            $this->persistAtomically($persist, function () use (
-                $persist,
-                $run,
-                $step,
-                $sequence,
-                $context,
-                $stepStartedAt,
-                $definition,
-                $dryRun,
-            ): void {
-                $this->persistStepStarted($persist, $run, $step, $sequence, $context, $stepStartedAt);
-                $this->recordAudit($persist, 'FlowStepStarted', $run, $step->name, [
-                    'definition_name' => $definition->name,
-                    'dry_run' => $dryRun,
-                    'status' => 'running',
-                ], occurredAt: $stepStartedAt);
-            });
-            $this->dispatchOrPersistListenerFailure(
-                $persist,
-                new FlowStepStarted($run->id, $definition->name, $step->name, $dryRun),
-                $run,
-                $step,
-                $sequence,
-                $context,
-                $stepStartedAt,
-                false,
-            );
+            try {
+                $this->persistAtomically($persist, function () use (
+                    $persist,
+                    $run,
+                    $step,
+                    $sequence,
+                    $context,
+                    $stepStartedAt,
+                    $definition,
+                    $dryRun,
+                ): void {
+                    $this->persistStepStarted($persist, $run, $step, $sequence, $context, $stepStartedAt);
+                    $this->recordAudit($persist, 'FlowStepStarted', $run, $step->name, [
+                        'definition_name' => $definition->name,
+                        'dry_run' => $dryRun,
+                        'status' => 'running',
+                    ], occurredAt: $stepStartedAt);
+                });
+                $this->dispatchOrPersistListenerFailure(
+                    $persist,
+                    new FlowStepStarted($run->id, $definition->name, $step->name, $dryRun),
+                    $run,
+                    $step,
+                    $sequence,
+                    $context,
+                    $stepStartedAt,
+                    false,
+                );
+            } catch (Throwable $e) {
+                $this->compensateAfterRuntimeAbort($definition, $context, $completedSteps, $run, $persist, $step);
+
+                throw $e;
+            }
 
             $result = $this->executeStep($step, $context);
             $stepFinishedAt = $this->now();
@@ -172,20 +178,8 @@ class FlowEngine
             if (! $result->success) {
                 $error = $result->error;
                 $run->markFailed($step->name, $stepFinishedAt);
-                $this->persistAtomically($persist, function () use (
-                    $persist,
-                    $run,
-                    $step,
-                    $sequence,
-                    $context,
-                    $result,
-                    $stepStartedAt,
-                    $stepFinishedAt,
-                    $definition,
-                    $dryRun,
-                    $error,
-                ): void {
-                    $this->persistStepFinished(
+                try {
+                    $this->persistAtomically($persist, function () use (
                         $persist,
                         $run,
                         $step,
@@ -194,26 +188,44 @@ class FlowEngine
                         $result,
                         $stepStartedAt,
                         $stepFinishedAt,
+                        $definition,
+                        $dryRun,
+                        $error,
+                    ): void {
+                        $this->persistStepFinished(
+                            $persist,
+                            $run,
+                            $step,
+                            $sequence,
+                            $context,
+                            $result,
+                            $stepStartedAt,
+                            $stepFinishedAt,
+                        );
+                        $this->recordAudit($persist, 'FlowStepFailed', $run, $step->name, [
+                            'definition_name' => $definition->name,
+                            'dry_run' => $dryRun,
+                            'error_class' => $error instanceof Throwable ? $error::class : null,
+                            'error_message' => $this->safeErrorMessage($error),
+                            'status' => 'failed',
+                        ], occurredAt: $stepFinishedAt);
+                        $this->persistRunFinished($persist, $run);
+                    });
+                    $this->dispatchOrPersistListenerFailure(
+                        $persist,
+                        new FlowStepFailed($run->id, $definition->name, $step->name, $result, $dryRun),
+                        $run,
+                        $step,
+                        $sequence,
+                        $context,
+                        $stepStartedAt,
+                        true,
                     );
-                    $this->recordAudit($persist, 'FlowStepFailed', $run, $step->name, [
-                        'definition_name' => $definition->name,
-                        'dry_run' => $dryRun,
-                        'error_class' => $error instanceof Throwable ? $error::class : null,
-                        'error_message' => $this->safeErrorMessage($error),
-                        'status' => 'failed',
-                    ], occurredAt: $stepFinishedAt);
-                    $this->persistRunFinished($persist, $run);
-                });
-                $this->dispatchOrPersistListenerFailure(
-                    $persist,
-                    new FlowStepFailed($run->id, $definition->name, $step->name, $result, $dryRun),
-                    $run,
-                    $step,
-                    $sequence,
-                    $context,
-                    $stepStartedAt,
-                    true,
-                );
+                } catch (Throwable $e) {
+                    $this->compensateAfterRuntimeAbort($definition, $context, $completedSteps, $run, $persist, $step);
+
+                    throw $e;
+                }
 
                 try {
                     $this->compensate($definition, $context, $completedSteps, $run, $persist);
@@ -232,19 +244,10 @@ class FlowEngine
                 return $run;
             }
 
-            $this->persistAtomically($persist, function () use (
-                $persist,
-                $run,
-                $step,
-                $sequence,
-                $context,
-                $result,
-                $stepStartedAt,
-                $stepFinishedAt,
-                $definition,
-                $dryRun,
-            ): void {
-                $this->persistStepFinished(
+            $completedSteps[] = $step;
+
+            try {
+                $this->persistAtomically($persist, function () use (
                     $persist,
                     $run,
                     $step,
@@ -253,38 +256,60 @@ class FlowEngine
                     $result,
                     $stepStartedAt,
                     $stepFinishedAt,
+                    $definition,
+                    $dryRun,
+                ): void {
+                    $this->persistStepFinished(
+                        $persist,
+                        $run,
+                        $step,
+                        $sequence,
+                        $context,
+                        $result,
+                        $stepStartedAt,
+                        $stepFinishedAt,
+                    );
+                    $this->recordAudit($persist, 'FlowStepCompleted', $run, $step->name, [
+                        'definition_name' => $definition->name,
+                        'dry_run' => $dryRun,
+                        'dry_run_skipped' => $result->dryRunSkipped,
+                        'output' => $result->output,
+                        'status' => $result->dryRunSkipped ? 'skipped' : 'succeeded',
+                    ], $result->businessImpact, $stepFinishedAt);
+                });
+                $this->dispatchOrPersistListenerFailure(
+                    $persist,
+                    new FlowStepCompleted($run->id, $definition->name, $step->name, $result, $dryRun),
+                    $run,
+                    $step,
+                    $sequence,
+                    $context,
+                    $stepStartedAt,
+                    true,
                 );
-                $this->recordAudit($persist, 'FlowStepCompleted', $run, $step->name, [
-                    'definition_name' => $definition->name,
-                    'dry_run' => $dryRun,
-                    'dry_run_skipped' => $result->dryRunSkipped,
-                    'output' => $result->output,
-                    'status' => $result->dryRunSkipped ? 'skipped' : 'succeeded',
-                ], $result->businessImpact, $stepFinishedAt);
-            });
-            $this->dispatchOrPersistListenerFailure(
-                $persist,
-                new FlowStepCompleted($run->id, $definition->name, $step->name, $result, $dryRun),
-                $run,
-                $step,
-                $sequence,
-                $context,
-                $stepStartedAt,
-                true,
-            );
+            } catch (Throwable $e) {
+                $this->compensateAfterRuntimeAbort($definition, $context, $completedSteps, $run, $persist, $step);
+
+                throw $e;
+            }
 
             // Accumulate output into context for downstream steps (skip dry-run-skipped).
             if (! $result->dryRunSkipped) {
                 $context = $context->withStepOutput($step->name, $result->output);
             }
-
-            $completedSteps[] = $step;
         }
 
-        $run->markSucceeded($this->now());
-        $this->persistAtomically($persist, function () use ($persist, $run): void {
-            $this->persistRunFinished($persist, $run);
-        });
+        try {
+            $run->markSucceeded($this->now());
+            $this->persistAtomically($persist, function () use ($persist, $run): void {
+                $this->persistRunFinished($persist, $run);
+            });
+        } catch (Throwable $e) {
+            $failedStep = $completedSteps === [] ? null : $completedSteps[count($completedSteps) - 1];
+            $this->compensateAfterRuntimeAbort($definition, $context, $completedSteps, $run, $persist, $failedStep);
+
+            throw $e;
+        }
 
         return $run;
     }
@@ -385,11 +410,15 @@ class FlowEngine
             }
 
             $compensatedAt = $this->now();
-            $this->recordAudit($persist, 'FlowCompensated', $run, $step->name, [
-                'definition_name' => $definition->name,
-                'dry_run' => $context->dryRun,
-                'status' => 'compensated',
-            ], occurredAt: $compensatedAt);
+            try {
+                $this->recordAudit($persist, 'FlowCompensated', $run, $step->name, [
+                    'definition_name' => $definition->name,
+                    'dry_run' => $context->dryRun,
+                    'status' => 'compensated',
+                ], occurredAt: $compensatedAt);
+            } catch (Throwable) {
+                // Persistence/audit outages must not interrupt rollback.
+            }
             $compensatedAtLeastOne = true;
             $this->dispatchCompensatedOrRecordListenerFailure(
                 $persist,
@@ -421,6 +450,47 @@ class FlowEngine
                 count($compensationErrors),
                 $summary,
             ), previous: $compensationErrors[0]['error']);
+        }
+    }
+
+    /**
+     * @param  list<FlowStep>  $completedSteps
+     */
+    private function compensateAfterRuntimeAbort(
+        FlowDefinition $definition,
+        FlowContext $context,
+        array $completedSteps,
+        FlowRun $run,
+        bool $persist,
+        ?FlowStep $failedStep,
+    ): void {
+        if ($failedStep !== null && $run->finishedAt === null) {
+            $run->markFailed($failedStep->name, $this->now());
+            $this->persistRunFinishedBestEffort($persist, $run);
+        }
+
+        try {
+            $this->compensate($definition, $context, $completedSteps, $run, $persist);
+        } catch (Throwable $e) {
+            $this->persistRunFinishedBestEffort($persist, $run, 'failed');
+
+            throw $e;
+        }
+
+        $this->persistRunFinishedBestEffort($persist, $run, $run->compensated ? 'succeeded' : null);
+    }
+
+    private function persistRunFinishedBestEffort(
+        bool $persist,
+        FlowRun $run,
+        ?string $compensationStatus = null,
+    ): void {
+        try {
+            $this->persistAtomically($persist, function () use ($persist, $run, $compensationStatus): void {
+                $this->persistRunFinished($persist, $run, $compensationStatus);
+            });
+        } catch (Throwable) {
+            // Preserve the original execution/listener/persistence exception.
         }
     }
 
@@ -508,17 +578,21 @@ class FlowEngine
                 throw $e;
             }
 
-            $this->persistAtomically(true, function () use ($definition, $context, $run, $step, $occurredAt, $e): void {
-                $this->recordAudit(true, 'FlowCompensated', $run, $step->name, [
-                    'definition_name' => $definition->name,
-                    'dry_run' => $context->dryRun,
-                    'listener_error_class' => $e::class,
-                    'listener_error_message' => $this->safeErrorMessage($e),
-                    'listener_event' => 'FlowCompensated',
-                    'listener_failed' => true,
-                    'status' => 'compensated',
-                ], occurredAt: $occurredAt);
-            });
+            try {
+                $this->persistAtomically(true, function () use ($definition, $context, $run, $step, $occurredAt, $e): void {
+                    $this->recordAudit(true, 'FlowCompensated', $run, $step->name, [
+                        'definition_name' => $definition->name,
+                        'dry_run' => $context->dryRun,
+                        'listener_error_class' => $e::class,
+                        'listener_error_message' => $this->safeErrorMessage($e),
+                        'listener_event' => 'FlowCompensated',
+                        'listener_failed' => true,
+                        'status' => 'compensated',
+                    ], occurredAt: $occurredAt);
+                });
+            } catch (Throwable) {
+                // Listener/audit telemetry must not stop remaining compensators.
+            }
         }
     }
 
@@ -671,14 +745,14 @@ class FlowEngine
         $keys = array_values(array_filter((array) ($redaction['keys'] ?? []), 'is_string'));
 
         foreach ($keys as $key) {
-            $quotedKey = preg_quote($key, '/');
+            $keyPattern = $this->redactionKeyPattern($key);
             $message = preg_replace_callback(
-                '/\b('.$quotedKey.')\b(\s*[:=]\s*)([^\s,;]+)/i',
+                '/\b('.$keyPattern.')\b(\s*[:=]\s*)([^\s,;]+)/i',
                 static fn (array $matches): string => $matches[1].$matches[2].$replacement,
                 $message,
             ) ?? $message;
             $message = preg_replace_callback(
-                '/(["\']'.$quotedKey.'["\']\s*:\s*["\'])([^"\']+)(["\'])/i',
+                '/(["\']'.$keyPattern.'["\']\s*:\s*["\'])([^"\']+)(["\'])/i',
                 static fn (array $matches): string => $matches[1].$replacement.$matches[3],
                 $message,
             ) ?? $message;
@@ -689,6 +763,21 @@ class FlowEngine
             static fn (): string => 'Bearer '.$replacement,
             $message,
         ) ?? $message;
+    }
+
+    private function redactionKeyPattern(string $key): string
+    {
+        $normalized = preg_replace('/(?<!^)[A-Z]/', '_$0', $key) ?? $key;
+        $parts = preg_split('/[^A-Za-z0-9]+/', $normalized, -1, PREG_SPLIT_NO_EMPTY);
+
+        if ($parts === false || count($parts) <= 1) {
+            return preg_quote($key, '/');
+        }
+
+        return implode('[_\-\s]*', array_map(
+            static fn (string $part): string => preg_quote($part, '/'),
+            $parts,
+        ));
     }
 
     /**

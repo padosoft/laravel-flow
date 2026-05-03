@@ -60,6 +60,9 @@
 - Runtime persistence transitions should include run-state updates, step rows, and audit rows in `FlowStore::transaction()` boundaries wherever they belong to the same logical transition; listener-failure recovery must not write the failed step and failed run in separate statements.
 - Persisted audit `occurred_at` should receive the engine-captured transition timestamp instead of letting the repository stamp a fresh value, otherwise audit rows drift from their matching step/run timestamps.
 - In persisted compensation, a throwing `FlowCompensated` listener must be recorded but must not abort the remaining reverse-order rollback after the compensator already succeeded.
+- Once a business step has succeeded, persistence/listener failures become runtime aborts that must compensate completed steps before rethrowing; otherwise an observability/database outage can leave external side effects applied.
+- Compensation itself must treat audit/listener persistence as best-effort telemetry. A failed compensation audit write cannot be allowed to stop earlier compensators in the reverse-order stack.
+- Text redaction must normalize configured keys across snake_case, kebab-case, and camelCase variants (`api_key`, `api-key`, `apiKey`) so free-form exception messages get the same protection as JSON payload redaction.
 - Public README examples should avoid Laravel dump-and-die or other debug helpers; use normal variable assignment or assertions so docs do not teach debug output patterns.
 - When `composer validate --strict --no-check-publish` is a hard CI/PR gate, list it explicitly in contributor quick starts and PR expectation checklists, not only in CI or PR templates.
 - README comparison updates must stay factual. If a feature only reaches parity with a competitor, document parity rather than implying an advantage.

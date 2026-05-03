@@ -4,8 +4,14 @@ declare(strict_types=1);
 
 namespace Padosoft\LaravelFlow\Tests\Unit\Persistence;
 
+use DateTimeInterface;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Date;
+use Padosoft\LaravelFlow\Contracts\AuditRepository;
+use Padosoft\LaravelFlow\Contracts\FlowStore;
+use Padosoft\LaravelFlow\Contracts\RunRepository;
+use Padosoft\LaravelFlow\Contracts\StepRunRepository;
 use Padosoft\LaravelFlow\Events\FlowCompensated;
 use Padosoft\LaravelFlow\Events\FlowStepCompleted;
 use Padosoft\LaravelFlow\Events\FlowStepStarted;
@@ -192,6 +198,8 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         $this->assertInstanceOf(FlowStepRecord::class, $failedStep);
         $this->assertInstanceOf(FlowAuditRecord::class, $failedAudit);
         $this->assertStringNotContainsString('plain-secret', (string) $failedStep->error_message);
+        $this->assertStringNotContainsString('camel-secret', (string) $failedStep->error_message);
+        $this->assertStringNotContainsString('dash-secret', (string) $failedStep->error_message);
         $this->assertStringNotContainsString('abc123', (string) $failedStep->error_message);
         $this->assertStringContainsString('[redacted]', (string) $failedStep->error_message);
         $this->assertSame($failedStep->error_message, $failedAudit->payload['error_message']);
@@ -301,6 +309,7 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
 
         $engine->define('flow.persist.completed-listener')
             ->step('create', AlwaysSucceedsHandler::class)
+            ->compensateWith(RecordingCompensator::class)
             ->register();
 
         try {
@@ -319,12 +328,14 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         $this->assertInstanceOf(FlowRunRecord::class, $runRecord);
         $this->assertInstanceOf(FlowStepRecord::class, $stepRecord);
         $this->assertInstanceOf(FlowAuditRecord::class, $failedAudit);
-        $this->assertSame(FlowRun::STATUS_FAILED, $runRecord->status);
+        $this->assertSame(FlowRun::STATUS_COMPENSATED, $runRecord->status);
+        $this->assertTrue($runRecord->compensated);
         $this->assertSame('failed', $stepRecord->status);
         $this->assertSame(RuntimeException::class, $stepRecord->error_class);
         $this->assertStringNotContainsString('plain-secret', (string) $stepRecord->error_message);
         $this->assertSame('FlowStepCompleted', $failedAudit->payload['listener_event']);
         $this->assertStringNotContainsString('plain-secret', (string) $failedAudit->payload['error_message']);
+        $this->assertCount(1, RecordingCompensator::$invocations);
     }
 
     public function test_persisted_compensation_listener_failure_does_not_abort_rollback(): void
@@ -365,6 +376,86 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         );
     }
 
+    public function test_success_transition_persistence_failure_compensates_before_throwing(): void
+    {
+        $this->migrateFlowTables();
+        $engine = $this->engineWithFailingAudit('FlowStepCompleted');
+
+        $engine->define('flow.persist.success-audit-down')
+            ->step('create', AlwaysSucceedsHandler::class)
+            ->compensateWith(RecordingCompensator::class)
+            ->register();
+
+        try {
+            $engine->execute('flow.persist.success-audit-down', []);
+            $this->fail('The failing audit repository should abort execution.');
+        } catch (RuntimeException $exception) {
+            $this->assertSame('audit down for FlowStepCompleted', $exception->getMessage());
+        }
+
+        $this->assertCount(1, RecordingCompensator::$invocations);
+    }
+
+    public function test_failed_transition_persistence_failure_still_compensates_completed_steps(): void
+    {
+        $this->migrateFlowTables();
+        $engine = $this->engineWithFailingAudit('FlowStepFailed');
+
+        $engine->define('flow.persist.failed-audit-down')
+            ->step('create', AlwaysSucceedsHandler::class)
+            ->compensateWith(RecordingCompensator::class)
+            ->step('charge', AlwaysFailsHandler::class)
+            ->register();
+
+        try {
+            $engine->execute('flow.persist.failed-audit-down', []);
+            $this->fail('The failing audit repository should abort execution.');
+        } catch (RuntimeException $exception) {
+            $this->assertSame('audit down for FlowStepFailed', $exception->getMessage());
+        }
+
+        $this->assertCount(1, RecordingCompensator::$invocations);
+    }
+
+    public function test_compensation_audit_persistence_failure_does_not_abort_rollback(): void
+    {
+        $this->migrateFlowTables();
+        $engine = $this->engineWithFailingAudit('FlowCompensated');
+
+        $engine->define('flow.persist.compensation-audit-down')
+            ->step('one', AlwaysSucceedsHandler::class)
+            ->compensateWith(RecordingCompensator::class)
+            ->step('two', AlwaysSucceedsHandler::class)
+            ->compensateWith(RecordingCompensator::class)
+            ->step('fail', AlwaysFailsHandler::class)
+            ->register();
+
+        $run = $engine->execute('flow.persist.compensation-audit-down', []);
+
+        $this->assertSame(FlowRun::STATUS_COMPENSATED, $run->status);
+        $this->assertCount(2, RecordingCompensator::$invocations);
+    }
+
+    public function test_final_run_update_failure_compensates_completed_steps(): void
+    {
+        $this->migrateFlowTables();
+        $engine = $this->engineWithFailingRunUpdateStatus(FlowRun::STATUS_SUCCEEDED);
+
+        $engine->define('flow.persist.final-run-update-down')
+            ->step('create', AlwaysSucceedsHandler::class)
+            ->compensateWith(RecordingCompensator::class)
+            ->register();
+
+        try {
+            $engine->execute('flow.persist.final-run-update-down', []);
+            $this->fail('The failing run repository should abort execution.');
+        } catch (RuntimeException $exception) {
+            $this->assertSame('run update down for succeeded', $exception->getMessage());
+        }
+
+        $this->assertCount(1, RecordingCompensator::$invocations);
+    }
+
     private function engineWithPersistence(): FlowEngine
     {
         $this->app['config']->set('laravel-flow.persistence.enabled', true);
@@ -374,6 +465,149 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         $engine = $this->app->make(FlowEngine::class);
 
         return $engine;
+    }
+
+    private function engineWithFailingAudit(string $event): FlowEngine
+    {
+        $this->app['config']->set('laravel-flow.persistence.enabled', true);
+
+        /** @var FlowStore $inner */
+        $inner = $this->app->make(FlowStore::class);
+        $store = new class($inner, $event) implements FlowStore
+        {
+            public function __construct(
+                private readonly FlowStore $inner,
+                private readonly string $event,
+            ) {}
+
+            public function runs(): RunRepository
+            {
+                return $this->inner->runs();
+            }
+
+            public function steps(): StepRunRepository
+            {
+                return $this->inner->steps();
+            }
+
+            public function audit(): AuditRepository
+            {
+                return new class($this->inner->audit(), $this->event) implements AuditRepository
+                {
+                    public function __construct(
+                        private readonly AuditRepository $inner,
+                        private readonly string $event,
+                    ) {}
+
+                    public function append(
+                        string $runId,
+                        string $event,
+                        array $payload = [],
+                        ?string $stepName = null,
+                        ?array $businessImpact = null,
+                        ?DateTimeInterface $occurredAt = null,
+                    ): FlowAuditRecord {
+                        if ($event === $this->event) {
+                            throw new RuntimeException('audit down for '.$event);
+                        }
+
+                        return $this->inner->append(
+                            $runId,
+                            $event,
+                            $payload,
+                            $stepName,
+                            $businessImpact,
+                            $occurredAt,
+                        );
+                    }
+
+                    public function forRun(string $runId): Collection
+                    {
+                        return $this->inner->forRun($runId);
+                    }
+                };
+            }
+
+            public function transaction(callable $callback): mixed
+            {
+                return $this->inner->transaction($callback);
+            }
+        };
+
+        /** @var array<string, mixed> $config */
+        $config = $this->app['config']->get('laravel-flow');
+
+        return new FlowEngine($this->app, $this->app['events'], $config, $store);
+    }
+
+    private function engineWithFailingRunUpdateStatus(string $status): FlowEngine
+    {
+        $this->app['config']->set('laravel-flow.persistence.enabled', true);
+
+        /** @var FlowStore $inner */
+        $inner = $this->app->make(FlowStore::class);
+        $store = new class($inner, $status) implements FlowStore
+        {
+            public function __construct(
+                private readonly FlowStore $inner,
+                private readonly string $status,
+            ) {}
+
+            public function runs(): RunRepository
+            {
+                return new class($this->inner->runs(), $this->status) implements RunRepository
+                {
+                    public function __construct(
+                        private readonly RunRepository $inner,
+                        private readonly string $status,
+                    ) {}
+
+                    public function create(array $attributes): FlowRunRecord
+                    {
+                        return $this->inner->create($attributes);
+                    }
+
+                    public function update(string $runId, array $attributes): FlowRunRecord
+                    {
+                        if (($attributes['status'] ?? null) === $this->status) {
+                            throw new RuntimeException('run update down for '.$this->status);
+                        }
+
+                        return $this->inner->update($runId, $attributes);
+                    }
+
+                    public function find(string $runId): ?FlowRunRecord
+                    {
+                        return $this->inner->find($runId);
+                    }
+
+                    public function findByIdempotencyKey(string $idempotencyKey): ?FlowRunRecord
+                    {
+                        return $this->inner->findByIdempotencyKey($idempotencyKey);
+                    }
+                };
+            }
+
+            public function steps(): StepRunRepository
+            {
+                return $this->inner->steps();
+            }
+
+            public function audit(): AuditRepository
+            {
+                return $this->inner->audit();
+            }
+
+            public function transaction(callable $callback): mixed
+            {
+                return $this->inner->transaction($callback);
+            }
+        };
+
+        /** @var array<string, mixed> $config */
+        $config = $this->app['config']->get('laravel-flow');
+
+        return new FlowEngine($this->app, $this->app['events'], $config, $store);
     }
 
     private function assertPersistenceTablesEmpty(): void

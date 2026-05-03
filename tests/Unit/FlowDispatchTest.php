@@ -274,6 +274,12 @@ final class FlowDispatchTest extends TestCase
         $this->assertNull($job->lockStore);
         $this->assertSame(3600, $job->lockSeconds);
         $this->assertSame(30, $job->lockRetrySeconds);
+
+        $secondJob = unserialize($payload, ['allowed_classes' => [RunFlowJob::class, FlowExecutionOptions::class]]);
+
+        $this->assertInstanceOf(RunFlowJob::class, $secondJob);
+        $this->assertNotSame($job->lockKey(), $secondJob->lockKey());
+        $this->assertStringStartsWith('laravel-flow:run:legacy-', $job->lockKey());
     }
 
     public function test_run_flow_job_fails_queue_job_when_completion_marker_write_fails(): void
@@ -324,6 +330,29 @@ final class FlowDispatchTest extends TestCase
 
         (new RunFlowJob('flow.job.array-lock', dispatchId: 'array-lock-dispatch', lockStore: 'array'))
             ->handle($engine, $this->app->make('cache'), $this->app['config']);
+    }
+
+    public function test_run_flow_job_rejects_array_lock_store_for_actual_non_sync_job_connection(): void
+    {
+        $this->app['config']->set('queue.default', 'inline');
+        $this->app['config']->set('queue.connections.inline.driver', 'sync');
+        $this->app['config']->set('queue.connections.worker.driver', 'database');
+
+        /** @var FlowEngine $engine */
+        $engine = $this->app->make(FlowEngine::class);
+        $engine->define('flow.job.array-lock-worker')
+            ->step('one', AlwaysSucceedsHandler::class)
+            ->register();
+
+        $job = new RunFlowJob('flow.job.array-lock-worker', dispatchId: 'array-lock-worker-dispatch', lockStore: 'array');
+        $job->withFakeQueueInteractions();
+        $property = new \ReflectionProperty($job->job, 'connectionName');
+        $property->setValue($job->job, 'worker');
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('array store is process-local');
+
+        $job->handle($engine, $this->app->make('cache'), $this->app['config']);
     }
 
     public function test_run_flow_job_allows_process_local_array_lock_store_with_sync_queue_driver(): void

@@ -131,7 +131,11 @@ final class RunFlowJob implements ShouldQueueAfterCommit
 
     private function dispatchId(): string
     {
-        return $this->dispatchId ?? sha1($this->name.'|'.serialize($this->input).'|'.serialize($this->options));
+        if ($this->dispatchId === null || $this->dispatchId === '') {
+            $this->dispatchId = 'legacy-'.bin2hex(random_bytes(16));
+        }
+
+        return $this->dispatchId;
     }
 
     private function lockSeconds(): int
@@ -146,7 +150,11 @@ final class RunFlowJob implements ShouldQueueAfterCommit
 
     private function allowsProcessLocalLocks(ConfigRepository $config): bool
     {
-        $connection = $config->get('queue.default');
+        $connection = $this->job?->getConnectionName();
+
+        if (! is_string($connection) || $connection === '') {
+            $connection = $config->get('queue.default');
+        }
 
         if (! is_string($connection) || $connection === '') {
             return false;

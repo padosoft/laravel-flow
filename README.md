@@ -251,7 +251,7 @@ Flow::dispatch(
 );
 ```
 
-`Flow::dispatch()` validates the registered definition and required input before queuing `RunFlowJob`. The job dispatches after the current database transaction commits and takes a per-dispatch cache lock before execution; duplicate deliveries that find the lock held are released after `queue.lock_retry_seconds`, while duplicates that arrive after the dispatch completed are acknowledged as no-ops. Whether the job runs asynchronously or inline still depends on the application's configured Laravel queue driver. The worker resolves the current `FlowEngine` and executes the same definition with the serialized input and execution options. Retry/backoff policy, database-queue integration tests, replay, and parallel compensation are still planned v0.2 follow-up slices.
+`Flow::dispatch()` validates the registered definition and required input before queuing `RunFlowJob`. The job dispatches after the current database transaction commits and takes a per-dispatch cache lock before execution; duplicate deliveries that find the lock held are released after the smaller of `queue.lock_retry_seconds` and `queue.lock_seconds`, while duplicates that arrive after the dispatch completed are acknowledged as no-ops. Whether the job runs asynchronously or inline still depends on the application's configured Laravel queue driver. The worker resolves the current `FlowEngine` and executes the same definition with the serialized input and execution options. Retry/backoff policy, database-queue integration tests, replay, and parallel compensation are still planned v0.2 follow-up slices.
 
 ### Compensation chain (saga rollback)
 

@@ -7,6 +7,7 @@ namespace Padosoft\LaravelFlow\Persistence;
 use DateTimeInterface;
 use Illuminate\Database\Eloquent\Collection;
 use Padosoft\LaravelFlow\Contracts\AuditRepository;
+use Padosoft\LaravelFlow\Contracts\CurrentPayloadRedactorProvider;
 use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
 use Padosoft\LaravelFlow\Models\FlowAuditRecord;
 
@@ -27,7 +28,7 @@ final class EloquentAuditRepository implements AuditRepository
     ): FlowAuditRecord {
         $model = $this->newModel();
         $now = $model->freshTimestamp();
-        $redactor = $this->redactor instanceof ExecutionScopedPayloadRedactor
+        $redactor = $this->redactor instanceof CurrentPayloadRedactorProvider
             ? $this->redactor->currentRedactor()
             : $this->redactor;
 

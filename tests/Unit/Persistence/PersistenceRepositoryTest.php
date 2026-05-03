@@ -10,12 +10,15 @@ use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
 use LogicException;
 use Padosoft\LaravelFlow\Contracts\AuditRepository;
+use Padosoft\LaravelFlow\Contracts\CurrentPayloadRedactorProvider;
 use Padosoft\LaravelFlow\Contracts\FlowStore;
 use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
 use Padosoft\LaravelFlow\Contracts\RunRepository;
 use Padosoft\LaravelFlow\Contracts\StepRunRepository;
 use Padosoft\LaravelFlow\FlowRun;
 use Padosoft\LaravelFlow\Models\FlowAuditRecord;
+use Padosoft\LaravelFlow\Persistence\EloquentAuditRepository;
+use Padosoft\LaravelFlow\Persistence\EloquentRunRepository;
 use Padosoft\LaravelFlow\Persistence\ExecutionScopedPayloadRedactor;
 use RuntimeException;
 
@@ -226,6 +229,64 @@ final class PersistenceRepositoryTest extends PersistenceTestCase
         $this->assertSame('[top-level-redacted]', $step->business_impact['secret']);
         $this->assertSame('[top-level-redacted]', $step->input['token']);
         $this->assertSame('[top-level-redacted]', $step->output['authorization']);
+        $this->assertSame('[top-level-redacted]', $auditRecord->payload['authorization']);
+        $this->assertSame('[top-level-redacted]', $auditRecord->business_impact['secret']);
+    }
+
+    public function test_repository_redaction_uses_current_redactor_provider_contract_for_decorators(): void
+    {
+        $this->migrateFlowTables();
+        $counter = new class
+        {
+            public int $currentCalls = 0;
+        };
+        $provider = new class($this->topLevelSecretRedactor(), $counter) implements CurrentPayloadRedactorProvider
+        {
+            public function __construct(
+                private readonly PayloadRedactor $inner,
+                private readonly object $counter,
+            ) {}
+
+            public function currentRedactor(): PayloadRedactor
+            {
+                $this->counter->currentCalls++;
+
+                return $this->inner;
+            }
+
+            public function redact(array $payload): array
+            {
+                return $this->inner->redact($payload);
+            }
+        };
+        $runs = new EloquentRunRepository(null, $provider);
+        $audit = new EloquentAuditRepository(null, $provider);
+
+        $run = $runs->create([
+            'definition_name' => 'flow.redactor.decorator',
+            'dry_run' => false,
+            'id' => '00000000-0000-4000-8000-000000000013',
+            'input' => ['token' => 'input-secret'],
+            'started_at' => new DateTimeImmutable('2026-05-02 11:00:00'),
+            'status' => FlowRun::STATUS_RUNNING,
+        ]);
+        $counter->currentCalls = 0;
+
+        $updated = $runs->update($run->id, [
+            'business_impact' => ['secret' => 'impact-secret'],
+            'output' => ['authorization' => 'output-secret'],
+            'status' => FlowRun::STATUS_SUCCEEDED,
+        ]);
+        $auditRecord = $audit->append(
+            runId: $run->id,
+            event: 'FlowStepCompleted',
+            payload: ['authorization' => 'audit-payload-secret'],
+            businessImpact: ['secret' => 'audit-impact-secret'],
+        );
+
+        $this->assertSame(2, $counter->currentCalls);
+        $this->assertSame('[top-level-redacted]', $updated->business_impact['secret']);
+        $this->assertSame('[top-level-redacted]', $updated->output['authorization']);
         $this->assertSame('[top-level-redacted]', $auditRecord->payload['authorization']);
         $this->assertSame('[top-level-redacted]', $auditRecord->business_impact['secret']);
     }

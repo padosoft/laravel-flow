@@ -34,6 +34,7 @@ use Padosoft\LaravelFlow\Tests\Unit\Stubs\DryRunAwareHandler;
 use Padosoft\LaravelFlow\Tests\Unit\Stubs\EmptyOutputHandler;
 use Padosoft\LaravelFlow\Tests\Unit\Stubs\FirstStepCompensator;
 use Padosoft\LaravelFlow\Tests\Unit\Stubs\RecordingCompensator;
+use Padosoft\LaravelFlow\Tests\Unit\Stubs\RepositoryResolvingHandler;
 use Padosoft\LaravelFlow\Tests\Unit\Stubs\SecretFailsHandler;
 use Padosoft\LaravelFlow\Tests\Unit\Stubs\ThrowingCompensator;
 use RuntimeException;
@@ -518,6 +519,102 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         $this->assertSame(1, $tracker->withPayloadRedactorCalls);
         $this->assertSame('[aware-redacted-1]', $runRecord->input['token']);
         $this->assertStringContainsString('[aware-redacted-1]', (string) $failedStep->error_message);
+    }
+
+    public function test_execution_store_binding_is_visible_to_reentrant_repository_resolution(): void
+    {
+        $this->migrateFlowTables();
+        $this->app['config']->set('laravel-flow.persistence.enabled', true);
+
+        $tracker = new class
+        {
+            /**
+             * @var list<string>
+             */
+            public array $findLabels = [];
+        };
+
+        /** @var FlowStore $containerStore */
+        $containerStore = $this->app->make(FlowStore::class);
+        $store = new class($containerStore, $tracker, 'original') implements RedactorAwareFlowStore
+        {
+            public function __construct(
+                private readonly FlowStore $inner,
+                private readonly object $tracker,
+                private readonly string $label,
+            ) {}
+
+            public function withPayloadRedactor(PayloadRedactor $redactor): FlowStore
+            {
+                $inner = $this->inner instanceof RedactorAwareFlowStore
+                    ? $this->inner->withPayloadRedactor($redactor)
+                    : $this->inner;
+
+                return new self($inner, $this->tracker, 'execution');
+            }
+
+            public function runs(): RunRepository
+            {
+                return new class($this->inner->runs(), $this->tracker, $this->label) implements RunRepository
+                {
+                    public function __construct(
+                        private readonly RunRepository $inner,
+                        private readonly object $tracker,
+                        private readonly string $label,
+                    ) {}
+
+                    public function create(array $attributes): FlowRunRecord
+                    {
+                        return $this->inner->create($attributes);
+                    }
+
+                    public function update(string $runId, array $attributes): FlowRunRecord
+                    {
+                        return $this->inner->update($runId, $attributes);
+                    }
+
+                    public function find(string $runId): ?FlowRunRecord
+                    {
+                        $this->tracker->findLabels[] = $this->label;
+
+                        return $this->inner->find($runId);
+                    }
+
+                    public function findByIdempotencyKey(string $idempotencyKey): ?FlowRunRecord
+                    {
+                        return $this->inner->findByIdempotencyKey($idempotencyKey);
+                    }
+                };
+            }
+
+            public function steps(): StepRunRepository
+            {
+                return $this->inner->steps();
+            }
+
+            public function audit(): AuditRepository
+            {
+                return $this->inner->audit();
+            }
+
+            public function transaction(callable $callback): mixed
+            {
+                return $this->inner->transaction($callback);
+            }
+        };
+
+        /** @var array<string, mixed> $config */
+        $config = $this->app['config']->get('laravel-flow');
+        $engine = new FlowEngine($this->app, $this->app['events'], $config, $store);
+
+        $engine->define('flow.persist.reentrant-repository')
+            ->step('inspect', RepositoryResolvingHandler::class)
+            ->register();
+
+        $engine->execute('flow.persist.reentrant-repository', []);
+
+        $this->assertSame(['execution'], $tracker->findLabels);
+        $this->assertSame($containerStore, $this->app->make(FlowStore::class));
     }
 
     public function test_persisted_error_messages_redact_normalized_key_variants(): void

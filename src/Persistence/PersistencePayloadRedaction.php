@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Padosoft\LaravelFlow\Persistence;
 
+use Padosoft\LaravelFlow\Contracts\CurrentPayloadRedactorProvider;
 use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
 
 final class PersistencePayloadRedaction
@@ -37,7 +38,7 @@ final class PersistencePayloadRedaction
             return $attributes;
         }
 
-        $redactor = $redactor instanceof ExecutionScopedPayloadRedactor
+        $redactor = $redactor instanceof CurrentPayloadRedactorProvider
             ? $redactor->currentRedactor()
             : $redactor;
 

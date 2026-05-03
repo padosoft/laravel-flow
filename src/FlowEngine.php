@@ -115,84 +115,177 @@ class FlowEngine
         $store = $this->storeForExecution($dryRun);
         $redactor = $store instanceof FlowStore ? $this->redactorForExecution() : null;
         $store = $this->storeWithExecutionRedactor($store, $redactor);
-        $startedAt = $this->now();
+        $storeBinding = $this->swapContainerFlowStore($store);
 
-        $run = new FlowRun(
-            id: $this->generateId(),
-            definitionName: $definition->name,
-            dryRun: $dryRun,
-            startedAt: $startedAt,
-        );
-        $run->markRunning();
-        $this->persistAtomically($store, function () use ($store, $run, $input): void {
-            $this->persistRunStarted($store, $run, $input);
-        });
+        try {
+            $startedAt = $this->now();
 
-        $context = new FlowContext(
-            flowRunId: $run->id,
-            definitionName: $definition->name,
-            input: $input,
-            stepOutputs: [],
-            dryRun: $dryRun,
-        );
+            $run = new FlowRun(
+                id: $this->generateId(),
+                definitionName: $definition->name,
+                dryRun: $dryRun,
+                startedAt: $startedAt,
+            );
+            $run->markRunning();
+            $this->persistAtomically($store, function () use ($store, $run, $input): void {
+                $this->persistRunStarted($store, $run, $input);
+            });
 
-        $completedSteps = [];
-        $sequence = 0;
+            $context = new FlowContext(
+                flowRunId: $run->id,
+                definitionName: $definition->name,
+                input: $input,
+                stepOutputs: [],
+                dryRun: $dryRun,
+            );
 
-        foreach ($definition->steps as $step) {
-            $sequence++;
-            $stepStartedAt = $this->now();
-            $listenerFailureEvent = null;
+            $completedSteps = [];
+            $sequence = 0;
 
-            try {
-                $this->persistAtomically($store, function () use (
-                    $store,
-                    $run,
-                    $step,
-                    $sequence,
-                    $context,
-                    $stepStartedAt,
-                    $definition,
-                    $dryRun,
-                ): void {
-                    $this->persistStepStarted($store, $run, $step, $sequence, $context, $stepStartedAt);
-                    $this->recordAudit($store, 'FlowStepStarted', $run, $step->name, [
-                        'definition_name' => $definition->name,
-                        'dry_run' => $dryRun,
-                        'status' => 'running',
-                    ], occurredAt: $stepStartedAt);
-                });
-                $this->dispatchOrCaptureListenerFailure(
-                    new FlowStepStarted($run->id, $definition->name, $step->name, $dryRun),
-                    $listenerFailureEvent,
-                );
-            } catch (Throwable $e) {
-                $failedAt = $this->now();
-                $this->compensateAfterRuntimeAbort(
-                    $definition,
-                    $context,
-                    $completedSteps,
-                    $run,
-                    $store,
-                    $step,
-                    $sequence,
-                    FlowStepResult::failed($e),
-                    $stepStartedAt,
-                    $failedAt,
-                    $redactor,
-                    listenerEvent: $listenerFailureEvent,
-                );
+            foreach ($definition->steps as $step) {
+                $sequence++;
+                $stepStartedAt = $this->now();
+                $listenerFailureEvent = null;
 
-                throw $e;
-            }
+                try {
+                    $this->persistAtomically($store, function () use (
+                        $store,
+                        $run,
+                        $step,
+                        $sequence,
+                        $context,
+                        $stepStartedAt,
+                        $definition,
+                        $dryRun,
+                    ): void {
+                        $this->persistStepStarted($store, $run, $step, $sequence, $context, $stepStartedAt);
+                        $this->recordAudit($store, 'FlowStepStarted', $run, $step->name, [
+                            'definition_name' => $definition->name,
+                            'dry_run' => $dryRun,
+                            'status' => 'running',
+                        ], occurredAt: $stepStartedAt);
+                    });
+                    $this->dispatchOrCaptureListenerFailure(
+                        new FlowStepStarted($run->id, $definition->name, $step->name, $dryRun),
+                        $listenerFailureEvent,
+                    );
+                } catch (Throwable $e) {
+                    $failedAt = $this->now();
+                    $this->compensateAfterRuntimeAbort(
+                        $definition,
+                        $context,
+                        $completedSteps,
+                        $run,
+                        $store,
+                        $step,
+                        $sequence,
+                        FlowStepResult::failed($e),
+                        $stepStartedAt,
+                        $failedAt,
+                        $redactor,
+                        listenerEvent: $listenerFailureEvent,
+                    );
 
-            $result = $this->executeStep($step, $context);
-            $stepFinishedAt = $this->now();
-            $run->recordStepResult($step->name, $result);
+                    throw $e;
+                }
 
-            if (! $result->success) {
-                $error = $result->error;
-                $run->markFailed($step->name, $stepFinishedAt);
+                $result = $this->executeStep($step, $context);
+                $stepFinishedAt = $this->now();
+                $run->recordStepResult($step->name, $result);
+
+                if (! $result->success) {
+                    $error = $result->error;
+                    $run->markFailed($step->name, $stepFinishedAt);
+                    $listenerFailureEvent = null;
+
+                    try {
+                        $this->persistAtomically($store, function () use (
+                            $store,
+                            $run,
+                            $step,
+                            $sequence,
+                            $context,
+                            $result,
+                            $stepStartedAt,
+                            $stepFinishedAt,
+                            $definition,
+                            $dryRun,
+                            $error,
+                            $redactor,
+                        ): void {
+                            $this->persistStepFinished(
+                                $store,
+                                $run,
+                                $step,
+                                $sequence,
+                                $context,
+                                $result,
+                                $stepStartedAt,
+                                $stepFinishedAt,
+                                $redactor,
+                            );
+                            $this->recordAudit($store, 'FlowStepFailed', $run, $step->name, [
+                                'definition_name' => $definition->name,
+                                'dry_run' => $dryRun,
+                                'error_class' => $error instanceof Throwable ? $error::class : null,
+                                'error_message' => $this->safeErrorMessage($error, $redactor),
+                                'status' => 'failed',
+                            ], occurredAt: $stepFinishedAt);
+                            $this->persistRunFinished($store, $run);
+                        });
+                        $this->dispatchOrCaptureListenerFailure(
+                            new FlowStepFailed($run->id, $definition->name, $step->name, $result, $dryRun),
+                            $listenerFailureEvent,
+                        );
+                    } catch (Throwable $e) {
+                        $this->compensateAfterRuntimeAbort(
+                            $definition,
+                            $context,
+                            $completedSteps,
+                            $run,
+                            $store,
+                            $step,
+                            $sequence,
+                            $result,
+                            $stepStartedAt,
+                            $stepFinishedAt,
+                            $redactor,
+                            listenerEvent: $listenerFailureEvent,
+                        );
+
+                        throw $e;
+                    }
+
+                    try {
+                        $this->compensate($definition, $context, $completedSteps, $run, $store);
+                    } catch (Throwable $e) {
+                        $this->persistRunFinishedBestEffort($store, $run, 'failed');
+
+                        throw $e;
+                    }
+
+                    if ($run->compensated) {
+                        try {
+                            $this->persistAtomically($store, function () use ($store, $run): void {
+                                $this->persistRunFinished($store, $run, 'succeeded');
+                            });
+                        } catch (Throwable $e) {
+                            $this->persistRunFinishedBestEffort($store, $run, 'succeeded');
+
+                            throw $e;
+                        }
+                    }
+
+                    return $run;
+                }
+
+                $contextAfterStep = $context;
+
+                if (! $result->dryRunSkipped) {
+                    $contextAfterStep = $context->withStepOutput($step->name, $result->output);
+                }
+
+                $completedSteps[] = $step;
                 $listenerFailureEvent = null;
 
                 try {
@@ -207,7 +300,6 @@ class FlowEngine
                         $stepFinishedAt,
                         $definition,
                         $dryRun,
-                        $error,
                         $redactor,
                     ): void {
                         $this->persistStepFinished(
@@ -221,151 +313,65 @@ class FlowEngine
                             $stepFinishedAt,
                             $redactor,
                         );
-                        $this->recordAudit($store, 'FlowStepFailed', $run, $step->name, [
+                        $this->recordAudit($store, 'FlowStepCompleted', $run, $step->name, [
                             'definition_name' => $definition->name,
                             'dry_run' => $dryRun,
-                            'error_class' => $error instanceof Throwable ? $error::class : null,
-                            'error_message' => $this->safeErrorMessage($error, $redactor),
-                            'status' => 'failed',
-                        ], occurredAt: $stepFinishedAt);
-                        $this->persistRunFinished($store, $run);
+                            'dry_run_skipped' => $result->dryRunSkipped,
+                            'output' => $result->output,
+                            'status' => $result->dryRunSkipped ? 'skipped' : 'succeeded',
+                        ], $result->businessImpact, $stepFinishedAt);
                     });
                     $this->dispatchOrCaptureListenerFailure(
-                        new FlowStepFailed($run->id, $definition->name, $step->name, $result, $dryRun),
+                        new FlowStepCompleted($run->id, $definition->name, $step->name, $result, $dryRun),
                         $listenerFailureEvent,
                     );
                 } catch (Throwable $e) {
+                    $failedAt = $this->now();
                     $this->compensateAfterRuntimeAbort(
                         $definition,
-                        $context,
+                        $contextAfterStep,
                         $completedSteps,
                         $run,
                         $store,
                         $step,
                         $sequence,
-                        $result,
+                        FlowStepResult::failed($e),
                         $stepStartedAt,
-                        $stepFinishedAt,
+                        $failedAt,
                         $redactor,
                         listenerEvent: $listenerFailureEvent,
+                        failedStepPersistenceContext: $context,
                     );
 
                     throw $e;
                 }
 
-                try {
-                    $this->compensate($definition, $context, $completedSteps, $run, $store);
-                } catch (Throwable $e) {
-                    $this->persistRunFinishedBestEffort($store, $run, 'failed');
-
-                    throw $e;
-                }
-
-                if ($run->compensated) {
-                    try {
-                        $this->persistAtomically($store, function () use ($store, $run): void {
-                            $this->persistRunFinished($store, $run, 'succeeded');
-                        });
-                    } catch (Throwable $e) {
-                        $this->persistRunFinishedBestEffort($store, $run, 'succeeded');
-
-                        throw $e;
-                    }
-                }
-
-                return $run;
+                $context = $contextAfterStep;
             }
-
-            $contextAfterStep = $context;
-
-            if (! $result->dryRunSkipped) {
-                $contextAfterStep = $context->withStepOutput($step->name, $result->output);
-            }
-
-            $completedSteps[] = $step;
-            $listenerFailureEvent = null;
 
             try {
-                $this->persistAtomically($store, function () use (
-                    $store,
-                    $run,
-                    $step,
-                    $sequence,
-                    $context,
-                    $result,
-                    $stepStartedAt,
-                    $stepFinishedAt,
-                    $definition,
-                    $dryRun,
-                    $redactor,
-                ): void {
-                    $this->persistStepFinished(
-                        $store,
-                        $run,
-                        $step,
-                        $sequence,
-                        $context,
-                        $result,
-                        $stepStartedAt,
-                        $stepFinishedAt,
-                        $redactor,
-                    );
-                    $this->recordAudit($store, 'FlowStepCompleted', $run, $step->name, [
-                        'definition_name' => $definition->name,
-                        'dry_run' => $dryRun,
-                        'dry_run_skipped' => $result->dryRunSkipped,
-                        'output' => $result->output,
-                        'status' => $result->dryRunSkipped ? 'skipped' : 'succeeded',
-                    ], $result->businessImpact, $stepFinishedAt);
+                $run->markSucceeded($this->now());
+                $this->persistAtomically($store, function () use ($store, $run): void {
+                    $this->persistRunFinished($store, $run);
                 });
-                $this->dispatchOrCaptureListenerFailure(
-                    new FlowStepCompleted($run->id, $definition->name, $step->name, $result, $dryRun),
-                    $listenerFailureEvent,
-                );
             } catch (Throwable $e) {
-                $failedAt = $this->now();
                 $this->compensateAfterRuntimeAbort(
                     $definition,
-                    $contextAfterStep,
+                    $context,
                     $completedSteps,
                     $run,
                     $store,
-                    $step,
-                    $sequence,
-                    FlowStepResult::failed($e),
-                    $stepStartedAt,
-                    $failedAt,
-                    $redactor,
-                    listenerEvent: $listenerFailureEvent,
-                    failedStepPersistenceContext: $context,
+                    null,
+                    markRunAborted: true,
                 );
 
                 throw $e;
             }
 
-            $context = $contextAfterStep;
+            return $run;
+        } finally {
+            $this->restoreContainerFlowStore($storeBinding);
         }
-
-        try {
-            $run->markSucceeded($this->now());
-            $this->persistAtomically($store, function () use ($store, $run): void {
-                $this->persistRunFinished($store, $run);
-            });
-        } catch (Throwable $e) {
-            $this->compensateAfterRuntimeAbort(
-                $definition,
-                $context,
-                $completedSteps,
-                $run,
-                $store,
-                null,
-                markRunAborted: true,
-            );
-
-            throw $e;
-        }
-
-        return $run;
     }
 
     private function executeStep(FlowStep $step, FlowContext $context): FlowStepResult
@@ -1129,6 +1135,43 @@ class FlowEngine
         }
 
         return $store->withPayloadRedactor($redactor);
+    }
+
+    /**
+     * @return array{swapped: bool, previous: FlowStore|null}
+     */
+    private function swapContainerFlowStore(?FlowStore $store): array
+    {
+        if (! $store instanceof FlowStore || ! $this->container->bound(FlowStore::class)) {
+            return ['swapped' => false, 'previous' => null];
+        }
+
+        try {
+            /** @var FlowStore $previous */
+            $previous = $this->container->make(FlowStore::class);
+        } catch (Throwable) {
+            return ['swapped' => false, 'previous' => null];
+        }
+
+        if ($previous === $store) {
+            return ['swapped' => false, 'previous' => null];
+        }
+
+        $this->container->instance(FlowStore::class, $store);
+
+        return ['swapped' => true, 'previous' => $previous];
+    }
+
+    /**
+     * @param  array{swapped: bool, previous: FlowStore|null}  $binding
+     */
+    private function restoreContainerFlowStore(array $binding): void
+    {
+        if (! $binding['swapped'] || ! $binding['previous'] instanceof FlowStore) {
+            return;
+        }
+
+        $this->container->instance(FlowStore::class, $binding['previous']);
     }
 
     private function resolvePayloadRedactor(): ?PayloadRedactor

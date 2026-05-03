@@ -5,12 +5,13 @@ declare(strict_types=1);
 namespace Padosoft\LaravelFlow\Persistence;
 
 use Illuminate\Contracts\Container\Container;
+use Padosoft\LaravelFlow\Contracts\CurrentPayloadRedactorProvider;
 use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
 
 /**
  * Keeps singleton FlowStore repositories aligned with the current redactor binding.
  */
-final class ExecutionScopedPayloadRedactor implements PayloadRedactor
+final class ExecutionScopedPayloadRedactor implements CurrentPayloadRedactorProvider
 {
     public function __construct(
         private readonly Container $container,

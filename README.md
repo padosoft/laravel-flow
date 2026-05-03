@@ -102,7 +102,7 @@ Every transition (`FlowStepStarted`, `FlowStepCompleted`, `FlowStepFailed`, `Flo
 - **Reverse-order saga compensation** — `compensateWith(Compensator::class)` per step; failures unwind cleanly.
 - **Immutable audit trail** — four Laravel events per transition; subscribe once.
 - **Business-impact projection** — handlers return `businessImpact: [...]` alongside output, surfaced on every step result.
-- **Opt-in persisted execution** — `flow_runs`, `flow_steps`, and `flow_audit` migrations, Eloquent repositories, immutable run identity updates, transaction-scoped run/step/audit transitions, compensate-first runtime-abort recovery, sanitized listener/error storage, clock-aware audit timestamps, and redacted JSON payload storage.
+- **Opt-in persisted execution** — `flow_runs`, `flow_steps`, and `flow_audit` migrations, Eloquent repositories, immutable run identity updates, transaction-scoped run/step/audit transitions, compensate-first runtime-abort recovery, sanitized listener/error storage, clock-aware audit timestamps, redacted JSON payload storage, and retention pruning.
 - **Container-resolved handlers** — full DI, type hints, and stack traces.
 - **Strict input validation** — `withInput(['a','b'])` throws `FlowInputException` if a key is missing.
 - **Multi-strategy compensation knob** — `reverse-order` (default), `parallel` (v0.2).
@@ -122,7 +122,7 @@ Every transition (`FlowStepStarted`, `FlowStepCompleted`, `FlowStepFailed`, `Flo
 | Container-resolved handlers      | ✅                            | ⚠️ partial                  | ✅                          | ✅ (via worker DI)         | ❌ (Lambda fanout)      |
 | Audit trail (events)             | ✅ 4 events / transition      | ⚠️ via state machine hooks  | ✅                          | ✅                         | ✅ (CloudWatch)         |
 | Business-impact projection       | ✅ on every result            | ❌                          | ❌                          | ❌                         | ❌                      |
-| Persistence model                | in-memory by default; opt-in DB runs/steps/audit with immutable run updates, atomic step upserts, and successful-step output aggregation | DB                          | DB                          | dedicated cluster         | managed                |
+| Persistence model                | in-memory by default; opt-in DB runs/steps/audit with immutable run updates, atomic step upserts, successful-step output aggregation, and terminal-run pruning | DB                          | DB                          | dedicated cluster         | managed                |
 | Persisted transition safety      | ✅ transaction-scoped writes + compensate-first runtime-abort recovery | ⚠️ package/app-defined      | ⚠️ app-defined marking store | ✅ managed event history | ✅ managed execution history |
 | Setup time                       | `composer require` + 1 file  | medium                      | medium                      | run a Temporal cluster    | AWS account + IAM      |
 | Self-hosted, zero infra          | ✅                            | ✅                           | ✅                          | ❌ (cluster needed)        | ❌ (AWS-only)           |
@@ -152,6 +152,15 @@ php artisan migrate
 ```
 
 The in-memory engine path still works without migrations. To persist runtime runs, enable `LARAVEL_FLOW_PERSISTENCE_ENABLED=true`; dry-runs remain simulation-only and do not write to the database.
+
+Prune old terminal persistence records with the built-in retention command:
+
+```bash
+php artisan flow:prune --days=90 --dry-run
+php artisan flow:prune --days=90
+```
+
+`flow:prune` deletes only terminal runs (`succeeded`, `failed`, `compensated`, `aborted`) with `finished_at` older than the cutoff. Matching `flow_steps` and `flow_audit` rows are deleted in the same batch transaction; running and pending rows are left untouched. Use `LARAVEL_FLOW_RETENTION_DAYS=90` to make `--days` optional, and `--force` for non-interactive production runs.
 
 > **Requirements**
 > - PHP 8.3+
@@ -289,6 +298,9 @@ return [
             'replacement' => env('LARAVEL_FLOW_REDACTION_REPLACEMENT', '[redacted]'),
             'keys'        => ['api_key', 'authorization', 'password', 'secret', 'token'],
         ],
+        'retention' => [
+            'days' => env('LARAVEL_FLOW_RETENTION_DAYS', null),
+        ],
     ],
     'audit_trail_enabled'    => env('LARAVEL_FLOW_AUDIT_ENABLED', true), // events; DB audit rows also require persistence.enabled=true
     'dry_run_default'        => env('LARAVEL_FLOW_DRY_RUN_DEFAULT', false),
@@ -302,6 +314,7 @@ return [
 | `default_storage`         | `null`           | DB connection used by persistence repositories. Inherits app default when `null`.                 |
 | `persistence.enabled`     | `false`          | Enables synchronous engine writes to `flow_runs` and `flow_steps`; `flow_audit` writes also require `audit_trail_enabled=true`. Dry-runs do not write. |
 | `persistence.redaction`   | common secrets   | Redacts configured JSON payload keys before run, step, and audit payloads are stored.             |
+| `persistence.retention.days` | `null`         | Default retention window for `php artisan flow:prune`; pass `--days` to override per run.         |
 | `audit_trail_enabled`     | `true`           | When `false`, suppresses every `FlowStep*` / `FlowCompensated` event and persisted audit row.     |
 | `dry_run_default`         | `false`          | When `true`, `Flow::execute()` behaves like `dryRun()` — guard rail for staging environments.     |
 | `step_timeout_seconds`    | `300`            | Reserved for v0.2 queued workers.                                                                 |
@@ -353,7 +366,7 @@ Custom `FlowStore` implementations that need the same per-execution `PayloadReda
                                                    └─────────────────────┘
 ```
 
-Every box is one PHP class under `src/`. The engine path is still synchronous and in-memory by default; when persistence is enabled, runtime runs and steps are written to `flow_runs` and `flow_steps`. Audit transitions are written to `flow_audit` only while `audit_trail_enabled` remains enabled. The next v0.2 slices add idempotency/correlation ergonomics, retention pruning, queues, and replay.
+Every box is one PHP class under `src/`. The engine path is still synchronous and in-memory by default; when persistence is enabled, runtime runs and steps are written to `flow_runs` and `flow_steps`. Audit transitions are written to `flow_audit` only while `audit_trail_enabled` remains enabled. The next v0.2 slices add idempotency/correlation ergonomics, queues, and replay.
 
 ---
 
@@ -398,7 +411,7 @@ CI runs Pint (style), PHPStan (level 6), and the Unit + Architecture suites thro
 | Version | Scope                                                                                                                                                                                                                                                              | Target            |
 | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
 | v0.1    | In-memory engine, fluent builder, dry-run, reverse-order compensation, four audit events, business-impact field on results, Facade. Architecture test enforces standalone-agnostic.                                                                                  | code complete     |
-| v0.2    | Persistence core is landing in slices: `flow_runs` / `flow_steps` / `flow_audit` tables plus synchronous engine writes are in progress; queued workers, replay command, parallel compensation strategy, and companion web dashboard contracts/app integration remain next. | Q3 2026           |
+| v0.2    | Persistence core is landing in slices: `flow_runs` / `flow_steps` / `flow_audit` tables, synchronous engine writes, and terminal-run retention pruning are in progress; queued workers, replay command, parallel compensation strategy, and companion web dashboard contracts/app integration remain next. | Q3 2026           |
 | v0.3    | Approval-gate primitive (a step type that pauses until an external token is presented), webhooks for resume.                                                                                                                                                         | Q4 2026           |
 | v1.0    | Stable API, semver guarantee, full migration helpers from Spatie Workflow / Symfony Workflow.                                                                                                                                                                        | 2027              |
 

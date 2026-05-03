@@ -8,6 +8,7 @@ use Illuminate\Contracts\Container\Container;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\ServiceProvider;
+use Padosoft\LaravelFlow\Console\PruneFlowRunsCommand;
 use Padosoft\LaravelFlow\Contracts\AuditRepository;
 use Padosoft\LaravelFlow\Contracts\FlowStore;
 use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
@@ -87,6 +88,10 @@ final class LaravelFlowServiceProvider extends ServiceProvider
         $this->publishesMigrations([
             __DIR__.'/../database/migrations/2026_05_02_000001_create_laravel_flow_tables.php' => $this->app->databasePath('migrations/2026_05_02_000001_create_laravel_flow_tables.php'),
         ], 'laravel-flow-migrations');
+
+        $this->commands([
+            PruneFlowRunsCommand::class,
+        ]);
     }
 
     private function configPath(string $file): string

@@ -31,6 +31,10 @@ return [
                 'token',
             ],
         ],
+
+        'retention' => [
+            'days' => env('LARAVEL_FLOW_RETENTION_DAYS', null),
+        ],
     ],
 
     /*

@@ -27,6 +27,8 @@ return new class extends Migration
             $table->timestampTz('finished_at')->nullable();
             $table->unsignedInteger('duration_ms')->nullable();
             $table->timestampsTz();
+
+            $table->index(['status', 'finished_at']);
         });
 
         Schema::create('flow_steps', function (Blueprint $table): void {

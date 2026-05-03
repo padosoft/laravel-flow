@@ -160,3 +160,4 @@
 - Even when `flow_audit` has a run foreign key, `flow:prune` should explicitly delete matching audit rows until there is an additive migration story for installations that already published older tables without that FK.
 - `ExecutionScopedPayloadRedactor` must delegate provider-chain cycle/depth handling to `PayloadRedactorResolution`; keep only the scope-specific self fallback outside the shared resolver so JSON and execution-scoped redaction cannot drift.
 - Laravel transaction callbacks should accept the connection argument even when unused, matching `EloquentFlowStore::transaction()` and avoiding arity drift across connection implementations.
+- When a transaction callback receives the connection instance, use that callback parameter for the enclosed queries instead of capturing the outer connection; it keeps all statements tied to the exact transactional connection.

@@ -125,4 +125,5 @@
 - Text redaction should treat `key=Bearer token` as a single keyed value; otherwise bearer and key/value passes can leave noisy duplicate replacement tokens.
 - Engine text redaction and repository JSON redaction must unwrap `CurrentPayloadRedactorProvider` the same way; otherwise custom decorators can diverge within one execution.
 - Audit appends with empty payload and no business impact should not resolve the payload redactor.
+- When persistence is enabled, broken redactor bindings must surface; swallowing them can silently persist unsanitized error text.
 - Step input snapshots should not duplicate cumulative step outputs into every row; store bounded metadata such as output keys and reconstruct full history from ordered step rows.

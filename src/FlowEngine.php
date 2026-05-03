@@ -1022,10 +1022,6 @@ class FlowEngine
     {
         $redactor ??= $this->redactorForExecution();
 
-        if (! $redactor instanceof PayloadRedactor) {
-            return $message;
-        }
-
         $redactor = PayloadRedactorResolution::current($redactor);
 
         $redacted = $redactor->redact([
@@ -1125,13 +1121,11 @@ class FlowEngine
         return $store;
     }
 
-    private function redactorForExecution(): ?PayloadRedactor
+    private function redactorForExecution(): PayloadRedactor
     {
         $redactor = $this->redactor ?? $this->resolvePayloadRedactor();
 
-        return $redactor instanceof PayloadRedactor
-            ? PayloadRedactorResolution::current($redactor)
-            : null;
+        return PayloadRedactorResolution::current($redactor);
     }
 
     private function storeWithExecutionRedactor(?FlowStore $store, ?PayloadRedactor $redactor): ?FlowStore
@@ -1143,16 +1137,12 @@ class FlowEngine
         return $store->withPayloadRedactor($redactor);
     }
 
-    private function resolvePayloadRedactor(): ?PayloadRedactor
+    private function resolvePayloadRedactor(): PayloadRedactor
     {
-        try {
-            /** @var PayloadRedactor $redactor */
-            $redactor = $this->container->make(PayloadRedactor::class);
+        /** @var PayloadRedactor $redactor */
+        $redactor = $this->container->make(PayloadRedactor::class);
 
-            return $redactor;
-        } catch (Throwable) {
-            return null;
-        }
+        return $redactor;
     }
 
     /**

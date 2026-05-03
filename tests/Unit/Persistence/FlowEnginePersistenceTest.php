@@ -715,6 +715,31 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         }
     }
 
+    public function test_enabled_persistence_surfaces_broken_payload_redactor_binding(): void
+    {
+        $this->migrateFlowTables();
+        $this->app['config']->set('laravel-flow.persistence.enabled', true);
+        $this->app->bind(
+            PayloadRedactor::class,
+            static fn (): PayloadRedactor => throw new RuntimeException('redactor binding down'),
+        );
+        $this->app->forgetInstance(FlowEngine::class);
+
+        /** @var FlowEngine $engine */
+        $engine = $this->app->make(FlowEngine::class);
+
+        $engine->define('flow.persist.redactor-binding-down')
+            ->step('create', AlwaysSucceedsHandler::class)
+            ->register();
+
+        try {
+            $engine->execute('flow.persist.redactor-binding-down', []);
+            $this->fail('The broken redactor binding should abort execution.');
+        } catch (RuntimeException $exception) {
+            $this->assertSame('redactor binding down', $exception->getMessage());
+        }
+    }
+
     public function test_audit_disabled_suppresses_events_and_persisted_audit_rows_only(): void
     {
         $this->migrateFlowTables();

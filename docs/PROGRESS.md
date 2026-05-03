@@ -1,6 +1,6 @@
 # Progress
 
-## 2026-05-02 - Durable Handoff
+## 2026-05-03 - Durable Handoff
 
 This file is a durable handoff summary, not a per-poll CI/Copilot log. Detailed PR iteration history belongs in the relevant GitHub PR.
 
@@ -10,7 +10,7 @@ Known workstreams:
 | --- | --- |
 | Macro Task 0 - durable agent operating system | Completed after merge of the macro PR to `main`. |
 | Macro Task 1 - baseline tooling and Laravel 13 policy | Completed after merge of the macro PR to `main`; Composer/CI/docs now narrow to Laravel 13, PHP 8.3/8.4, and Composer-script quality gates. |
-| Macro Task 2 - v0.2 persistence layer | In progress. Persistence migrations/repositories, synchronous engine wiring, and retention pruning have landed on the macro branch; the correlation/idempotency slice is in PR loop with identifier length validation, persisted step-result rehydration, and create-race fallback covered locally. |
+| Macro Task 2 - v0.2 persistence layer | Completed after merge of the macro PR to `main`; the package has opt-in DB persistence for runs, steps, audit rows, redaction, retention pruning, correlation IDs, and idempotency keys. |
 
 Concurrent subtasks should add rows here instead of replacing existing workstreams.
 
@@ -29,7 +29,7 @@ Completed in Macro Task 0:
 - Recorded the durable rule that README section `Comparison vs alternatives` must be reviewed for every new or materially improved feature, with competitor research when claims are uncertain.
 - Aligned README, CONTRIBUTING, PR template, Copilot instructions, repo rules, and repo skills around the macro/subtask workflow, the pre-Macro-1 Laravel 12/13 compatibility state, companion-dashboard scope, and mandatory Copilot review.
 
-Validation summary:
+Macro Task 0 validation summary:
 
 - Macro Task 0 was validated with:
   - `composer validate --strict --no-check-publish`
@@ -38,6 +38,20 @@ Validation summary:
   - `vendor/bin/phpunit --testsuite Unit` => 32 tests, 97 assertions
   - `vendor/bin/phpunit --testsuite Architecture` => 2 tests, 7 assertions
 
+Completed in Macro Task 2 (v0.2 persistence layer):
+
+- Added one publishable migration file that creates `flow_runs`, `flow_steps`, and `flow_audit` with SQLite-tested schema and MySQL/Postgres-friendly indexes.
+- Added public `FlowStore`, `RunRepository`, `StepRunRepository`, `AuditRepository`, `RedactorAwareFlowStore`, and `CurrentPayloadRedactorProvider` contracts.
+- Added Eloquent-backed persistence repositories with redacted JSON payload storage, append-only audit protections, immutable run identity updates, and atomic step upserts.
+- Wired the synchronous engine to persist opt-in run/step/audit transitions, business impact, output aggregates, failures, compensation state, timestamps, durations, correlation IDs, and idempotency keys.
+- Added `FlowExecutionOptions` for normalized, length-validated correlation/idempotency metadata and idempotent persisted-run reuse with step-result rehydration and create-race fallback.
+- Added `flow:prune` retention cleanup for old terminal runs while keeping pending/running rows intact.
+
+Macro Task 2 current validation baseline:
+
+- `composer validate --strict --no-check-publish`
+- `composer quality` => Pint format test, PHPStan, Unit 106 tests / 463 assertions, Architecture 2 tests / 7 assertions
+
 Next active macro:
 
-- Continue Macro Task 2 from `docs/ENTERPRISE_PLAN.md`: v0.2 persistence layer.
+- Continue Macro Task 3 from `docs/ENTERPRISE_PLAN.md`: v0.2 queues, replay, and compensation strategies. Preserve the shipped `reverse-order` config spelling when adding `parallel`.

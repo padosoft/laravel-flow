@@ -4,7 +4,7 @@
 
 - v0.1 is no longer a no-op scaffold. It includes the in-memory Flow engine core, facade, dry-run, compensation, events, business-impact results, README expansion, and architecture tests.
 - The enterprise direction chosen by the user is Laravel 13-only. Macro Task 0 intentionally left `composer.json` and CI on Laravel 12/13; Macro Task 1 is the branch that narrows compatibility.
-- The dashboard direction chosen by the user is companion app, not package-embedded UI.
+- The dashboard direction chosen by the user is companion app, not package-embedded UI; keep it in the later dashboard macro, not in v0.2 persistence or queue/replay roadmap wording.
 - The imported `.claude` pack already contains useful PR-loop and pre-push skills. Do not duplicate the full content; link to it and add laravel-flow-specific rules.
 - For this package repo, Vite/Vitest/Playwright are not local gates unless the companion dashboard app is touched.
 - When tests are added or assertion counts change, run the `test-count-readme-sync` skill before pushing so README and PR descriptions do not drift.
@@ -119,7 +119,7 @@
 - Engine execution redactor freeze should be expressed through store/redactor capability contracts, not concrete class checks, so decorators can preserve JSON/text redaction and transaction consistency.
 - Compensation failure paths should advance `finishedAt` to the rollback failure time so persisted duration includes partial rollback work.
 - Current-redactor provider chains should be unwrapped recursively, and execution-scope redactor self-resolution guards should treat any scope wrapper instance as recursive.
-- Cyclic current-redactor provider chains should fail before invoking `redact()` again; returning a provider from the cycle just moves the stack overflow to the caller.
+- Cyclic `CurrentPayloadRedactorProvider` chains should fail before invoking `redact()` again; returning a provider from the cycle just moves the stack overflow to the caller.
 - Provider cycle guards need a max-depth fallback in addition to object identity; decorators can allocate fresh wrapper objects on every hop.
 - Core classes should avoid facade roots and Laravel support dependencies; inject Laravel clocks from the service provider and keep DTO legacy fallbacks framework-agnostic.
 - Text redaction should treat `key=Bearer token` as a single keyed value; otherwise bearer and key/value passes can leave noisy duplicate replacement tokens.
@@ -146,3 +146,14 @@
 - Public execution identity values should validate against the persisted schema length before repository writes so callers get package-level input errors instead of database exceptions.
 - On Windows, PHPUnit `--filter` regexes containing `|` can be consumed by the `.bat` wrapper shell even when quoted; run separate filters or the full suite instead of trusting that pattern.
 - Character limits in public DTOs should count UTF-8 characters, not bytes, and should include normalization tests when docs promise trim/blank semantics.
+- README audit persistence wording must mention every gate: persisted audit rows require `persistence.enabled=true`, `audit_trail_enabled=true`, and a non-dry-run execution.
+- README feature and comparison sections must not advertise approval gates as shipped until the approval/webhook macro lands.
+- README audit claims should distinguish runtime events from append-only persisted rows; `flow:prune` means persisted audit rows are not immutable forever.
+- README event wording must include the `audit_trail_enabled` gate and avoid saying every transition emits all event classes.
+- README event wording should qualify event dispatch as normal-case behavior: with persistence enabled, `FlowStep*` events dispatch only after the corresponding audit append succeeds, and `FlowCompensated` is skipped when its compensation audit append fails.
+- Published config comments must carry the same audit gates as README docs: persisted `flow_audit` rows require persistence, `audit_trail_enabled=true`, and a non-dry-run execution.
+- README `Comparison vs alternatives` rows should use explicit `✅ YES - ...`, `⚠️ PARTIAL - ...`, or `❌ NO - ...` prefixes in every capability cell, and the competitor set should name verified current projects rather than stale labels.
+- README tagline and positioning should not imply Temporal-class queue/replay guarantees until queue-backed workers and replay are actually shipped.
+- Composer `suggest` metadata must be updated when a roadmap version partially lands; avoid "when vX lands" wording after that version has shipped a slice.
+- README comparison atomicity claims must distinguish transaction-scoped step transitions and atomic step upserts from compensation audit/finalization writes, which can be separate best-effort operations.
+- Until Macro Task 3 implements strategy selection, `compensation_strategy` must be documented as reserved metadata only; the current engine ignores the value and always compensates in reverse order.

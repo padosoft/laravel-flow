@@ -42,9 +42,10 @@ return [
     | Audit trail
     |--------------------------------------------------------------------------
     |
-    | When true, every flow run + step transition emits a Laravel event the
-    | host application can subscribe to. With persistence enabled, the same
-    | transition audit is also written to the `flow_audit` table.
+    | When true, normal-case transitions dispatch the matching Laravel event.
+    | If persistence is enabled, events are emitted only after required audit
+    | appends succeed. Persisted `flow_audit` rows require persistence to be
+    | enabled, this flag to be true, and the execution to be non-dry-run.
     |
     */
     'audit_trail_enabled' => env('LARAVEL_FLOW_AUDIT_ENABLED', true),
@@ -74,16 +75,12 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Compensation strategy
+    | Compensation strategy metadata
     |--------------------------------------------------------------------------
     |
-    | How the engine walks compensators after a step failure.
-    |
-    | - 'reverse-order' (default): walk previously-completed steps from last
-    |   to first; classic saga semantics.
-    | - 'parallel': fan out compensators concurrently (v0.2 — currently
-    |   unsupported, silently falls back to 'reverse-order'). Setting this
-    |   value before v0.2 is harmless but does not change behaviour.
+    | Reserved for future concurrent compensation work. The current engine
+    | does not read this setting: every compensation walk is in reverse order
+    | regardless of the configured value.
     |
     */
     'compensation_strategy' => env('LARAVEL_FLOW_COMPENSATION', 'reverse-order'),

@@ -93,7 +93,7 @@ Public API:
 
 - `Flow::dispatch(...)`
 - `flow:replay {runId}`
-- Compensation strategy config: `reverse_order`, `parallel`
+- Compensation strategy config: `reverse-order`, `parallel`
 
 Key changes:
 
@@ -195,7 +195,7 @@ Key changes:
 
 - Mark public API and internal namespaces.
 - Add SemVer and backwards-compatibility policy.
-- Add migration guides/helpers for Spatie Workflow and Symfony Workflow.
+- Add migration guides/helpers for Durable Workflow and Symfony Workflow.
 - Add v0.1 -> v0.2 -> v0.3 -> v1.0 upgrade docs.
 - Add contract tests pinning builder, DTO, facade, config, migrations, commands, and events.
 

@@ -56,7 +56,7 @@ final class LaravelFlowServiceProvider extends ServiceProvider
             );
         });
 
-        $this->app->singleton(FlowStore::class, function (Container $app): FlowStore {
+        $this->app->bind(FlowStore::class, function (Container $app): FlowStore {
             /** @var string|null $connection */
             $connection = $app['config']->get('laravel-flow.default_storage');
 

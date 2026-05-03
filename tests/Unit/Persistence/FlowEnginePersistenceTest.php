@@ -487,21 +487,16 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         $run = $engine->execute('flow.persist.compensation-listener', []);
 
         $runRecord = FlowRunRecord::query()->find($run->id);
-        $listenerFailureAudits = FlowAuditRecord::query()
+        $compensatedAudits = FlowAuditRecord::query()
             ->where('run_id', $run->id)
             ->where('event', 'FlowCompensated')
-            ->get()
-            ->filter(static fn (FlowAuditRecord $record): bool => ($record->payload['listener_failed'] ?? false) === true)
-            ->values();
+            ->get();
 
         $this->assertInstanceOf(FlowRunRecord::class, $runRecord);
         $this->assertSame(FlowRun::STATUS_COMPENSATED, $runRecord->status);
         $this->assertCount(2, RecordingCompensator::$invocations);
-        $this->assertCount(2, $listenerFailureAudits);
-        $this->assertStringNotContainsString(
-            'plain-secret',
-            (string) $listenerFailureAudits[0]->payload['listener_error_message'],
-        );
+        $this->assertCount(2, $compensatedAudits);
+        $this->assertFalse((bool) ($compensatedAudits[0]->payload['listener_failed'] ?? false));
     }
 
     public function test_success_transition_persistence_failure_compensates_before_throwing(): void

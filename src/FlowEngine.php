@@ -455,31 +455,25 @@ class FlowEngine
                 continue;
             }
 
-            $compensatedAt = $this->now();
-            $listenerFailure = $this->dispatchCompensatedAndCaptureListenerFailure(
-                $definition,
-                $context,
-                $run,
-                $step,
-            );
             $payload = [
                 'definition_name' => $definition->name,
                 'dry_run' => $context->dryRun,
                 'status' => 'compensated',
             ];
-
-            if ($listenerFailure instanceof Throwable) {
-                $payload['listener_error_class'] = $listenerFailure::class;
-                $payload['listener_error_message'] = $this->safeErrorMessage($listenerFailure);
-                $payload['listener_event'] = 'FlowCompensated';
-                $payload['listener_failed'] = true;
-            }
+            $compensatedAt = $this->now();
 
             try {
                 $this->recordAudit($persist, 'FlowCompensated', $run, $step->name, $payload, occurredAt: $compensatedAt);
             } catch (Throwable) {
                 // Persistence/audit outages must not interrupt rollback.
             }
+
+            $this->dispatchCompensatedAndCaptureListenerFailure(
+                $definition,
+                $context,
+                $run,
+                $step,
+            );
             $compensatedAtLeastOne = true;
         }
 
@@ -556,6 +550,7 @@ class FlowEngine
         $compensationStatus = $compensationError instanceof Throwable
             ? 'failed'
             : ($run->compensated ? 'succeeded' : null);
+        $persistedRunState = false;
 
         if (
             $failedStep !== null
@@ -574,12 +569,17 @@ class FlowEngine
                 $stepStartedAt,
                 $failedAt,
                 $listenerEvent,
+                $compensationStatus,
             );
+            $persistedRunState = true;
         } elseif ($shouldMarkRunFailed || $shouldMarkRunAborted) {
             $this->persistRunFinishedBestEffort($persist, $run, $compensationStatus);
+            $persistedRunState = true;
         }
 
-        $this->persistRunFinishedBestEffort($persist, $run, $compensationStatus);
+        if (! $persistedRunState) {
+            $this->persistRunFinishedBestEffort($persist, $run, $compensationStatus);
+        }
     }
 
     private function persistRuntimeAbortStateBestEffort(
@@ -592,6 +592,7 @@ class FlowEngine
         DateTimeInterface $startedAt,
         DateTimeInterface $failedAt,
         ?string $listenerEvent,
+        ?string $compensationStatus,
     ): void {
         try {
             $this->persistAtomically($persist, function () use (
@@ -604,6 +605,7 @@ class FlowEngine
                 $startedAt,
                 $failedAt,
                 $listenerEvent,
+                $compensationStatus,
             ): void {
                 $this->persistStepFinished(
                     $persist,
@@ -632,7 +634,7 @@ class FlowEngine
 
                 $this->recordAudit($persist, 'FlowStepFailed', $run, $step->name, $payload, occurredAt: $failedAt);
 
-                $this->persistRunFinished($persist, $run);
+                $this->persistRunFinished($persist, $run, $compensationStatus);
             });
         } catch (Throwable) {
             $this->persistStepFailureTransitionBestEffort(

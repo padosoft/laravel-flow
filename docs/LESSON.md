@@ -84,6 +84,10 @@
 - Runtime-abort recovery should compensate first and persist failed step/run telemetry afterwards. Writing failure state before rollback creates a crash gap where persistence claims recovery that never happened.
 - Listener dispatch helpers should capture listener metadata and rethrow only; persisted recovery writes belong in the outer runtime-abort flow after compensation.
 - Runtime-abort compensation failures must not mask the original listener/repository exception that aborted execution; persist compensation status best-effort and let the original catch block rethrow.
+- `FlowCompensated` audit rows should be appended before dispatching `FlowCompensated` so event subscribers see the same durable-transition ordering as `FlowStep*` events.
+- Keep `FlowStore` resolution aligned with the active `PayloadRedactor`; if the store is singleton-cached before a redactor swap, JSON and text redaction can diverge.
+- README roadmap rows must distinguish shipped/in-progress slices from future slices once a roadmap item starts landing, especially for persistence.
+- Avoid redundant best-effort run updates in recovery once the same final run state has already been persisted with compensation status.
 - README persistence docs must call out that opt-in synchronous persistence can rethrow listener/repository infrastructure failures after best-effort recovery and compensation.
 - README exception docs should distinguish `FlowStep*` listener failures, which are rethrown, from `FlowCompensated` listener failures, which are swallowed after best-effort telemetry.
 - Shared test recorders need one documented invocation shape across all writer stubs, otherwise helper phpdoc becomes misleading after a single stub extension.

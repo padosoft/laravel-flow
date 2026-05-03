@@ -54,13 +54,23 @@ final class LaravelFlowServiceProvider extends ServiceProvider
             );
         });
 
-        $this->app->bind(FlowStore::class, function (Container $app): FlowStore {
+        $this->app->singleton(FlowStore::class, function (Container $app): FlowStore {
             /** @var string|null $connection */
             $connection = $app['config']->get('laravel-flow.default_storage');
 
             return new EloquentFlowStore(
                 connection: $connection,
-                redactor: $app->make(PayloadRedactor::class),
+                redactor: new class($app) implements PayloadRedactor
+                {
+                    public function __construct(
+                        private readonly Container $app,
+                    ) {}
+
+                    public function redact(array $payload): array
+                    {
+                        return $this->app->make(PayloadRedactor::class)->redact($payload);
+                    }
+                },
             );
         });
 

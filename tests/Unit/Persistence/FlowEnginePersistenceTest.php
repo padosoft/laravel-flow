@@ -302,11 +302,18 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
             ->where('run_id', $run->id)
             ->where('step_name', 'charge')
             ->first();
+        $failedAudit = FlowAuditRecord::query()
+            ->where('run_id', $run->id)
+            ->where('event', 'FlowStepFailed')
+            ->where('step_name', 'charge')
+            ->first();
 
         $this->assertInstanceOf(FlowRunRecord::class, $runRecord);
         $this->assertInstanceOf(FlowStepRecord::class, $failedStep);
+        $this->assertInstanceOf(FlowAuditRecord::class, $failedAudit);
         $this->assertSame('[late-redacted]', $runRecord->input['token']);
         $this->assertStringContainsString('[late-redacted]', (string) $failedStep->error_message);
+        $this->assertSame($failedStep->error_message, $failedAudit->payload['error_message']);
     }
 
     public function test_persisted_error_messages_redact_normalized_key_variants(): void
@@ -869,6 +876,7 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
     public function test_compensation_audit_persistence_failure_does_not_abort_rollback(): void
     {
         $this->migrateFlowTables();
+        Event::fake([FlowCompensated::class]);
         $engine = $this->engineWithFailingAudit('FlowCompensated');
 
         $engine->define('flow.persist.compensation-audit-down')
@@ -883,6 +891,7 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
 
         $this->assertSame(FlowRun::STATUS_COMPENSATED, $run->status);
         $this->assertCount(2, RecordingCompensator::$invocations);
+        Event::assertNotDispatched(FlowCompensated::class);
     }
 
     public function test_final_run_update_failure_compensates_completed_steps(): void

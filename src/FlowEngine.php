@@ -112,6 +112,7 @@ class FlowEngine
         $definition = $this->definition($name);
         $this->validateInput($definition, $input);
         $store = $this->storeForExecution($dryRun);
+        $redactor = $this->redactorForExecution();
         $startedAt = $this->now();
 
         $run = new FlowRun(
@@ -176,6 +177,7 @@ class FlowEngine
                     FlowStepResult::failed($e),
                     $stepStartedAt,
                     $failedAt,
+                    $redactor,
                     listenerEvent: $listenerFailureEvent,
                 );
 
@@ -204,6 +206,7 @@ class FlowEngine
                         $definition,
                         $dryRun,
                         $error,
+                        $redactor,
                     ): void {
                         $this->persistStepFinished(
                             $store,
@@ -214,12 +217,13 @@ class FlowEngine
                             $result,
                             $stepStartedAt,
                             $stepFinishedAt,
+                            $redactor,
                         );
                         $this->recordAudit($store, 'FlowStepFailed', $run, $step->name, [
                             'definition_name' => $definition->name,
                             'dry_run' => $dryRun,
                             'error_class' => $error instanceof Throwable ? $error::class : null,
-                            'error_message' => $this->safeErrorMessage($error),
+                            'error_message' => $this->safeErrorMessage($error, $redactor),
                             'status' => 'failed',
                         ], occurredAt: $stepFinishedAt);
                         $this->persistRunFinished($store, $run);
@@ -240,6 +244,7 @@ class FlowEngine
                         $result,
                         $stepStartedAt,
                         $stepFinishedAt,
+                        $redactor,
                         listenerEvent: $listenerFailureEvent,
                     );
 
@@ -290,6 +295,7 @@ class FlowEngine
                     $stepFinishedAt,
                     $definition,
                     $dryRun,
+                    $redactor,
                 ): void {
                     $this->persistStepFinished(
                         $store,
@@ -300,6 +306,7 @@ class FlowEngine
                         $result,
                         $stepStartedAt,
                         $stepFinishedAt,
+                        $redactor,
                     );
                     $this->recordAudit($store, 'FlowStepCompleted', $run, $step->name, [
                         'definition_name' => $definition->name,
@@ -326,6 +333,7 @@ class FlowEngine
                     FlowStepResult::failed($e),
                     $stepStartedAt,
                     $failedAt,
+                    $redactor,
                     listenerEvent: $listenerFailureEvent,
                     failedStepPersistenceContext: $context,
                 );
@@ -463,19 +471,23 @@ class FlowEngine
                 'status' => 'compensated',
             ];
             $compensatedAt = $this->now();
+            $compensationAuditDurable = true;
 
             try {
                 $this->recordAudit($store, 'FlowCompensated', $run, $step->name, $payload, occurredAt: $compensatedAt);
             } catch (Throwable) {
                 // Persistence/audit outages must not interrupt rollback.
+                $compensationAuditDurable = false;
             }
 
-            $this->dispatchCompensatedAndIgnoreListenerFailure(
-                $definition,
-                $context,
-                $run,
-                $step,
-            );
+            if ($compensationAuditDurable) {
+                $this->dispatchCompensatedAndIgnoreListenerFailure(
+                    $definition,
+                    $context,
+                    $run,
+                    $step,
+                );
+            }
             $compensatedAtLeastOne = true;
         }
 
@@ -519,6 +531,7 @@ class FlowEngine
         ?FlowStepResult $failedResult = null,
         ?DateTimeInterface $stepStartedAt = null,
         ?DateTimeImmutable $failedAt = null,
+        ?PayloadRedactor $redactor = null,
         ?string $listenerEvent = null,
         ?FlowContext $failedStepPersistenceContext = null,
         bool $markRunAborted = false,
@@ -570,6 +583,7 @@ class FlowEngine
                 $failedResult,
                 $stepStartedAt,
                 $failedAt,
+                $redactor,
                 $listenerEvent,
                 $compensationStatus,
             );
@@ -592,6 +606,7 @@ class FlowEngine
         FlowStepResult $result,
         DateTimeInterface $startedAt,
         DateTimeInterface $failedAt,
+        ?PayloadRedactor $redactor,
         ?string $listenerEvent,
         ?string $compensationStatus,
     ): bool {
@@ -605,6 +620,7 @@ class FlowEngine
                 $result,
                 $startedAt,
                 $failedAt,
+                $redactor,
                 $listenerEvent,
                 $compensationStatus,
             ): void {
@@ -617,6 +633,7 @@ class FlowEngine
                     $result,
                     $startedAt,
                     $failedAt,
+                    $redactor,
                 );
 
                 $error = $result->error;
@@ -624,7 +641,7 @@ class FlowEngine
                     'definition_name' => $context->definitionName,
                     'dry_run' => $context->dryRun,
                     'error_class' => $error instanceof Throwable ? $error::class : null,
-                    'error_message' => $this->safeErrorMessage($error),
+                    'error_message' => $this->safeErrorMessage($error, $redactor),
                     'runtime_abort_recovery' => true,
                     'status' => 'failed',
                 ];
@@ -649,6 +666,7 @@ class FlowEngine
                 $result,
                 $startedAt,
                 $failedAt,
+                $redactor,
                 $listenerEvent,
             );
 
@@ -665,6 +683,7 @@ class FlowEngine
         FlowStepResult $result,
         DateTimeInterface $startedAt,
         DateTimeInterface $failedAt,
+        ?PayloadRedactor $redactor,
         ?string $listenerEvent,
     ): void {
         try {
@@ -677,6 +696,7 @@ class FlowEngine
                 $result,
                 $startedAt,
                 $failedAt,
+                $redactor,
                 $listenerEvent,
             ): void {
                 $this->persistStepFinished(
@@ -688,6 +708,7 @@ class FlowEngine
                     $result,
                     $startedAt,
                     $failedAt,
+                    $redactor,
                 );
 
                 $error = $result->error;
@@ -695,7 +716,7 @@ class FlowEngine
                     'definition_name' => $context->definitionName,
                     'dry_run' => $context->dryRun,
                     'error_class' => $error instanceof Throwable ? $error::class : null,
-                    'error_message' => $this->safeErrorMessage($error),
+                    'error_message' => $this->safeErrorMessage($error, $redactor),
                     'runtime_abort_recovery' => true,
                     'status' => 'failed',
                 ];
@@ -716,6 +737,7 @@ class FlowEngine
                 $result,
                 $startedAt,
                 $failedAt,
+                $redactor,
             );
         }
     }
@@ -729,6 +751,7 @@ class FlowEngine
         FlowStepResult $result,
         DateTimeInterface $startedAt,
         DateTimeInterface $failedAt,
+        ?PayloadRedactor $redactor,
     ): void {
         try {
             $this->persistAtomically($store, function () use (
@@ -740,6 +763,7 @@ class FlowEngine
                 $result,
                 $startedAt,
                 $failedAt,
+                $redactor,
             ): void {
                 $this->persistStepFinished(
                     $store,
@@ -750,6 +774,7 @@ class FlowEngine
                     $result,
                     $startedAt,
                     $failedAt,
+                    $redactor,
                 );
             });
         } catch (Throwable) {
@@ -888,6 +913,7 @@ class FlowEngine
         FlowStepResult $result,
         DateTimeInterface $startedAt,
         DateTimeInterface $finishedAt,
+        ?PayloadRedactor $redactor = null,
     ): void {
         if ($store === null) {
             return;
@@ -900,7 +926,7 @@ class FlowEngine
             'duration_ms' => $this->durationMs($startedAt, $finishedAt),
             'dry_run_skipped' => $result->dryRunSkipped,
             'error_class' => $error instanceof Throwable ? $error::class : null,
-            'error_message' => $this->safeErrorMessage($error),
+            'error_message' => $this->safeErrorMessage($error, $redactor),
             'finished_at' => $finishedAt,
             'handler' => $step->handlerFqcn,
             'input' => [
@@ -914,18 +940,18 @@ class FlowEngine
         ]);
     }
 
-    private function safeErrorMessage(?Throwable $error): ?string
+    private function safeErrorMessage(?Throwable $error, ?PayloadRedactor $redactor = null): ?string
     {
         if (! $error instanceof Throwable) {
             return null;
         }
 
-        return $this->redactText($error->getMessage());
+        return $this->redactText($error->getMessage(), $redactor);
     }
 
-    private function redactText(string $message): string
+    private function redactText(string $message, ?PayloadRedactor $redactor = null): string
     {
-        $message = $this->redactTextWithPayloadRedactor($message);
+        $message = $this->redactTextWithPayloadRedactor($message, $redactor);
         $persistence = $this->config['persistence'] ?? [];
         $redaction = is_array($persistence) ? ($persistence['redaction'] ?? []) : [];
 
@@ -983,9 +1009,9 @@ class FlowEngine
         ) ?? $message;
     }
 
-    private function redactTextWithPayloadRedactor(string $message): string
+    private function redactTextWithPayloadRedactor(string $message, ?PayloadRedactor $redactor = null): string
     {
-        $redactor = $this->redactor ?? $this->resolvePayloadRedactor();
+        $redactor ??= $this->redactorForExecution();
 
         if (! $redactor instanceof PayloadRedactor) {
             return $message;
@@ -1086,6 +1112,11 @@ class FlowEngine
         $store = $this->container->make(FlowStore::class);
 
         return $store;
+    }
+
+    private function redactorForExecution(): ?PayloadRedactor
+    {
+        return $this->redactor ?? $this->resolvePayloadRedactor();
     }
 
     private function resolvePayloadRedactor(): ?PayloadRedactor

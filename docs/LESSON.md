@@ -102,3 +102,7 @@
 - Runtime persistence should resolve the active `FlowStore` once per execution and pass that instance through transaction callbacks; transient store bindings can otherwise make writes run outside the transaction instance.
 - With persistence explicitly enabled, broken `FlowStore` bindings are infrastructure errors and must surface to callers instead of silently disabling persistence.
 - Aggregate persisted run output must exclude the step named by `failed_step`, even if the in-memory step result stayed successful so compensators can still use the real handler output.
+- Repository facade bindings and transaction examples must share the same `FlowStore` instance; if `FlowStore` is singleton, wrap redaction so current host redactor bindings are still observed.
+- `FlowCompensated` dispatch should happen only after its audit row is durable. If compensation audit persistence fails, rollback should continue but subscribers should not observe an event without matching durable audit state.
+- Freeze the runtime `PayloadRedactor` once per engine execution and pass it through text-redaction helpers so step error rows and audit error payloads cannot diverge because of transient redactor bindings.
+- README comparison wording should avoid "lossless output" claims while runtime-abort recovery can intentionally persist a previously successful transition as failed with null step output.

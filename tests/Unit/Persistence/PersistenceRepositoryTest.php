@@ -82,7 +82,7 @@ final class PersistenceRepositoryTest extends PersistenceTestCase
         $this->assertCount(1, $audit->forRun($run->id));
     }
 
-    public function test_flow_store_resolves_with_the_current_payload_redactor_binding(): void
+    public function test_flow_store_uses_current_payload_redactor_binding_even_when_resolved_once(): void
     {
         $this->migrateFlowTables();
         $this->app->bind(PayloadRedactor::class, static fn (): PayloadRedactor => new class implements PayloadRedactor
@@ -125,7 +125,7 @@ final class PersistenceRepositoryTest extends PersistenceTestCase
             'status' => FlowRun::STATUS_RUNNING,
         ]);
 
-        $this->assertNotSame($firstStore, $secondStore);
+        $this->assertSame($firstStore, $secondStore);
         $this->assertSame('second-redactor', $run->input['token']);
     }
 

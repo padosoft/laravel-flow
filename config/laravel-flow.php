@@ -6,25 +6,46 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Default storage connection
+    | Persistence
     |--------------------------------------------------------------------------
     |
-    | Database connection name used by laravel-flow when persisting flow runs
-    | and audit rows. Set to null to inherit the application default. Reserved
-    | for v0.2 (in v0.1 the engine is in-memory only — execution does not
-    | touch the database).
+    | Persistence remains opt-in: the in-memory engine path still works with no
+    | database writes. When enabled, synchronous engine runs are written to the
+    | configured connection and common secret-looking payload keys are redacted
+    | before JSON payloads are stored.
     |
     */
     'default_storage' => env('LARAVEL_FLOW_STORAGE', null),
+
+    'persistence' => [
+        'enabled' => env('LARAVEL_FLOW_PERSISTENCE_ENABLED', false),
+
+        'redaction' => [
+            'enabled' => env('LARAVEL_FLOW_REDACTION_ENABLED', true),
+            'replacement' => env('LARAVEL_FLOW_REDACTION_REPLACEMENT', '[redacted]'),
+            'keys' => [
+                'api_key',
+                'authorization',
+                'password',
+                'secret',
+                'token',
+            ],
+        ],
+
+        'retention' => [
+            'days' => env('LARAVEL_FLOW_RETENTION_DAYS', null),
+        ],
+    ],
 
     /*
     |--------------------------------------------------------------------------
     | Audit trail
     |--------------------------------------------------------------------------
     |
-    | When true, every flow run + step transition emits a Laravel event the
-    | host application can subscribe to. v0.2 will additionally persist the
-    | trail to a `flow_audit` table.
+    | When true, normal-case transitions dispatch the matching Laravel event.
+    | If persistence is enabled, events are emitted only after required audit
+    | appends succeed. Persisted `flow_audit` rows require persistence to be
+    | enabled, this flag to be true, and the execution to be non-dry-run.
     |
     */
     'audit_trail_enabled' => env('LARAVEL_FLOW_AUDIT_ENABLED', true),
@@ -54,16 +75,12 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Compensation strategy
+    | Compensation strategy metadata
     |--------------------------------------------------------------------------
     |
-    | How the engine walks compensators after a step failure.
-    |
-    | - 'reverse-order' (default): walk previously-completed steps from last
-    |   to first; classic saga semantics.
-    | - 'parallel': fan out compensators concurrently (v0.2 — currently
-    |   unsupported, silently falls back to 'reverse-order'). Setting this
-    |   value before v0.2 is harmless but does not change behaviour.
+    | Reserved for future concurrent compensation work. The current engine
+    | does not read this setting: every compensation walk is in reverse order
+    | regardless of the configured value.
     |
     */
     'compensation_strategy' => env('LARAVEL_FLOW_COMPENSATION', 'reverse-order'),

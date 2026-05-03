@@ -1,6 +1,6 @@
 {
     "name": "padosoft/laravel-flow",
-    "description": "DX-first workflow / saga / compensation engine for Laravel with native dry-run, reverse-order compensation, approval gate, business impact tracking, and immutable audit trail.",
+    "description": "DX-first workflow / saga / compensation engine for Laravel with native dry-run, reverse-order compensation, business impact tracking, opt-in persistence, and audit events.",
     "type": "library",
     "license": "Apache-2.0",
     "keywords": [
@@ -8,7 +8,6 @@
         "workflow",
         "saga",
         "dry-run",
-        "approval",
         "compensation",
         "audit-trail",
         "business-impact",
@@ -22,11 +21,12 @@
     ],
     "require": {
         "php": "^8.3",
+        "illuminate/console": "^13.0",
         "illuminate/contracts": "^13.0",
+        "illuminate/database": "^13.0",
         "illuminate/support": "^13.0"
     },
     "require-dev": {
-        "illuminate/database": "^13.0",
         "illuminate/queue": "^13.0",
         "laravel/pint": "^1.18",
         "orchestra/testbench": "^11.0",
@@ -34,8 +34,7 @@
         "phpunit/phpunit": "^11.5|^12.5"
     },
     "suggest": {
-        "illuminate/database": "Required when v0.2 lands the persisted `flow_runs` / `flow_steps` / `flow_audit` storage layer.",
-        "illuminate/queue": "Required when v0.2 lands queued-worker step execution + replay command.",
+        "illuminate/queue": "Reserved for the next v0.2 queued-worker and replay slices; not required for the current synchronous persistence core.",
         "padosoft/laravel-patent-box-tracker": "Tracks R&D activity (Italian Patent Box) across repositories that depend on laravel-flow — useful when flow definitions are part of a tax-deductible R&D project."
     },
     "autoload": {
@@ -64,7 +63,7 @@
         "sort-packages": true
     },
     "scripts": {
-        "analyse": "phpstan analyse --no-progress",
+        "analyse": "phpstan analyse --no-progress --memory-limit=512M",
         "format:test": "pint --test",
         "quality": [
             "@format:test",

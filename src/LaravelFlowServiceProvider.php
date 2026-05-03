@@ -6,14 +6,23 @@ namespace Padosoft\LaravelFlow;
 
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Contracts\Events\Dispatcher;
+use Illuminate\Support\Facades\Date;
 use Illuminate\Support\ServiceProvider;
+use Padosoft\LaravelFlow\Console\PruneFlowRunsCommand;
+use Padosoft\LaravelFlow\Contracts\AuditRepository;
+use Padosoft\LaravelFlow\Contracts\FlowStore;
+use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
+use Padosoft\LaravelFlow\Contracts\RunRepository;
+use Padosoft\LaravelFlow\Contracts\StepRunRepository;
+use Padosoft\LaravelFlow\Persistence\EloquentFlowStore;
+use Padosoft\LaravelFlow\Persistence\ExecutionScopedPayloadRedactor;
+use Padosoft\LaravelFlow\Persistence\KeyBasedPayloadRedactor;
 
 /**
  * Service provider for padosoft/laravel-flow.
  *
- * Registers {@see FlowEngine} as a container singleton + publishes the
- * package config. Migrations are reserved for v0.2 (queued runs +
- * persisted audit trail); v0.1 keeps everything in-memory.
+ * Registers {@see FlowEngine} as a container singleton and exposes the
+ * opt-in persistence repositories used by v0.2.
  */
 final class LaravelFlowServiceProvider extends ServiceProvider
 {
@@ -30,8 +39,40 @@ final class LaravelFlowServiceProvider extends ServiceProvider
             /** @var Dispatcher $events */
             $events = $app->make(Dispatcher::class);
 
-            return new FlowEngine($app, $events, $config);
+            return new FlowEngine(
+                $app,
+                $events,
+                $config,
+                clock: static fn (): \DateTimeImmutable => Date::now()->toDateTimeImmutable(),
+            );
         });
+
+        $this->app->singleton(PayloadRedactor::class, function (Container $app): PayloadRedactor {
+            /** @var array<string, mixed> $redaction */
+            $redaction = $app['config']->get('laravel-flow.persistence.redaction', []);
+
+            return new KeyBasedPayloadRedactor(
+                enabled: (bool) ($redaction['enabled'] ?? true),
+                keys: array_values(array_filter((array) ($redaction['keys'] ?? []), 'is_string')),
+                replacement: (string) ($redaction['replacement'] ?? '[redacted]'),
+            );
+        });
+
+        $this->app->singleton(ExecutionScopedPayloadRedactor::class, fn (Container $app): ExecutionScopedPayloadRedactor => new ExecutionScopedPayloadRedactor($app));
+
+        $this->app->singleton(FlowStore::class, function (Container $app): FlowStore {
+            /** @var string|null $connection */
+            $connection = $app['config']->get('laravel-flow.default_storage');
+
+            return new EloquentFlowStore(
+                connection: $connection,
+                redactor: $app->make(ExecutionScopedPayloadRedactor::class),
+            );
+        });
+
+        $this->app->bind(RunRepository::class, fn (Container $app): RunRepository => $app->make(FlowStore::class)->runs());
+        $this->app->bind(StepRunRepository::class, fn (Container $app): StepRunRepository => $app->make(FlowStore::class)->steps());
+        $this->app->bind(AuditRepository::class, fn (Container $app): AuditRepository => $app->make(FlowStore::class)->audit());
     }
 
     public function boot(): void
@@ -44,8 +85,13 @@ final class LaravelFlowServiceProvider extends ServiceProvider
             __DIR__.'/../config/laravel-flow.php' => $this->configPath('laravel-flow.php'),
         ], 'laravel-flow-config');
 
-        // Migration publishing reserved for v0.2 — flow_runs / flow_steps /
-        // flow_audit tables. v0.1 has no DB-backed state.
+        $this->publishesMigrations([
+            __DIR__.'/../database/migrations/2026_05_02_000001_create_laravel_flow_tables.php' => $this->app->databasePath('migrations/2026_05_02_000001_create_laravel_flow_tables.php'),
+        ], 'laravel-flow-migrations');
+
+        $this->commands([
+            PruneFlowRunsCommand::class,
+        ]);
     }
 
     private function configPath(string $file): string

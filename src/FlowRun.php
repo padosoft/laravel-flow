@@ -48,6 +48,8 @@ final class FlowRun
         public readonly string $definitionName,
         public readonly bool $dryRun,
         public readonly DateTimeImmutable $startedAt,
+        public readonly ?string $correlationId = null,
+        public readonly ?string $idempotencyKey = null,
     ) {}
 
     public function recordStepResult(string $stepName, FlowStepResult $result): void
@@ -73,10 +75,11 @@ final class FlowRun
         $this->finishedAt = $now;
     }
 
-    public function markCompensated(): void
+    public function markCompensated(?DateTimeImmutable $now = null): void
     {
         $this->status = self::STATUS_COMPENSATED;
         $this->compensated = true;
+        $this->finishedAt = $now ?? new DateTimeImmutable;
     }
 
     public function markAborted(DateTimeImmutable $now): void

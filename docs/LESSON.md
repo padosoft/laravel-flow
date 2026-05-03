@@ -4,7 +4,7 @@
 
 - v0.1 is no longer a no-op scaffold. It includes the in-memory Flow engine core, facade, dry-run, compensation, events, business-impact results, README expansion, and architecture tests.
 - The enterprise direction chosen by the user is Laravel 13-only. Macro Task 0 intentionally left `composer.json` and CI on Laravel 12/13; Macro Task 1 is the branch that narrows compatibility.
-- The dashboard direction chosen by the user is companion app, not package-embedded UI.
+- The dashboard direction chosen by the user is companion app, not package-embedded UI; keep it in the later dashboard macro, not in v0.2 persistence or queue/replay roadmap wording.
 - The imported `.claude` pack already contains useful PR-loop and pre-push skills. Do not duplicate the full content; link to it and add laravel-flow-specific rules.
 - For this package repo, Vite/Vitest/Playwright are not local gates unless the companion dashboard app is touched.
 - When tests are added or assertion counts change, run the `test-count-readme-sync` skill before pushing so README and PR descriptions do not drift.
@@ -36,6 +36,128 @@
 - Package repos intentionally ignore `composer.lock`; CI installs with `composer update`, so do not stage a local lockfile unless the project policy changes.
 - In package repos without a tracked lockfile, avoid overly specific patch-minimum dev constraints unless there is a documented compatibility reason; prefer broader major/minor ranges and let transitive constraints enforce required patch floors.
 - With Testbench 11, the lock can resolve `laravel/framework` 13.x, which replaces the individual `illuminate/*` packages. Use `composer show laravel/framework --locked` to verify the effective Laravel version when `composer show illuminate/support --locked` is absent.
+- Once persistence models/repositories are in `src/`, `illuminate/database` must be a runtime dependency rather than require-dev, because package consumers can autoload those classes.
+- Eloquent persistence models can push PHPStan over the default 128M worker limit; keep the `composer analyse` script on an explicit memory limit so local and CI gates are deterministic.
+- Persistence payload storage must pass through redaction before JSON is saved; default redaction should cover common secret-looking keys while allowing host apps to override config.
+- Audit persistence should expose append-only behavior at the model/repository layer so normal runtime code cannot update or delete audit rows accidentally.
+- Model-level audit immutability is not enough because Eloquent query builders bypass instance `save()`/`delete()` overrides; append-only audit models need a custom builder that rejects bulk `update()`, `delete()`, and `forceDelete()`.
+- Repository update/upsert methods must strip immutable identity fields from caller-supplied attribute payloads; method arguments such as run id and step name are the source of truth.
+- Persistence schema nullability must match public repository contracts; if a repository requires a run id, the column should be non-nullable unless run-less records are intentionally documented and tested.
+- Keep persistence JSON-field redaction mapping centralized so run, step, and future repository fields do not drift when redaction rules evolve.
+- Run repository updates should whitelist mutable runtime fields instead of accepting arbitrary attributes; persisted run identity/invariants (`id`, definition, dry-run flag, input, idempotency key, correlation id, start time) must remain stable after creation.
+- Step persistence upserts should be database-atomic on the `(run_id, step_name)` unique key; prepare values through an Eloquent model first so JSON and date casts still serialize correctly before `upsert()`.
+- Eloquent `upsert()` paths should set `created_at` and `updated_at` explicitly, then exclude only `created_at` from update columns so existing records preserve creation time while updates bump `updated_at`.
+- Persistence store transactions should delegate to Laravel's connection `transaction()` API rather than manual `beginTransaction()` / `commit()` / `rollBack()` so nested transactions, savepoints, callbacks, and framework exception behavior remain intact.
+- Laravel connection `transaction()` expects a `Closure(static): TReturn`; when adapting a package-level `callable(): TReturn`, wrap it in a closure that accepts the connection argument and invokes the package callback.
+- Tests that enable Laravel's query log must disable it in a `finally` block; flushing collected queries is not enough because the connection keeps recording subsequent statements.
+- Persistence timestamp defaults should use Laravel's model/Date clock (`freshTimestamp()` / `Date::setTestNow()` compatible) instead of raw `new DateTimeImmutable`, and a single `$now` should be reused for fields that should match.
+- Engine-level persistence must stay gated by both `persistence.enabled` and `!dryRun`; native dry-run semantics mean no database writes even when the host app has persistence enabled.
+- Step finish upserts must include insert-required invariants (`sequence`, handler, input, started_at) as well as finish fields; atomic upsert SQL still needs a valid insert payload even when the row normally exists.
+- When runtime persistence is enabled, synchronous event listener exceptions must still close the persisted run/step state before the exception is rethrown; otherwise monitoring and replay see stale `running` rows.
+- Step/audit persistence for the same transition should be grouped with `FlowStore::transaction()` so a failed audit write does not leave a half-persisted step transition.
+- Persisted exception messages need text-level sanitization in addition to key-based JSON redaction; secrets can be interpolated into free-form exception strings.
+- Compensated runs should advance `finishedAt` after the compensation unwind finishes so persisted durations include rollback time, not only time-to-failure.
+- Runtime persistence transitions should include run-state updates, step rows, and audit rows in `FlowStore::transaction()` boundaries wherever they belong to the same logical transition; listener-failure recovery must not write the failed step and failed run in separate statements.
+- Persisted audit `occurred_at` should receive the engine-captured transition timestamp instead of letting the repository stamp a fresh value, otherwise audit rows drift from their matching step/run timestamps.
+- In persisted compensation, a throwing `FlowCompensated` listener must not abort the remaining reverse-order rollback after the compensator already succeeded.
+- Once a business step has succeeded, persistence/listener failures become runtime aborts that must compensate completed steps before rethrowing; otherwise an observability/database outage can leave external side effects applied.
+- Runtime abort recovery must close the active `flow_steps` row best-effort as well as the run row; a previously committed `FlowStepStarted` row should not remain `running` after a later transition/audit write fails.
+- Listener-failure persistence must not overwrite the in-memory successful `FlowStepResult` used by compensators; persisted failure telemetry and compensation input are separate concerns.
+- If final success persistence fails after `markSucceeded()`, recovery should treat it as an infrastructure abort and clear handler blame; checking only `finishedAt` is insufficient because success already populated it.
+- `FlowCompensated` listener failures must not abort rollback even in the default in-memory engine path; compensation event telemetry is secondary to completing the reverse-order rollback.
+- Compensation itself must treat audit/listener persistence as best-effort telemetry. A failed compensation audit write cannot be allowed to stop earlier compensators in the reverse-order stack.
+- Text redaction must normalize configured keys across snake_case, kebab-case, and camelCase variants (`api_key`, `api-key`, `apiKey`) so free-form exception messages get the same protection as JSON payload redaction.
+- Free-form error redaction should delegate to the public `PayloadRedactor` binding before package regex fallback, so applications with custom redaction policy do not get divergent `error_message` storage.
+- Redact bearer tokens before generic `key=value` replacements; otherwise `authorization=Bearer token` can leave the token behind after the key/value pass consumes only `Bearer`.
+- Final success persistence failures are infrastructure aborts, not handler failures; use `aborted`/no `failed_step` rather than blaming the last successful business step.
+- Recovery can need progressive best-effort tiers: first try run+step+audit together for consistency, then step+audit if run update is the failing dependency, then step-only if audit is also unavailable so rows do not remain `running`.
+- `FlowCompensated` audit rows are appended before event dispatch; listener failures are swallowed so subscribers get durable transition ordering and rollback is never interrupted.
+- Step listener failures should be marked once and consumed by the outer runtime-abort recovery; otherwise inner listener recovery plus outer compensation recovery can duplicate `FlowStepFailed` audit rows.
+- A throwing `FlowStepFailed` listener happens after the failed transition was already stored; recovery must compensate without appending a second `FlowStepFailed` audit row for the same step failure.
+- Text redaction keys configured in normalized form (`apikey`) must still match quoted JSON-style variants (`api-key`, `apiKey`) inside free-form error messages.
+- Persisted aggregate run output should include successful empty-array outputs; omitting them makes "step ran and returned []" indistinguishable from "step absent".
+- Persisted aggregate run output should exclude failed step outputs; failed results also carry `[]`, and including them makes failed steps indistinguishable from successful empty-output steps.
+- Dry-run rollback must not invoke compensators. Dry-run-aware handlers may simulate work and then fail later, but compensators can perform real cleanup I/O.
+- Runtime-abort recovery after a successful step needs two contexts: pre-step context for persisted step input, post-step context for compensators.
+- Listener-failure metadata must be local to a single `run()` execution; `FlowEngine` is singleton-resolved, so mutable object state can leak across overlapping or nested executions.
+- Infrastructure aborts after all business steps succeeded should remain `aborted` even when rollback succeeds; do not let compensation status overwrite the abort cause.
+- Runtime-abort recovery should compensate first and persist failed step/run telemetry afterwards. Writing failure state before rollback creates a crash gap where persistence claims recovery that never happened.
+- Listener dispatch helpers should capture listener metadata and rethrow only; persisted recovery writes belong in the outer runtime-abort flow after compensation.
+- Runtime-abort compensation failures must not mask the original listener/repository exception that aborted execution; persist compensation status best-effort and let the original catch block rethrow.
+- `FlowCompensated` audit rows should be appended before dispatching `FlowCompensated` so event subscribers see the same durable-transition ordering as `FlowStep*` events.
+- Keep `FlowStore` resolution aligned with the active `PayloadRedactor`; if the store is singleton-cached before a redactor swap, JSON and text redaction can diverge.
+- If `FlowStore` lifetime changes to protect redaction consistency, add an explicit service-provider/repository test; tests that manually forget the store do not guard the lifetime contract.
+- README roadmap rows must distinguish shipped/in-progress slices from future slices once a roadmap item starts landing, especially for persistence.
+- Avoid redundant best-effort run updates in recovery once the same final run state has already been persisted with compensation status.
+- Normal business failures with no compensators do not need a second final run update; the failed transition transaction already stored the final failed state.
+- README persistence docs must call out that opt-in synchronous persistence can rethrow listener/repository infrastructure failures after best-effort recovery and compensation.
+- README exception docs should distinguish `FlowStep*` listener failures, which are rethrown, from `FlowCompensated` listener failures, which are swallowed after the compensation audit row is durable.
+- Shared test recorders need one documented invocation shape across all writer stubs, otherwise helper phpdoc becomes misleading after a single stub extension.
 - Public README examples should avoid Laravel dump-and-die or other debug helpers; use normal variable assignment or assertions so docs do not teach debug output patterns.
 - When `composer validate --strict --no-check-publish` is a hard CI/PR gate, list it explicitly in contributor quick starts and PR expectation checklists, not only in CI or PR templates.
 - README comparison updates must stay factual. If a feature only reaches parity with a competitor, document parity rather than implying an advantage.
+- Runtime-abort grouped persistence recovery must report whether the final run row was actually updated. If grouped run+step+audit fails and only step fallback succeeds, the outer recovery still needs a later run-only retry.
+- Singleton `FlowEngine` instances must not accidentally freeze host-rebound runtime services. Unless tests explicitly inject a store/redactor, resolve the current `FlowStore` and `PayloadRedactor` bindings at execution time.
+- README comparison claims must scope recovery guarantees precisely. The compensate-first ordering applies to runtime-abort recovery; normal business step failures still persist the failed transition before compensation.
+- Runtime persistence should resolve the active `FlowStore` once per execution and pass that instance through transaction callbacks; transient store bindings can otherwise make writes run outside the transaction instance.
+- With persistence explicitly enabled, broken `FlowStore` bindings are infrastructure errors and must surface to callers instead of silently disabling persistence.
+- Aggregate persisted run output must exclude the step named by `failed_step`, even if the in-memory step result stayed successful so compensators can still use the real handler output.
+- Repository facade bindings and transaction examples must share the same `FlowStore` instance; if `FlowStore` is singleton, wrap redaction so current host redactor bindings are still observed.
+- `FlowCompensated` dispatch should happen only after its audit row is durable. If compensation audit persistence fails, rollback should continue but subscribers should not observe an event without matching durable audit state.
+- Freeze the runtime `PayloadRedactor` once per engine execution and pass it through text-redaction helpers so step error rows and audit error payloads cannot diverge because of transient redactor bindings.
+- README comparison wording should avoid "lossless output" claims while runtime-abort recovery can intentionally persist a previously successful transition as failed with null step output.
+- Repository JSON redaction must share the engine's execution-scoped `PayloadRedactor`; resolving the redactor per repository write can diverge from text error redaction when applications bind transient redactors.
+- Repository methods that redact more than one JSON payload in a single write should resolve one current redactor instance for the record while preserving each JSON field's original payload shape.
+- Execution-scoped mutable state in singleton services must be isolated by Fiber/request context or avoided; a plain singleton stack is unsafe under overlapping worker executions.
+- A runtime-scope wrapper must not bind to its own public contract without a safe fallback, otherwise self-resolution can silently bypass the underlying redaction policy.
+- Do not mark a run `compensated` until all compensators that should run have succeeded; partial rollback with aggregated compensation errors must remain visibly failed.
+- Keep the default in-memory engine path free of persistence-only service resolution; opt-in persistence should not add redactor/container work to successful non-persistent executions.
+- Persisted run aggregates should exclude any step that runtime-abort recovery reclassified as the failed step, including both output and business-impact summaries.
+- Terminal lifecycle methods with legacy optional timestamp arguments must still populate `finishedAt`; keep public method compatibility while preserving terminal invariants.
+- Prefer per-execution store instances with a frozen redactor over shared mutable redactor stacks when engine persistence needs JSON/text redaction consistency.
+- Repository redaction should capture one current redactor instance for a record write while preserving each JSON field's original payload shape; synthetic wrappers can break valid top-level custom redactors.
+- Engine execution redactor freeze should be expressed through store/redactor capability contracts, not concrete class checks, so decorators can preserve JSON/text redaction and transaction consistency.
+- Compensation failure paths should advance `finishedAt` to the rollback failure time so persisted duration includes partial rollback work.
+- Current-redactor provider chains should be unwrapped recursively, and execution-scope redactor self-resolution guards should treat any scope wrapper instance as recursive.
+- Cyclic `CurrentPayloadRedactorProvider` chains should fail before invoking `redact()` again; returning a provider from the cycle just moves the stack overflow to the caller.
+- Provider cycle guards need a max-depth fallback in addition to object identity; decorators can allocate fresh wrapper objects on every hop.
+- Core classes should avoid facade roots and Laravel support dependencies; inject Laravel clocks from the service provider and keep DTO legacy fallbacks framework-agnostic.
+- Text redaction should treat `key=Bearer token` as a single keyed value; otherwise bearer and key/value passes can leave noisy duplicate replacement tokens.
+- Engine text redaction and repository JSON redaction must unwrap `CurrentPayloadRedactorProvider` the same way; otherwise custom decorators can diverge within one execution.
+- Audit appends with empty payload and no business impact should not resolve the payload redactor.
+- When persistence is enabled, broken redactor bindings must surface; swallowing them can silently persist unsanitized error text.
+- Step input snapshots should not duplicate cumulative step outputs into every row; store bounded metadata such as output keys and reconstruct full history from ordered step rows.
+
+## 2026-05-03
+
+- Retention pruning is an explicit operational exception to append-only audit storage: keep normal runtime audit append-only, but let `flow:prune` delete old terminal run, step, and audit rows through query-builder transactions.
+- Prune commands should delete only terminal runs with non-null `finished_at` older than the cutoff; pending/running rows must survive even if their `started_at` is old.
+- Even when migration FKs cascade child rows, retention pruning should explicitly delete child rows before deleting parent runs when reporting pruned totals; published schemas may have missing or disabled constraints.
+- Operational commands for opt-in persistence must fail cleanly when migrations have not been published/run, because the in-memory package path is still supported without tables.
+- Avoid redundant standalone indexes when a new composite index has the same leading column and covers the known query pattern.
+- Artisan commands that accept a database connection name should catch invalid-connection and query exceptions around schema guards and return actionable failures instead of surfacing raw framework exceptions.
+- Prune indexes should lead with the range/order column (`finished_at`) rather than a low-cardinality status column when the command scans old terminal runs by age.
+- Dry-run counts should use the same chunked scan as destructive pruning; repeated independent subquery counts can be slower and internally inconsistent under concurrent writes.
+- Execution identity should use a structured options DTO instead of positional string parameters so future run metadata can grow without ambiguous call sites.
+- Synchronous idempotency should check the persisted run repository before creating a new run; returning the existing run state prevents duplicate handler side effects.
+- Idempotency keys must not return runs from a different flow definition; reject cross-definition reuse before any handler side effects.
+- Idempotent persisted-run reuse must rehydrate stored step results, otherwise duplicate callers see the same run id/status but lose per-step outputs and business impact.
+- Idempotency lookup/create needs a create-race fallback: if the create path loses to an already-committed key, re-query and return that existing run before invoking any handlers.
+- Public execution identity values should validate against the persisted schema length before repository writes so callers get package-level input errors instead of database exceptions.
+- On Windows, PHPUnit `--filter` regexes containing `|` can be consumed by the `.bat` wrapper shell even when quoted; run separate filters or the full suite instead of trusting that pattern.
+- Character limits in public DTOs should count UTF-8 characters, not bytes, and should include normalization tests when docs promise trim/blank semantics.
+- README audit persistence wording must mention every gate: persisted audit rows require `persistence.enabled=true`, `audit_trail_enabled=true`, and a non-dry-run execution.
+- README feature and comparison sections must not advertise approval gates as shipped until the approval/webhook macro lands.
+- README audit claims should distinguish runtime events from append-only persisted rows; `flow:prune` means persisted audit rows are not immutable forever.
+- README event wording must include the `audit_trail_enabled` gate and avoid saying every transition emits all event classes.
+- README event wording should qualify event dispatch as normal-case behavior: with persistence enabled, `FlowStep*` events dispatch only after the corresponding audit append succeeds, and `FlowCompensated` is skipped when its compensation audit append fails.
+- Published config comments must carry the same audit gates as README docs: persisted `flow_audit` rows require persistence, `audit_trail_enabled=true`, and a non-dry-run execution.
+- README `Comparison vs alternatives` rows should use explicit `✅ YES - ...`, `⚠️ PARTIAL - ...`, or `❌ NO - ...` prefixes in every capability cell, and the competitor set should name verified current projects rather than stale labels.
+- README tagline and positioning should not imply Temporal-class queue/replay guarantees until queue-backed workers and replay are actually shipped.
+- Composer `suggest` metadata must be updated when a roadmap version partially lands; avoid "when vX lands" wording after that version has shipped a slice.
+- README comparison atomicity claims must distinguish transaction-scoped step transitions and atomic step upserts from compensation audit/finalization writes, which can be separate best-effort operations.
+- Until Macro Task 3 implements strategy selection, `compensation_strategy` must be documented as reserved metadata only; the current engine ignores the value and always compensates in reverse order.
+- Even when `flow_steps` and `flow_audit` have run foreign keys, `flow:prune` should explicitly delete matching child rows until there is an additive migration story for installations that already published older tables without those FKs.
+- `ExecutionScopedPayloadRedactor` must delegate provider-chain cycle/depth handling to `PayloadRedactorResolution`; keep only the scope-specific self fallback outside the shared resolver so JSON and execution-scoped redaction cannot drift.
+- Laravel transaction callbacks should accept the connection argument even when unused, matching `EloquentFlowStore::transaction()` and avoiding arity drift across connection implementations.
+- When a transaction callback receives the connection instance, use that callback parameter for the enclosed queries instead of capturing the outer connection; it keeps all statements tied to the exact transactional connection.

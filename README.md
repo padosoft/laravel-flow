@@ -7,7 +7,7 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg?style=flat-square)](LICENSE)
 [![Total Downloads](https://img.shields.io/packagist/dt/padosoft/laravel-flow.svg?style=flat-square)](https://packagist.org/packages/padosoft/laravel-flow)
 
-> **DX-first workflow / saga / compensation engine for Laravel — with native dry-run, reverse-order rollback, approval gate, business-impact projection, and an immutable audit trail. Built for the Laravel team that needs Temporal-class semantics without leaving Eloquent.**
+> **DX-first workflow / saga / compensation engine for Laravel — with native dry-run, reverse-order rollback, business-impact projection, opt-in persistence, and audit events. Built for Laravel teams that need dry-run, compensation, and persisted run telemetry inside the app they already operate.**
 
 `laravel-flow` is the third deliverable of the [Padosoft v4.0 cycle](https://github.com/lopadova/AskMyDocs) (W5). It is a community Apache-2.0 package, **standalone-agnostic** (zero references to AskMyDocs / sister packages), and ships with the Padosoft AI vibe-coding pack so you can extend it with Claude Code or GitHub Copilot in minutes — not days.
 
@@ -19,7 +19,6 @@ Flow::define('promotion.create')
     ->step('validate', ValidatePromotionInput::class)
     ->step('simulate', SimulatePromotionImpact::class)
         ->withDryRun(true)
-    ->step('approval', RequiresHumanApproval::class)
     ->step('persist', PersistPromotion::class)
         ->compensateWith(ReversePromotion::class)
     ->register();
@@ -56,7 +55,7 @@ Laravel applications routinely need to orchestrate **multi-step business workflo
 
 - **Validations** (some safe to skip, some load-bearing).
 - **Simulations** (project the impact of an operation without writing).
-- **Approval gates** (a human signs off before persistence).
+- **Manual sign-off checkpoints** (planned for the v0.3 approval/webhook macro; not shipped in the current core).
 - **Side-effecting writes** (DB rows, queue jobs, vendor API calls).
 - **Compensation chains** (when step N fails, undo step N-1 ... step 1).
 - **Audit trails** (regulators want to see *who did what, when, with which inputs, in which order*).
@@ -65,7 +64,7 @@ The Laravel ecosystem has plenty of tools for *some* of these — `Bus::chain()`
 
 `laravel-flow` is that surface.
 
-It is **deliberately small**. v0.1 is in-memory, synchronous, container-resolved. v0.2 will bring queued workers, persisted runs, and companion dashboard contracts/app integration. The core engine fits in ~250 lines of PHP and 30+ unit tests describe every transition.
+It is **deliberately small**. v0.1 is in-memory, synchronous, container-resolved. The current v0.2 foundation adds opt-in DB persistence for runs, steps, and audit rows; queued workers, replay, and compensation strategy expansion remain planned v0.2 slices, with v0.3 human checkpoint/webhook support and the companion dashboard in later macros.
 
 ---
 
@@ -87,7 +86,7 @@ Saga semantics: when step N fails, the engine walks the previously-completed ste
 
 ### 4. The audit trail is event-driven
 
-Every transition (`FlowStepStarted`, `FlowStepCompleted`, `FlowStepFailed`, `FlowCompensated`) is a Laravel event. The host application subscribes once and routes them to the logger / DB / metrics backend it already runs. v0.2 will add a default `flow_audit` table; v0.1 deliberately leaves the destination open.
+When `audit_trail_enabled` is enabled, normal-case step and compensation transitions dispatch the matching Laravel event, such as `FlowStepStarted`, `FlowStepCompleted`, `FlowStepFailed`, or `FlowCompensated`. When persistence is enabled, step events are dispatched only after the matching audit append succeeds, and compensation events are skipped if their audit append fails. The host application subscribes once and routes those events to the logger, DB, or metrics backend it already runs. Persisted `flow_audit` rows are written only for non-dry-run executions when both persistence and `audit_trail_enabled` are enabled. Dry-runs never write run, step, or audit rows.
 
 ### 5. Standalone-agnostic — zero AskMyDocs symbols
 
@@ -100,11 +99,12 @@ Every transition (`FlowStepStarted`, `FlowStepCompleted`, `FlowStepFailed`, `Flo
 - **Fluent definition builder** — `Flow::define($name)->withInput([...])->step(...)->register()`.
 - **Native dry-run** — `Flow::dryRun($name, $input)` simulates without persisting; supporting handlers project impact, others self-skip.
 - **Reverse-order saga compensation** — `compensateWith(Compensator::class)` per step; failures unwind cleanly.
-- **Immutable audit trail** — four Laravel events per transition; subscribe once.
+- **Audit events and persisted audit rows** — normal-case transitions dispatch matching `FlowStep*` / `FlowCompensated` events when `audit_trail_enabled=true`; persisted `flow_audit` rows are written only for non-dry-run executions with both `persistence.enabled=true` and `audit_trail_enabled=true`, and those rows are append-only during normal runtime but retention-prunable with `flow:prune`.
 - **Business-impact projection** — handlers return `businessImpact: [...]` alongside output, surfaced on every step result.
+- **Opt-in persisted execution** — `flow_runs`, `flow_steps`, and `flow_audit` migrations, Eloquent repositories, immutable run identity updates, correlation/idempotency keys, transaction-scoped step transitions, atomic step upserts, compensate-first runtime-abort recovery, sanitized listener/error storage, clock-aware audit timestamps, redacted JSON payload storage, and retention pruning.
 - **Container-resolved handlers** — full DI, type hints, and stack traces.
 - **Strict input validation** — `withInput(['a','b'])` throws `FlowInputException` if a key is missing.
-- **Multi-strategy compensation knob** — `reverse-order` (default), `parallel` (v0.2).
+- **Reserved compensation strategy metadata** — `compensation_strategy` is present for future Macro 3 work; the current engine ignores the value and always walks compensators in reverse order.
 - **Testbench-friendly** — TestCase + stubs ready to copy.
 - **🚀 AI vibe-coding pack included** — `.claude/` directory with skills, rules, agents, commands, and the Padosoft Copilot review loop pre-wired.
 - **PHP 8.3 / 8.4 × Laravel 13** matrix on every CI run.
@@ -113,20 +113,30 @@ Every transition (`FlowStepStarted`, `FlowStepCompleted`, `FlowStepFailed`, `Flo
 
 ## Comparison vs alternatives
 
-| Feature                          | `laravel-flow`               | Spatie Workflow             | Symfony Workflow            | Temporal                  | AWS Step Functions     |
-| -------------------------------- | ---------------------------- | --------------------------- | --------------------------- | ------------------------- | ---------------------- |
-| Native dry-run                   | ✅ first-class                | ❌                          | ❌                          | ❌                         | ❌                      |
-| Reverse-order saga compensation  | ✅ built-in                   | ⚠️ manual                   | ⚠️ manual                   | ✅ via SDK                 | ⚠️ via Catch + state    |
-| Approval gate as a step type     | ✅ via handler contract       | ⚠️ via guards               | ✅ via transition guard     | ⚠️ via `Workflow.await`   | ✅ via task token        |
-| Container-resolved handlers      | ✅                            | ⚠️ partial                  | ✅                          | ✅ (via worker DI)         | ❌ (Lambda fanout)      |
-| Audit trail (events)             | ✅ 4 events / transition      | ⚠️ via state machine hooks  | ✅                          | ✅                         | ✅ (CloudWatch)         |
-| Business-impact projection       | ✅ on every result            | ❌                          | ❌                          | ❌                         | ❌                      |
-| Persistence model                | in-memory (v0.1) → DB (v0.2) | DB                          | DB                          | dedicated cluster         | managed                |
-| Setup time                       | `composer require` + 1 file  | medium                      | medium                      | run a Temporal cluster    | AWS account + IAM      |
-| Self-hosted, zero infra          | ✅                            | ✅                           | ✅                          | ❌ (cluster needed)        | ❌ (AWS-only)           |
-| License                          | Apache-2.0                   | MIT                         | MIT                         | MIT                       | proprietary            |
+Legend: `✅ YES` means the capability is first-class in the current product, `⚠️ PARTIAL` means it is possible but manual, narrower, or provided through a different model, and `❌ NO` means it is not available today.
 
-`laravel-flow` is **deliberately positioned** as the lightest dependency in the table. If you are already running a Temporal cluster, use Temporal. If you are running zero infra and want saga semantics in your existing Laravel app, this is the package.
+| Feature | `laravel-flow` | Durable Workflow (Laravel) | Symfony Workflow | Temporal | AWS Step Functions |
+| --- | --- | --- | --- | --- | --- |
+| Native dry-run with no persistence writes | ✅ YES - first-class `Flow::dryRun()`; no run, step, audit, or compensator writes | ❌ NO - not documented as a first-class mode | ❌ NO - app must model preview behavior | ❌ NO - app must model simulation separately | ❌ NO - app must model simulation separately |
+| Reverse-order saga compensation | ✅ YES - built-in per-step `compensateWith()` | ⚠️ PARTIAL - sagas/error handling are possible, but compensation policy is workflow-defined | ⚠️ PARTIAL - manual transition/state design | ⚠️ PARTIAL - compensation pattern via workflow code/SDKs | ⚠️ PARTIAL - manual cleanup states via `Catch` |
+| Approval gate as a step type | ❌ NO - planned for v0.3 approval/webhook macro | ⚠️ PARTIAL - model manually as a long-running workflow/activity | ⚠️ PARTIAL - guards can block transitions but are not resumable approval steps | ⚠️ PARTIAL - signals/await patterns, not Laravel step gates | ✅ YES - callback/task-token pattern |
+| Container-resolved PHP handlers | ✅ YES - handlers and compensators resolve through Laravel's container | ✅ YES - PHP workflow/activity classes | ✅ YES - Symfony services/listeners | ❌ NO - worker model is outside Laravel's container | ❌ NO - Lambda/service fanout |
+| Audit trail and event hooks | ✅ YES - `FlowStep*` / `FlowCompensated` events plus optional `flow_audit` rows | ⚠️ PARTIAL - status tracking and Laravel event integration | ✅ YES - workflow events and optional audit trail | ✅ YES - managed workflow event history | ✅ YES - execution history plus CloudWatch/CloudTrail integrations |
+| In-memory default with opt-in app DB persistence | ✅ YES - memory by default; DB runs/steps/audit only when enabled | ❌ NO - durable persistence is central to the engine | ⚠️ PARTIAL - marking store is app-defined | ❌ NO - dedicated Temporal service/cluster | ❌ NO - managed AWS service |
+| Redacted JSON persistence | ✅ YES - configurable key redaction before run/step/audit payload storage | ❌ NO - not documented as built-in | ❌ NO - app-defined storage concern | ⚠️ PARTIAL - custom payload codecs/converters, not Laravel key config | ⚠️ PARTIAL - service-level data handling, not Laravel key config |
+| Correlation and idempotency keys | ✅ YES - first-class `FlowExecutionOptions` with length validation and persisted reuse | ❌ NO - not documented as first-class execution metadata | ❌ NO - app-defined | ⚠️ PARTIAL - workflow/activity IDs and idempotency patterns | ⚠️ PARTIAL - execution names/tokens, service-specific semantics |
+| Successful-step output aggregation | ✅ YES - persisted successful outputs rehydrate idempotent run reuse | ⚠️ PARTIAL - workflow/activity outputs exist, but this package contract is not documented | ❌ NO - app-defined | ✅ YES - workflow history/result model | ⚠️ PARTIAL - state input/output paths, not Laravel step result objects |
+| Transaction-scoped transition writes | ⚠️ PARTIAL - step transitions use repository transactions and atomic upserts; compensation audit/finalization can be separate writes | ⚠️ PARTIAL - package/app persistence model | ⚠️ PARTIAL - marking store/app transaction concern | ✅ YES - managed event-history durability | ✅ YES - managed execution-history durability |
+| Runtime-abort recovery before surfacing infrastructure failures | ✅ YES - best-effort failure state plus compensation before rethrow | ⚠️ PARTIAL - retries/error handling, recovery policy is workflow-defined | ⚠️ PARTIAL - app-defined | ✅ YES - durable execution/retry recovery | ⚠️ PARTIAL - `Retry`, `Catch`, and redrive behavior |
+| Retention pruning for persisted telemetry | ✅ YES - `flow:prune` keeps pending/running rows intact | ❌ NO - not documented as built-in | ❌ NO - app-defined | ⚠️ PARTIAL - service retention configuration, not package command | ⚠️ PARTIAL - managed history/log retention, not app command |
+| Business-impact projection on every result | ✅ YES - `businessImpact` is part of every `FlowStepResult` | ❌ NO - not documented | ❌ NO - not a workflow component concern | ❌ NO - app-defined | ❌ NO - app-defined |
+| Queue-backed workers today | ❌ NO - planned v0.2 slice | ✅ YES - Laravel queue/worker support | ❌ NO - not native | ✅ YES - worker-based execution | ✅ YES - managed orchestration |
+| Replay/redrive of failed executions today | ❌ NO - planned v0.2 slice | ⚠️ PARTIAL - durable long-running workflow model; exact replay semantics differ | ❌ NO - not native | ✅ YES - deterministic replay/event history | ✅ YES - Standard Workflow redrive |
+| Low setup friction | ✅ YES - `composer require` plus optional config/migration publish | ⚠️ PARTIAL - Laravel queues/workers and optional Waterline UI | ✅ YES - Composer package and framework config | ❌ NO - service/cluster plus workers | ❌ NO - AWS account, IAM, state-machine definitions |
+| Self-hosted with no external workflow service | ✅ YES - runs inside the Laravel app; DB optional | ✅ YES - Laravel app/queue infrastructure | ✅ YES - application component | ❌ NO - requires Temporal service/cluster | ❌ NO - AWS-managed service |
+| Open-source package/license | ✅ YES - Apache-2.0 | ✅ YES - MIT | ✅ YES - MIT | ✅ YES - MIT core/server and SDKs | ❌ NO - proprietary managed service |
+
+Competitor snapshot checked against Durable Workflow, Symfony Workflow, Temporal, and AWS Step Functions documentation on 2026-05-03. `laravel-flow` is **deliberately positioned** as the lightest Laravel-native dependency in the table. If you already run Temporal or AWS Step Functions and need their queue/replay/redrive guarantees today, use them. If you want saga semantics, dry-run, business-impact projection, and opt-in persistence inside an existing Laravel app, this is the package.
 
 ---
 
@@ -142,7 +152,23 @@ Publish the config (optional — the engine works with defaults):
 php artisan vendor:publish --tag=laravel-flow-config
 ```
 
-That's it. v0.1 has no migrations.
+Publish the v0.2 persistence migrations only when you are opting into DB-backed storage:
+
+```bash
+php artisan vendor:publish --tag=laravel-flow-migrations
+php artisan migrate
+```
+
+The in-memory engine path still works without migrations. To persist runtime runs, enable `LARAVEL_FLOW_PERSISTENCE_ENABLED=true`; dry-runs remain simulation-only and do not write to the database.
+
+Prune old terminal persistence records with the built-in retention command:
+
+```bash
+php artisan flow:prune --days=90 --dry-run
+php artisan flow:prune --days=90
+```
+
+`flow:prune` deletes only terminal runs (`succeeded`, `failed`, `compensated`, `aborted`) with `finished_at` older than the cutoff. Matching `flow_steps` and `flow_audit` rows are deleted in the same batch transaction; running and pending rows are left untouched. Use `LARAVEL_FLOW_RETENTION_DAYS=90` to make `--days` optional, and `--force` for non-interactive production runs.
 
 > **Requirements**
 > - PHP 8.3+
@@ -191,6 +217,23 @@ if ($run->status === \Padosoft\LaravelFlow\FlowRun::STATUS_SUCCEEDED) {
 ---
 
 ## Usage examples
+
+### Correlation and idempotency
+
+```php
+use Padosoft\LaravelFlow\FlowExecutionOptions;
+
+$run = Flow::execute(
+    'promotion.create',
+    $input,
+    FlowExecutionOptions::make(
+        correlationId: 'checkout-2026-0001',
+        idempotencyKey: 'tenant-42:promotion-abc',
+    ),
+);
+```
+
+When persistence is enabled, `correlationId` and `idempotencyKey` are stored on `flow_runs`. Both values are trimmed, empty strings become `null`, and non-empty values are limited to 255 characters to match the published migrations. A later persisted execution with the same idempotency key returns the existing run state without executing handlers again. Dry-runs still avoid persistence writes.
 
 ### Compensation chain (saga rollback)
 
@@ -272,8 +315,19 @@ Event::listen(function (FlowStepFailed $e) {
 ```php
 // config/laravel-flow.php
 return [
-    'default_storage'        => env('LARAVEL_FLOW_STORAGE', null),       // v0.2
-    'audit_trail_enabled'    => env('LARAVEL_FLOW_AUDIT_ENABLED', true), // event emission
+    'default_storage'        => env('LARAVEL_FLOW_STORAGE', null),
+    'persistence'            => [
+        'enabled'   => env('LARAVEL_FLOW_PERSISTENCE_ENABLED', false),
+        'redaction' => [
+            'enabled'     => env('LARAVEL_FLOW_REDACTION_ENABLED', true),
+            'replacement' => env('LARAVEL_FLOW_REDACTION_REPLACEMENT', '[redacted]'),
+            'keys'        => ['api_key', 'authorization', 'password', 'secret', 'token'],
+        ],
+        'retention' => [
+            'days' => env('LARAVEL_FLOW_RETENTION_DAYS', null),
+        ],
+    ],
+    'audit_trail_enabled'    => env('LARAVEL_FLOW_AUDIT_ENABLED', true), // events; DB audit rows require this=true, persistence.enabled=true, and a non-dry-run execution
     'dry_run_default'        => env('LARAVEL_FLOW_DRY_RUN_DEFAULT', false),
     'step_timeout_seconds'   => (int) env('LARAVEL_FLOW_STEP_TIMEOUT', 300), // v0.2
     'compensation_strategy'  => env('LARAVEL_FLOW_COMPENSATION', 'reverse-order'),
@@ -282,11 +336,18 @@ return [
 
 | Key                       | Default          | Effect                                                                                            |
 | ------------------------- | ---------------- | ------------------------------------------------------------------------------------------------- |
-| `default_storage`         | `null`           | DB connection used by v0.2 persistence. Inherits app default when `null`.                         |
-| `audit_trail_enabled`     | `true`           | When `false`, the engine suppresses every `FlowStep*` / `FlowCompensated` event.                  |
+| `default_storage`         | `null`           | DB connection used by persistence repositories. Inherits app default when `null`.                 |
+| `persistence.enabled`     | `false`          | Enables synchronous engine writes to `flow_runs` and `flow_steps`; `flow_audit` writes also require `audit_trail_enabled=true` and a non-dry-run execution. Dry-runs do not write. |
+| `persistence.redaction`   | common secrets   | Redacts configured JSON payload keys before run, step, and audit payloads are stored.             |
+| `persistence.retention.days` | `null`         | Default retention window for `php artisan flow:prune`; pass `--days` to override per run.         |
+| `audit_trail_enabled`     | `true`           | When `false`, suppresses every `FlowStep*` / `FlowCompensated` event and persisted audit row; persisted audit rows also require persistence and a non-dry-run execution. |
 | `dry_run_default`         | `false`          | When `true`, `Flow::execute()` behaves like `dryRun()` — guard rail for staging environments.     |
 | `step_timeout_seconds`    | `300`            | Reserved for v0.2 queued workers.                                                                 |
-| `compensation_strategy`   | `reverse-order`  | `parallel` reserved for v0.2 — currently falls back to reverse-order.                             |
+| `compensation_strategy`   | `reverse-order`  | Reserved for future compensation strategy work; the current engine ignores the value and always walks compensators in reverse order. |
+
+When persistence is enabled, synchronous `FlowStep*` listener or persistence failures are rethrown after the engine records best-effort recovery state and compensates completed steps. `FlowCompensated` listener failures are swallowed after the compensation audit row is durable so rollback is not interrupted. Wrap `Flow::execute()` in application-level exception handling anywhere infrastructure outages must be surfaced separately from business step failures.
+
+Custom `FlowStore` implementations that need the same per-execution `PayloadRedactor` used by engine error-text sanitization should implement `Padosoft\LaravelFlow\Contracts\RedactorAwareFlowStore`. The engine calls `withPayloadRedactor()` once per persisted execution before writing run, step, and audit telemetry; implementations that keep transaction state on the store should return the same instance or a state-sharing decorator. `PayloadRedactor` decorators that wrap the package execution-scoped redactor should implement `Padosoft\LaravelFlow\Contracts\CurrentPayloadRedactorProvider` so multi-field repository writes can reuse one stable inner redactor without changing each JSON payload shape.
 
 ---
 
@@ -330,7 +391,7 @@ return [
                                                    └─────────────────────┘
 ```
 
-Every box is one PHP class under `src/`. The engine is in-memory and synchronous in v0.1. v0.2 will introduce a `flow_runs` Eloquent model + queued worker that hydrates a definition by name and resumes execution at the failed step.
+Every box is one PHP class under `src/`. The engine path is still synchronous and in-memory by default; when persistence is enabled, runtime runs and steps are written to `flow_runs` and `flow_steps` for non-dry-run executions. Audit transitions are written to `flow_audit` only for non-dry-run executions while persistence and `audit_trail_enabled` are both enabled. Dry-runs never write audit rows. The next v0.2 slices add queues, replay, and compensation strategy expansion.
 
 ---
 
@@ -374,10 +435,10 @@ CI runs Pint (style), PHPStan (level 6), and the Unit + Architecture suites thro
 
 | Version | Scope                                                                                                                                                                                                                                                              | Target            |
 | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
-| v0.1    | In-memory engine, fluent builder, dry-run, reverse-order compensation, four audit events, business-impact field on results, Facade. Architecture test enforces standalone-agnostic.                                                                                  | code complete     |
-| v0.2    | Persisted runs (`flow_runs` / `flow_steps` / `flow_audit` tables), queued workers, replay command, parallel compensation strategy, and companion web dashboard contracts/app integration.                                                                              | Q3 2026           |
+| v0.1    | In-memory engine, fluent builder, dry-run, reverse-order compensation, four audit event classes, business-impact field on results, Facade. Architecture test enforces standalone-agnostic.                                                                            | code complete     |
+| v0.2    | Persistence core: `flow_runs` / `flow_steps` / `flow_audit` tables, synchronous engine writes, redacted payload storage, correlation/idempotency keys, and terminal-run retention pruning. Queue-backed workers, replay command, and parallel compensation strategy remain next. | Q3 2026           |
 | v0.3    | Approval-gate primitive (a step type that pauses until an external token is presented), webhooks for resume.                                                                                                                                                         | Q4 2026           |
-| v1.0    | Stable API, semver guarantee, full migration helpers from Spatie Workflow / Symfony Workflow.                                                                                                                                                                        | 2027              |
+| v1.0    | Stable API, semver guarantee, full migration helpers from Durable Workflow / Symfony Workflow.                                                                                                                                                                       | 2027              |
 
 ---
 

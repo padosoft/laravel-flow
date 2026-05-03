@@ -10,6 +10,7 @@ use Illuminate\Contracts\Container\Container;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Support\Facades\Date;
 use Padosoft\LaravelFlow\Contracts\FlowStore;
+use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
 use Padosoft\LaravelFlow\Events\FlowCompensated;
 use Padosoft\LaravelFlow\Events\FlowStepCompleted;
 use Padosoft\LaravelFlow\Events\FlowStepFailed;
@@ -50,6 +51,7 @@ class FlowEngine
          */
         private readonly array $config = [],
         private readonly ?FlowStore $store = null,
+        private readonly ?PayloadRedactor $redactor = null,
     ) {}
 
     public function define(string $name): FlowDefinitionBuilder
@@ -504,13 +506,11 @@ class FlowEngine
         ?DateTimeImmutable $failedAt = null,
     ): void {
         $failedAt ??= $this->now();
+        $shouldMarkRunFailed = $failedStep !== null
+            && ! in_array($run->status, [FlowRun::STATUS_FAILED, FlowRun::STATUS_COMPENSATED], true);
 
-        if (
-            $failedStep !== null
-            && ! in_array($run->status, [FlowRun::STATUS_FAILED, FlowRun::STATUS_COMPENSATED], true)
-        ) {
+        if ($shouldMarkRunFailed) {
             $run->markFailed($failedStep->name, $failedAt);
-            $this->persistRunFinishedBestEffort($persist, $run);
         }
 
         if (
@@ -519,7 +519,7 @@ class FlowEngine
             && $failedResult instanceof FlowStepResult
             && $stepStartedAt instanceof DateTimeInterface
         ) {
-            $this->persistStepFailedBestEffort(
+            $this->persistRuntimeAbortStateBestEffort(
                 $persist,
                 $run,
                 $failedStep,
@@ -529,6 +529,8 @@ class FlowEngine
                 $stepStartedAt,
                 $failedAt,
             );
+        } elseif ($shouldMarkRunFailed) {
+            $this->persistRunFinishedBestEffort($persist, $run);
         }
 
         try {
@@ -542,7 +544,7 @@ class FlowEngine
         $this->persistRunFinishedBestEffort($persist, $run, $run->compensated ? 'succeeded' : null);
     }
 
-    private function persistStepFailedBestEffort(
+    private function persistRuntimeAbortStateBestEffort(
         bool $persist,
         FlowRun $run,
         FlowStep $step,
@@ -573,6 +575,8 @@ class FlowEngine
                     $startedAt,
                     $failedAt,
                 );
+
+                $this->persistRunFinished($persist, $run);
             });
         } catch (Throwable) {
             // Preserve the original execution/listener/persistence exception.
@@ -614,52 +618,56 @@ class FlowEngine
             $failedResult = FlowStepResult::failed($e);
             $shouldPersistStepFailure = ! $stepAlreadyFinished || $event instanceof FlowStepCompleted;
 
-            $this->persistAtomically(true, function () use (
-                $run,
-                $step,
-                $sequence,
-                $context,
-                $stepStartedAt,
-                $stepAlreadyFinished,
-                $shouldPersistStepFailure,
-                $failedResult,
-                $failedAt,
-                $event,
-                $e,
-            ): void {
-                if ($shouldPersistStepFailure) {
-                    if (! $stepAlreadyFinished) {
-                        $run->recordStepResult($step->name, $failedResult);
+            try {
+                $this->persistAtomically(true, function () use (
+                    $run,
+                    $step,
+                    $sequence,
+                    $context,
+                    $stepStartedAt,
+                    $stepAlreadyFinished,
+                    $shouldPersistStepFailure,
+                    $failedResult,
+                    $failedAt,
+                    $event,
+                    $e,
+                ): void {
+                    if ($shouldPersistStepFailure) {
+                        if (! $stepAlreadyFinished) {
+                            $run->recordStepResult($step->name, $failedResult);
+                        }
+
+                        $this->persistStepFinished(
+                            true,
+                            $run,
+                            $step,
+                            $sequence,
+                            $context,
+                            $failedResult,
+                            $stepStartedAt,
+                            $failedAt,
+                        );
                     }
 
-                    $this->persistStepFinished(
-                        true,
-                        $run,
-                        $step,
-                        $sequence,
-                        $context,
-                        $failedResult,
-                        $stepStartedAt,
-                        $failedAt,
-                    );
-                }
+                    if ($run->finishedAt === null) {
+                        $run->markFailed($step->name, $failedAt);
+                    }
 
-                if ($run->finishedAt === null) {
-                    $run->markFailed($step->name, $failedAt);
-                }
+                    $this->recordAudit(true, 'FlowStepFailed', $run, $step->name, [
+                        'definition_name' => $context->definitionName,
+                        'dry_run' => $context->dryRun,
+                        'error_class' => $e::class,
+                        'error_message' => $this->safeErrorMessage($e),
+                        'listener_event' => $this->eventName($event),
+                        'previous_step_state_finished' => $stepAlreadyFinished,
+                        'status' => 'failed',
+                    ], occurredAt: $failedAt);
 
-                $this->recordAudit(true, 'FlowStepFailed', $run, $step->name, [
-                    'definition_name' => $context->definitionName,
-                    'dry_run' => $context->dryRun,
-                    'error_class' => $e::class,
-                    'error_message' => $this->safeErrorMessage($e),
-                    'listener_event' => $this->eventName($event),
-                    'previous_step_state_finished' => $stepAlreadyFinished,
-                    'status' => 'failed',
-                ], occurredAt: $failedAt);
-
-                $this->persistRunFinished(true, $run);
-            });
+                    $this->persistRunFinished(true, $run);
+                });
+            } catch (Throwable) {
+                // Preserve and rethrow the original listener exception below.
+            }
 
             throw $e;
         }
@@ -836,6 +844,7 @@ class FlowEngine
 
     private function redactText(string $message): string
     {
+        $message = $this->redactTextWithPayloadRedactor($message);
         $persistence = $this->config['persistence'] ?? [];
         $redaction = is_array($persistence) ? ($persistence['redaction'] ?? []) : [];
 
@@ -845,6 +854,7 @@ class FlowEngine
 
         $replacement = (string) ($redaction['replacement'] ?? '[redacted]');
         $keys = array_values(array_filter((array) ($redaction['keys'] ?? []), 'is_string'));
+        $message = $this->redactBearerTokens($message, $replacement);
 
         foreach ($keys as $key) {
             $keyPattern = $this->redactionKeyPattern($key);
@@ -860,6 +870,31 @@ class FlowEngine
             ) ?? $message;
         }
 
+        return $this->redactBearerTokens($message, $replacement);
+    }
+
+    private function redactTextWithPayloadRedactor(string $message): string
+    {
+        if (! $this->redactor instanceof PayloadRedactor) {
+            return $message;
+        }
+
+        $redacted = $this->redactor->redact([
+            'error_message' => $message,
+            'message' => $message,
+        ]);
+
+        foreach (['error_message', 'message'] as $key) {
+            if (isset($redacted[$key]) && is_string($redacted[$key]) && $redacted[$key] !== $message) {
+                return $redacted[$key];
+            }
+        }
+
+        return $message;
+    }
+
+    private function redactBearerTokens(string $message, string $replacement): string
+    {
         return preg_replace_callback(
             '/\bBearer\s+([A-Za-z0-9._~+\/=-]+)/i',
             static fn (): string => 'Bearer '.$replacement,

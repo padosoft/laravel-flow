@@ -8,12 +8,15 @@ use DateTimeInterface;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Date;
+use Illuminate\Support\Facades\Event;
 use Padosoft\LaravelFlow\Contracts\AuditRepository;
 use Padosoft\LaravelFlow\Contracts\FlowStore;
+use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
 use Padosoft\LaravelFlow\Contracts\RunRepository;
 use Padosoft\LaravelFlow\Contracts\StepRunRepository;
 use Padosoft\LaravelFlow\Events\FlowCompensated;
 use Padosoft\LaravelFlow\Events\FlowStepCompleted;
+use Padosoft\LaravelFlow\Events\FlowStepFailed;
 use Padosoft\LaravelFlow\Events\FlowStepStarted;
 use Padosoft\LaravelFlow\FlowEngine;
 use Padosoft\LaravelFlow\FlowRun;
@@ -23,6 +26,7 @@ use Padosoft\LaravelFlow\Models\FlowStepRecord;
 use Padosoft\LaravelFlow\Tests\Unit\Stubs\AlwaysFailsHandler;
 use Padosoft\LaravelFlow\Tests\Unit\Stubs\AlwaysSucceedsHandler;
 use Padosoft\LaravelFlow\Tests\Unit\Stubs\ClockAdvancingCompensator;
+use Padosoft\LaravelFlow\Tests\Unit\Stubs\CustomSecretFailsHandler;
 use Padosoft\LaravelFlow\Tests\Unit\Stubs\DryRunAwareHandler;
 use Padosoft\LaravelFlow\Tests\Unit\Stubs\FirstStepCompensator;
 use Padosoft\LaravelFlow\Tests\Unit\Stubs\RecordingCompensator;
@@ -200,9 +204,45 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         $this->assertStringNotContainsString('plain-secret', (string) $failedStep->error_message);
         $this->assertStringNotContainsString('camel-secret', (string) $failedStep->error_message);
         $this->assertStringNotContainsString('dash-secret', (string) $failedStep->error_message);
+        $this->assertStringNotContainsString('auth-secret', (string) $failedStep->error_message);
         $this->assertStringNotContainsString('abc123', (string) $failedStep->error_message);
         $this->assertStringContainsString('[redacted]', (string) $failedStep->error_message);
         $this->assertSame($failedStep->error_message, $failedAudit->payload['error_message']);
+    }
+
+    public function test_persisted_error_messages_use_custom_payload_redactor_binding(): void
+    {
+        $this->migrateFlowTables();
+        $this->app->singleton(PayloadRedactor::class, static fn (): PayloadRedactor => new class implements PayloadRedactor
+        {
+            public function redact(array $payload): array
+            {
+                foreach ($payload as $key => $value) {
+                    if (is_string($value)) {
+                        $payload[$key] = str_replace('custom-secret', '[custom-redacted]', $value);
+                    }
+                }
+
+                return $payload;
+            }
+        });
+        $this->app->forgetInstance(FlowStore::class);
+        $engine = $this->engineWithPersistence();
+
+        $engine->define('flow.persist.custom-redactor')
+            ->step('charge', CustomSecretFailsHandler::class)
+            ->register();
+
+        $run = $engine->execute('flow.persist.custom-redactor', []);
+
+        $failedStep = FlowStepRecord::query()
+            ->where('run_id', $run->id)
+            ->where('step_name', 'charge')
+            ->first();
+
+        $this->assertInstanceOf(FlowStepRecord::class, $failedStep);
+        $this->assertStringNotContainsString('custom-secret', (string) $failedStep->error_message);
+        $this->assertStringContainsString('[custom-redacted]', (string) $failedStep->error_message);
     }
 
     public function test_engine_does_not_write_when_persistence_is_disabled(): void
@@ -238,10 +278,11 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         $this->assertPersistenceTablesEmpty();
     }
 
-    public function test_audit_disabled_suppresses_persisted_audit_rows_only(): void
+    public function test_audit_disabled_suppresses_events_and_persisted_audit_rows_only(): void
     {
         $this->migrateFlowTables();
         $this->app['config']->set('laravel-flow.audit_trail_enabled', false);
+        Event::fake([FlowStepStarted::class, FlowStepCompleted::class, FlowStepFailed::class, FlowCompensated::class]);
         $engine = $this->engineWithPersistence();
 
         $engine->define('flow.persist.audit-disabled')
@@ -253,6 +294,10 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         $this->assertSame(1, FlowRunRecord::query()->count());
         $this->assertSame(1, FlowStepRecord::query()->count());
         $this->assertSame(0, FlowAuditRecord::query()->count());
+        Event::assertNotDispatched(FlowStepStarted::class);
+        Event::assertNotDispatched(FlowStepCompleted::class);
+        Event::assertNotDispatched(FlowStepFailed::class);
+        Event::assertNotDispatched(FlowCompensated::class);
     }
 
     public function test_persisted_run_is_closed_when_a_step_listener_throws(): void

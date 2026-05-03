@@ -9,12 +9,10 @@ use Padosoft\LaravelFlow\FlowStepHandler;
 use Padosoft\LaravelFlow\FlowStepResult;
 use RuntimeException;
 
-final class SecretFailsHandler implements FlowStepHandler
+final class CustomSecretFailsHandler implements FlowStepHandler
 {
     public function execute(FlowContext $context): FlowStepResult
     {
-        return FlowStepResult::failed(new RuntimeException(
-            'gateway rejected token=plain-secret apiKey=camel-secret api-key=dash-secret authorization=Bearer auth-secret Bearer abc123',
-        ));
+        return FlowStepResult::failed(new RuntimeException('custom policy leaked custom-secret'));
     }
 }

@@ -36,7 +36,13 @@ final class LaravelFlowServiceProvider extends ServiceProvider
             /** @var Dispatcher $events */
             $events = $app->make(Dispatcher::class);
 
-            return new FlowEngine($app, $events, $config, $app->make(FlowStore::class));
+            return new FlowEngine(
+                $app,
+                $events,
+                $config,
+                $app->make(FlowStore::class),
+                $app->make(PayloadRedactor::class),
+            );
         });
 
         $this->app->singleton(PayloadRedactor::class, function (Container $app): PayloadRedactor {

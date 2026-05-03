@@ -63,6 +63,8 @@
 - Once a business step has succeeded, persistence/listener failures become runtime aborts that must compensate completed steps before rethrowing; otherwise an observability/database outage can leave external side effects applied.
 - Runtime abort recovery must close the active `flow_steps` row best-effort as well as the run row; a previously committed `FlowStepStarted` row should not remain `running` after a later transition/audit write fails.
 - Listener-failure persistence must not overwrite the in-memory successful `FlowStepResult` used by compensators; persisted failure telemetry and compensation input are separate concerns.
+- If final success persistence fails after `markSucceeded()`, recovery must flip the in-memory run back to failed before any best-effort run update; checking only `finishedAt` is insufficient because success already populated it.
+- `FlowCompensated` listener failures must not abort rollback even in the default in-memory engine path; compensation event telemetry is secondary to completing the reverse-order rollback.
 - Compensation itself must treat audit/listener persistence as best-effort telemetry. A failed compensation audit write cannot be allowed to stop earlier compensators in the reverse-order stack.
 - Text redaction must normalize configured keys across snake_case, kebab-case, and camelCase variants (`api_key`, `api-key`, `apiKey`) so free-form exception messages get the same protection as JSON payload redaction.
 - Public README examples should avoid Laravel dump-and-die or other debug helpers; use normal variable assignment or assertions so docs do not teach debug output patterns.

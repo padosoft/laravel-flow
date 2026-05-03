@@ -469,6 +469,29 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         $this->assertCount(1, RecordingCompensator::$invocations);
     }
 
+    public function test_final_run_update_failure_marks_run_failed_when_no_compensators_exist(): void
+    {
+        $this->migrateFlowTables();
+        $engine = $this->engineWithFailingRunUpdateStatus(FlowRun::STATUS_SUCCEEDED);
+
+        $engine->define('flow.persist.final-run-update-down-no-compensator')
+            ->step('create', AlwaysSucceedsHandler::class)
+            ->register();
+
+        try {
+            $engine->execute('flow.persist.final-run-update-down-no-compensator', []);
+            $this->fail('The failing run repository should abort execution.');
+        } catch (RuntimeException $exception) {
+            $this->assertSame('run update down for succeeded', $exception->getMessage());
+        }
+
+        $runRecord = FlowRunRecord::query()->first();
+
+        $this->assertInstanceOf(FlowRunRecord::class, $runRecord);
+        $this->assertSame(FlowRun::STATUS_FAILED, $runRecord->status);
+        $this->assertSame('create', $runRecord->failed_step);
+    }
+
     private function engineWithPersistence(): FlowEngine
     {
         $this->app['config']->set('laravel-flow.persistence.enabled', true);

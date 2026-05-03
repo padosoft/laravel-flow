@@ -300,7 +300,7 @@ return [
 | Key                       | Default          | Effect                                                                                            |
 | ------------------------- | ---------------- | ------------------------------------------------------------------------------------------------- |
 | `default_storage`         | `null`           | DB connection used by persistence repositories. Inherits app default when `null`.                 |
-| `persistence.enabled`     | `false`          | Enables synchronous engine writes to `flow_runs`, `flow_steps`, and `flow_audit`; dry-runs do not write. |
+| `persistence.enabled`     | `false`          | Enables synchronous engine writes to `flow_runs` and `flow_steps`; `flow_audit` writes also require `audit_trail_enabled=true`. Dry-runs do not write. |
 | `persistence.redaction`   | common secrets   | Redacts configured JSON payload keys before run, step, and audit payloads are stored.             |
 | `audit_trail_enabled`     | `true`           | When `false`, suppresses every `FlowStep*` / `FlowCompensated` event and persisted audit row.     |
 | `dry_run_default`         | `false`          | When `true`, `Flow::execute()` behaves like `dryRun()` — guard rail for staging environments.     |
@@ -349,7 +349,7 @@ return [
                                                    └─────────────────────┘
 ```
 
-Every box is one PHP class under `src/`. The engine path is still synchronous and in-memory by default; when persistence is enabled, runtime runs, steps, and audit transitions are written to `flow_runs`, `flow_steps`, and `flow_audit`. The next v0.2 slices add idempotency/correlation ergonomics, retention pruning, queues, and replay.
+Every box is one PHP class under `src/`. The engine path is still synchronous and in-memory by default; when persistence is enabled, runtime runs and steps are written to `flow_runs` and `flow_steps`. Audit transitions are written to `flow_audit` only while `audit_trail_enabled` remains enabled. The next v0.2 slices add idempotency/correlation ergonomics, retention pruning, queues, and replay.
 
 ---
 

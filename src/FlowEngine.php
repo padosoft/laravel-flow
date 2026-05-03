@@ -505,7 +505,10 @@ class FlowEngine
     ): void {
         $failedAt ??= $this->now();
 
-        if ($failedStep !== null && $run->finishedAt === null) {
+        if (
+            $failedStep !== null
+            && ! in_array($run->status, [FlowRun::STATUS_FAILED, FlowRun::STATUS_COMPENSATED], true)
+        ) {
             $run->markFailed($failedStep->name, $failedAt);
             $this->persistRunFinishedBestEffort($persist, $run);
         }
@@ -674,7 +677,7 @@ class FlowEngine
             $this->dispatch(new FlowCompensated($run->id, $definition->name, $step->name, $context->dryRun));
         } catch (Throwable $e) {
             if (! $persist) {
-                throw $e;
+                return;
             }
 
             try {

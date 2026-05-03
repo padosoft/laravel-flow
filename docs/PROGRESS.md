@@ -10,7 +10,7 @@ Known workstreams:
 | --- | --- |
 | Macro Task 0 - durable agent operating system | Completed after merge of the macro PR to `main`. |
 | Macro Task 1 - baseline tooling and Laravel 13 policy | Completed after merge of the macro PR to `main`; Composer/CI/docs now narrow to Laravel 13, PHP 8.3/8.4, and Composer-script quality gates. |
-| Macro Task 2 - v0.2 persistence layer | In progress; persistence foundation is merged into the macro branch. Resume by checking open PRs for the engine wiring subtask before continuing v0.2 work. |
+| Macro Task 2 - v0.2 persistence layer | In progress; persistence foundation is merged into the macro branch. Continue Macro Task 2 from `docs/ENTERPRISE_PLAN.md`. |
 
 Concurrent subtasks should add rows here instead of replacing existing workstreams.
 

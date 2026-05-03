@@ -15,6 +15,7 @@ use Padosoft\LaravelFlow\FlowRun;
 use Padosoft\LaravelFlow\Jobs\RunFlowJob;
 use Padosoft\LaravelFlow\Tests\TestCase;
 use Padosoft\LaravelFlow\Tests\Unit\Stubs\AlwaysSucceedsHandler;
+use RuntimeException;
 
 final class FlowDispatchTest extends TestCase
 {
@@ -57,7 +58,7 @@ final class FlowDispatchTest extends TestCase
     public function test_dispatch_uses_configured_queue_lock_settings(): void
     {
         Bus::fake();
-        $this->app['config']->set('laravel-flow.queue.lock_store', 'array');
+        $this->app['config']->set('laravel-flow.queue.lock_store', 'file');
         $this->app['config']->set('laravel-flow.queue.lock_seconds', 120);
         $this->app->forgetInstance(FlowEngine::class);
 
@@ -71,7 +72,7 @@ final class FlowDispatchTest extends TestCase
 
         Bus::assertDispatched(
             RunFlowJob::class,
-            static fn (RunFlowJob $job): bool => $job->lockStore === 'array'
+            static fn (RunFlowJob $job): bool => $job->lockStore === 'file'
                 && $job->lockSeconds === 120
                 && $job->input === ['tenant' => 'acme'],
         );
@@ -104,7 +105,7 @@ final class FlowDispatchTest extends TestCase
             ->step('one', AlwaysSucceedsHandler::class)
             ->register();
 
-        $run = (new RunFlowJob('flow.job.handle', dispatchId: 'dispatch-1'))->handle($engine, $this->app->make('cache'));
+        $run = (new RunFlowJob('flow.job.handle', dispatchId: 'dispatch-1', lockStore: 'file'))->handle($engine, $this->app->make('cache'));
 
         $this->assertInstanceOf(FlowRun::class, $run);
         $this->assertSame(FlowRun::STATUS_SUCCEEDED, $run->status);
@@ -119,8 +120,8 @@ final class FlowDispatchTest extends TestCase
             ->step('one', AlwaysSucceedsHandler::class)
             ->register();
 
-        $job = new RunFlowJob('flow.job.locked', dispatchId: 'locked-dispatch');
-        $lock = Cache::store()->getStore()->lock($job->lockKey(), 60);
+        $job = new RunFlowJob('flow.job.locked', dispatchId: 'locked-dispatch', lockStore: 'file');
+        $lock = Cache::store('file')->getStore()->lock($job->lockKey(), 60);
         $this->assertTrue($lock->get());
 
         try {
@@ -131,5 +132,20 @@ final class FlowDispatchTest extends TestCase
 
         $this->assertNull($run);
         $this->assertSame(0, AlwaysSucceedsHandler::$callCount);
+    }
+
+    public function test_run_flow_job_rejects_process_local_array_lock_store(): void
+    {
+        /** @var FlowEngine $engine */
+        $engine = $this->app->make(FlowEngine::class);
+        $engine->define('flow.job.array-lock')
+            ->step('one', AlwaysSucceedsHandler::class)
+            ->register();
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('array store is process-local');
+
+        (new RunFlowJob('flow.job.array-lock', dispatchId: 'array-lock-dispatch', lockStore: 'array'))
+            ->handle($engine, $this->app->make('cache'));
     }
 }

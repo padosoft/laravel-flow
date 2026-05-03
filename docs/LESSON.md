@@ -166,4 +166,5 @@
 - Queued flow jobs should lock by a stable per-dispatch identifier, not by definition name alone, so duplicate delivery of the same queued job is blocked without serializing unrelated runs of the same flow definition.
 - Queued flow jobs that encounter an already-held per-dispatch lock should return successfully without running handlers; throwing on benign duplicate delivery consumes Laravel retry attempts and can later re-run after the original lock is released.
 - Laravel's portable cache lock contract has acquire/release but no renewal method, so `queue.lock_seconds` is an operational duplicate-protection window that must be configured longer than the expected maximum flow runtime.
+- Do not accept Laravel's `array` cache store for queued run locks: it implements the lock provider contract, but the lock is process-local and cannot protect multiple queue workers.
 - In this lock-ignored package repo, a `composer.json` dependency change can make `composer validate --strict --no-check-publish` fail against the local ignored lock file; run `composer update --lock` locally to refresh the content hash, but do not stage `composer.lock`.

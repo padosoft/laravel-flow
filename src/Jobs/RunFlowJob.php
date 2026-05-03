@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Padosoft\LaravelFlow\Jobs;
 
+use Illuminate\Cache\ArrayStore;
 use Illuminate\Contracts\Cache\Factory as CacheFactory;
 use Illuminate\Contracts\Cache\LockProvider;
 use Illuminate\Contracts\Queue\ShouldQueueAfterCommit;
@@ -29,6 +30,10 @@ final class RunFlowJob implements ShouldQueueAfterCommit
     public function handle(FlowEngine $flow, CacheFactory $cache): ?FlowRun
     {
         $store = $cache->store($this->lockStore)->getStore();
+
+        if ($store instanceof ArrayStore) {
+            throw new RuntimeException('Laravel Flow queued execution requires a shared cache lock store; the array store is process-local.');
+        }
 
         if (! $store instanceof LockProvider) {
             throw new RuntimeException('Laravel Flow queued execution requires a cache store that supports atomic locks.');

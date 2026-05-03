@@ -332,6 +332,8 @@ Event::listen(function (FlowStepFailed $e) {
 
 ```php
 // config/laravel-flow.php
+$queueLockSeconds = env('LARAVEL_FLOW_QUEUE_LOCK_SECONDS', 3600);
+
 return [
     'default_storage'        => env('LARAVEL_FLOW_STORAGE', null),
     'persistence'            => [
@@ -347,7 +349,9 @@ return [
     ],
     'queue'                  => [
         'lock_store'   => env('LARAVEL_FLOW_QUEUE_LOCK_STORE', null),
-        'lock_seconds' => env('LARAVEL_FLOW_QUEUE_LOCK_SECONDS', 3600),
+        'lock_seconds' => is_numeric($queueLockSeconds) && (int) $queueLockSeconds >= 1
+            ? (int) $queueLockSeconds
+            : 3600,
     ],
     'audit_trail_enabled'    => env('LARAVEL_FLOW_AUDIT_ENABLED', true), // events; DB audit rows require this=true, persistence.enabled=true, and a non-dry-run execution
     'dry_run_default'        => env('LARAVEL_FLOW_DRY_RUN_DEFAULT', false),
@@ -362,7 +366,7 @@ return [
 | `persistence.enabled`     | `false`          | Enables synchronous engine writes to `flow_runs` and `flow_steps`; `flow_audit` writes also require `audit_trail_enabled=true` and a non-dry-run execution. Dry-runs do not write. |
 | `persistence.redaction`   | common secrets   | Redacts configured JSON payload keys before run, step, and audit payloads are stored.             |
 | `persistence.retention.days` | `null`         | Default retention window for `php artisan flow:prune`; pass `--days` to override per run.         |
-| `queue.lock_store`        | `null`           | Cache store used for queued run locks. Inherits app default when `null`; the store must support atomic locks. |
+| `queue.lock_store`        | `null`           | Cache store used for queued run locks. Inherits app default when `null`; the store must support shared atomic locks, so the process-local `array` store is rejected. |
 | `queue.lock_seconds`      | `3600`           | TTL for the per-dispatch queue lock used by `RunFlowJob`; set it longer than the expected maximum flow runtime because Laravel's portable lock contract cannot renew it. |
 | `audit_trail_enabled`     | `true`           | When `false`, suppresses every `FlowStep*` / `FlowCompensated` event and persisted audit row; persisted audit rows also require persistence and a non-dry-run execution. |
 | `dry_run_default`         | `false`          | When `true`, `Flow::execute()` behaves like `dryRun()` — guard rail for staging environments.     |

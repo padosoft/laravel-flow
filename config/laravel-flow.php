@@ -49,7 +49,8 @@ return [
     | queued flow concurrently. Duplicate deliveries that find the lock held
     | are acknowledged as no-ops. Set the lock TTL longer than the expected
     | maximum flow runtime; Laravel's portable lock contract cannot renew it.
-    | The store must support Laravel atomic locks.
+    | The store must support shared Laravel atomic locks; the process-local
+    | array store is rejected for queued execution.
     |
     */
     'queue' => [

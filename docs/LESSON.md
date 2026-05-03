@@ -157,4 +157,4 @@
 - Composer `suggest` metadata must be updated when a roadmap version partially lands; avoid "when vX lands" wording after that version has shipped a slice.
 - README comparison atomicity claims must distinguish transaction-scoped step transitions and atomic step upserts from compensation audit/finalization writes, which can be separate best-effort operations.
 - Until Macro Task 3 implements strategy selection, `compensation_strategy` must be documented as reserved metadata only; the current engine ignores the value and always compensates in reverse order.
-- If `flow_audit` has a run foreign key, pruning should count audit rows before deleting parent runs and then rely on cascade deletes just like `flow_steps`.
+- Even when `flow_audit` has a run foreign key, `flow:prune` should explicitly delete matching audit rows until there is an additive migration story for installations that already published older tables without that FK.

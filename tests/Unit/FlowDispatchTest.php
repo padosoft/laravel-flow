@@ -86,6 +86,27 @@ final class FlowDispatchTest extends TestCase
         );
     }
 
+    public function test_dispatch_captures_default_cache_store_when_lock_store_is_null(): void
+    {
+        Bus::fake();
+        $this->app['config']->set('cache.default', 'file');
+        $this->app['config']->set('laravel-flow.queue.lock_store', null);
+        $this->app->forgetInstance(FlowEngine::class);
+
+        /** @var FlowEngine $engine */
+        $engine = $this->app->make(FlowEngine::class);
+        $engine->define('flow.dispatch.default-lock-store')
+            ->step('one', AlwaysSucceedsHandler::class)
+            ->register();
+
+        $engine->dispatch('flow.dispatch.default-lock-store', []);
+
+        Bus::assertDispatched(
+            RunFlowJob::class,
+            static fn (RunFlowJob $job): bool => $job->lockStore === 'file',
+        );
+    }
+
     public function test_dispatch_does_not_queue_when_input_validation_fails(): void
     {
         Bus::fake();
@@ -190,6 +211,32 @@ final class FlowDispatchTest extends TestCase
         $this->assertSame(0, AlwaysSucceedsHandler::$callCount);
     }
 
+    public function test_run_flow_job_rechecks_completion_marker_after_acquiring_lock(): void
+    {
+        /** @var FlowEngine $engine */
+        $engine = $this->app->make(FlowEngine::class);
+        $engine->define('flow.job.completed-race')
+            ->step('one', AlwaysSucceedsHandler::class)
+            ->register();
+
+        $repository = $this->createMock(CacheRepository::class);
+        $repository->expects($this->once())->method('getStore')->willReturn(Cache::store('file')->getStore());
+        $repository->expects($this->exactly(2))->method('get')->willReturnOnConsecutiveCalls(null, true);
+        $repository->expects($this->never())->method('put');
+
+        $cache = $this->createMock(CacheFactory::class);
+        $cache->expects($this->once())->method('store')->willReturn($repository);
+
+        $run = (new RunFlowJob('flow.job.completed-race', dispatchId: 'completed-race-dispatch', lockStore: 'file'))
+            ->handle($engine, $cache, $this->app['config']);
+
+        $this->assertNull($run);
+        $lock = Cache::store('file')->getStore()->lock('laravel-flow:run:completed-race-dispatch', 60);
+        $this->assertTrue($lock->get());
+        $lock->release();
+        $this->assertSame(0, AlwaysSucceedsHandler::$callCount);
+    }
+
     public function test_run_flow_job_surfaces_completion_marker_write_failures(): void
     {
         /** @var FlowEngine $engine */
@@ -200,7 +247,7 @@ final class FlowDispatchTest extends TestCase
 
         $repository = $this->createMock(CacheRepository::class);
         $repository->expects($this->once())->method('getStore')->willReturn(Cache::store('file')->getStore());
-        $repository->expects($this->once())->method('get')->willReturn(null);
+        $repository->expects($this->exactly(2))->method('get')->willReturn(null);
         $repository->expects($this->once())->method('put')->willReturn(false);
 
         $cache = $this->createMock(CacheFactory::class);
@@ -231,7 +278,7 @@ final class FlowDispatchTest extends TestCase
 
         $repository = $this->createMock(CacheRepository::class);
         $repository->expects($this->once())->method('getStore')->willReturn(Cache::store('file')->getStore());
-        $repository->expects($this->once())->method('get')->willReturn(null);
+        $repository->expects($this->exactly(2))->method('get')->willReturn(null);
         $repository->expects($this->once())->method('put')->willThrowException(new RuntimeException('cache unavailable'));
 
         $cache = $this->createMock(CacheFactory::class);
@@ -293,7 +340,7 @@ final class FlowDispatchTest extends TestCase
 
         $repository = $this->createMock(CacheRepository::class);
         $repository->expects($this->once())->method('getStore')->willReturn(Cache::store('file')->getStore());
-        $repository->expects($this->once())->method('get')->willReturn(null);
+        $repository->expects($this->exactly(2))->method('get')->willReturn(null);
         $repository->expects($this->once())->method('put')->willReturn(false);
 
         $cache = $this->createMock(CacheFactory::class);

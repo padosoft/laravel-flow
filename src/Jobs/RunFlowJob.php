@@ -7,6 +7,7 @@ namespace Padosoft\LaravelFlow\Jobs;
 use Illuminate\Cache\ArrayStore;
 use Illuminate\Contracts\Cache\Factory as CacheFactory;
 use Illuminate\Contracts\Cache\LockProvider;
+use Illuminate\Contracts\Cache\Repository as CacheRepository;
 use Illuminate\Contracts\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Queue\ShouldQueueAfterCommit;
 use Illuminate\Queue\InteractsWithQueue;
@@ -68,7 +69,7 @@ final class RunFlowJob implements ShouldQueueAfterCommit
             throw new RuntimeException('Laravel Flow queued execution requires a cache store that supports atomic locks.');
         }
 
-        if ($repository->get($this->completionKey()) === true) {
+        if ($this->completionRecorded($repository)) {
             return null;
         }
 
@@ -85,6 +86,10 @@ final class RunFlowJob implements ShouldQueueAfterCommit
         $releaseLock = true;
 
         try {
+            if ($this->completionRecorded($repository)) {
+                return null;
+            }
+
             $run = $flow->execute($this->name, $this->input, $this->options);
 
             $releaseLock = false;
@@ -146,6 +151,14 @@ final class RunFlowJob implements ShouldQueueAfterCommit
     private function lockRetrySeconds(): int
     {
         return max(1, min($this->lockSeconds(), $this->lockRetrySeconds));
+    }
+
+    /**
+     * @phpstan-impure The cache backend can change between duplicate workers.
+     */
+    private function completionRecorded(CacheRepository $repository): bool
+    {
+        return $repository->get($this->completionKey()) === true;
     }
 
     private function allowsProcessLocalLocks(ConfigRepository $config): bool

@@ -367,6 +367,31 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         $this->assertPersistenceTablesEmpty();
     }
 
+    public function test_enabled_persistence_surfaces_broken_store_binding(): void
+    {
+        $this->migrateFlowTables();
+        $this->app['config']->set('laravel-flow.persistence.enabled', true);
+        $this->app->bind(
+            FlowStore::class,
+            static fn (): FlowStore => throw new RuntimeException('store binding down'),
+        );
+        $this->app->forgetInstance(FlowEngine::class);
+
+        /** @var FlowEngine $engine */
+        $engine = $this->app->make(FlowEngine::class);
+
+        $engine->define('flow.persist.store-binding-down')
+            ->step('create', AlwaysSucceedsHandler::class)
+            ->register();
+
+        try {
+            $engine->execute('flow.persist.store-binding-down', []);
+            $this->fail('The broken store binding should abort execution.');
+        } catch (RuntimeException $exception) {
+            $this->assertSame('store binding down', $exception->getMessage());
+        }
+    }
+
     public function test_audit_disabled_suppresses_events_and_persisted_audit_rows_only(): void
     {
         $this->migrateFlowTables();
@@ -387,6 +412,181 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         Event::assertNotDispatched(FlowStepCompleted::class);
         Event::assertNotDispatched(FlowStepFailed::class);
         Event::assertNotDispatched(FlowCompensated::class);
+    }
+
+    public function test_engine_uses_one_store_instance_inside_persistence_transactions(): void
+    {
+        $this->migrateFlowTables();
+
+        /** @var FlowStore $inner */
+        $inner = $this->app->make(FlowStore::class);
+        $tracker = new \ArrayObject(['inside' => 0, 'outside' => 0]);
+
+        $this->app->bind(
+            FlowStore::class,
+            static fn (): FlowStore => new class($inner, $tracker) implements FlowStore
+            {
+                private bool $inTransaction = false;
+
+                public function __construct(
+                    private readonly FlowStore $inner,
+                    private readonly \ArrayObject $tracker,
+                ) {}
+
+                public function runs(): RunRepository
+                {
+                    $recordWrite = function (): void {
+                        $this->recordWrite();
+                    };
+
+                    return new class($this->inner->runs(), $recordWrite) implements RunRepository
+                    {
+                        public function __construct(
+                            private readonly RunRepository $inner,
+                            private readonly \Closure $recordWrite,
+                        ) {}
+
+                        public function create(array $attributes): FlowRunRecord
+                        {
+                            $this->recordWrite();
+
+                            return $this->inner->create($attributes);
+                        }
+
+                        public function update(string $runId, array $attributes): FlowRunRecord
+                        {
+                            $this->recordWrite();
+
+                            return $this->inner->update($runId, $attributes);
+                        }
+
+                        public function find(string $runId): ?FlowRunRecord
+                        {
+                            return $this->inner->find($runId);
+                        }
+
+                        public function findByIdempotencyKey(string $idempotencyKey): ?FlowRunRecord
+                        {
+                            return $this->inner->findByIdempotencyKey($idempotencyKey);
+                        }
+
+                        private function recordWrite(): void
+                        {
+                            ($this->recordWrite)();
+                        }
+                    };
+                }
+
+                public function steps(): StepRunRepository
+                {
+                    $recordWrite = function (): void {
+                        $this->recordWrite();
+                    };
+
+                    return new class($this->inner->steps(), $recordWrite) implements StepRunRepository
+                    {
+                        public function __construct(
+                            private readonly StepRunRepository $inner,
+                            private readonly \Closure $recordWrite,
+                        ) {}
+
+                        public function createOrUpdate(string $runId, string $stepName, array $attributes): FlowStepRecord
+                        {
+                            $this->recordWrite();
+
+                            return $this->inner->createOrUpdate($runId, $stepName, $attributes);
+                        }
+
+                        public function forRun(string $runId): Collection
+                        {
+                            return $this->inner->forRun($runId);
+                        }
+
+                        private function recordWrite(): void
+                        {
+                            ($this->recordWrite)();
+                        }
+                    };
+                }
+
+                public function audit(): AuditRepository
+                {
+                    $recordWrite = function (): void {
+                        $this->recordWrite();
+                    };
+
+                    return new class($this->inner->audit(), $recordWrite) implements AuditRepository
+                    {
+                        public function __construct(
+                            private readonly AuditRepository $inner,
+                            private readonly \Closure $recordWrite,
+                        ) {}
+
+                        public function append(
+                            string $runId,
+                            string $event,
+                            array $payload = [],
+                            ?string $stepName = null,
+                            ?array $businessImpact = null,
+                            ?DateTimeInterface $occurredAt = null,
+                        ): FlowAuditRecord {
+                            $this->recordWrite();
+
+                            return $this->inner->append(
+                                $runId,
+                                $event,
+                                $payload,
+                                $stepName,
+                                $businessImpact,
+                                $occurredAt,
+                            );
+                        }
+
+                        public function forRun(string $runId): Collection
+                        {
+                            return $this->inner->forRun($runId);
+                        }
+
+                        private function recordWrite(): void
+                        {
+                            ($this->recordWrite)();
+                        }
+                    };
+                }
+
+                public function transaction(callable $callback): mixed
+                {
+                    $this->inTransaction = true;
+
+                    try {
+                        return $this->inner->transaction($callback);
+                    } finally {
+                        $this->inTransaction = false;
+                    }
+                }
+
+                private function recordWrite(): void
+                {
+                    if ($this->inTransaction) {
+                        $this->tracker['inside']++;
+
+                        return;
+                    }
+
+                    $this->tracker['outside']++;
+                }
+            },
+        );
+        $engine = $this->engineWithPersistence();
+
+        $engine->define('flow.persist.transaction-store-instance')
+            ->step('create', AlwaysSucceedsHandler::class)
+            ->register();
+
+        $engine->execute('flow.persist.transaction-store-instance', []);
+
+        $this->assertGreaterThan(0, $tracker['inside']);
+        $this->assertSame(0, $tracker['outside']);
     }
 
     public function test_persisted_run_is_closed_when_a_step_listener_throws(): void
@@ -464,6 +664,8 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         $this->assertInstanceOf(FlowAuditRecord::class, $failedAudit);
         $this->assertSame(FlowRun::STATUS_COMPENSATED, $runRecord->status);
         $this->assertTrue($runRecord->compensated);
+        $this->assertIsArray($runRecord->output);
+        $this->assertArrayNotHasKey('create', $runRecord->output);
         $this->assertSame('failed', $stepRecord->status);
         $this->assertSame(RuntimeException::class, $stepRecord->error_class);
         $this->assertStringNotContainsString('plain-secret', (string) $stepRecord->error_message);

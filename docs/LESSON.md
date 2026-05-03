@@ -99,3 +99,6 @@
 - Runtime-abort grouped persistence recovery must report whether the final run row was actually updated. If grouped run+step+audit fails and only step fallback succeeds, the outer recovery still needs a later run-only retry.
 - Singleton `FlowEngine` instances must not accidentally freeze host-rebound runtime services. Unless tests explicitly inject a store/redactor, resolve the current `FlowStore` and `PayloadRedactor` bindings at execution time.
 - README comparison claims must scope recovery guarantees precisely. The compensate-first ordering applies to runtime-abort recovery; normal business step failures still persist the failed transition before compensation.
+- Runtime persistence should resolve the active `FlowStore` once per execution and pass that instance through transaction callbacks; transient store bindings can otherwise make writes run outside the transaction instance.
+- With persistence explicitly enabled, broken `FlowStore` bindings are infrastructure errors and must surface to callers instead of silently disabling persistence.
+- Aggregate persisted run output must exclude the step named by `failed_step`, even if the in-memory step result stayed successful so compensators can still use the real handler output.

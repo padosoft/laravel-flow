@@ -166,7 +166,19 @@ class FlowEngine
                     false,
                 );
             } catch (Throwable $e) {
-                $this->compensateAfterRuntimeAbort($definition, $context, $completedSteps, $run, $persist, $step);
+                $failedAt = $this->now();
+                $this->compensateAfterRuntimeAbort(
+                    $definition,
+                    $context,
+                    $completedSteps,
+                    $run,
+                    $persist,
+                    $step,
+                    $sequence,
+                    FlowStepResult::failed($e),
+                    $stepStartedAt,
+                    $failedAt,
+                );
 
                 throw $e;
             }
@@ -222,7 +234,18 @@ class FlowEngine
                         true,
                     );
                 } catch (Throwable $e) {
-                    $this->compensateAfterRuntimeAbort($definition, $context, $completedSteps, $run, $persist, $step);
+                    $this->compensateAfterRuntimeAbort(
+                        $definition,
+                        $context,
+                        $completedSteps,
+                        $run,
+                        $persist,
+                        $step,
+                        $sequence,
+                        $result,
+                        $stepStartedAt,
+                        $stepFinishedAt,
+                    );
 
                     throw $e;
                 }
@@ -288,7 +311,19 @@ class FlowEngine
                     true,
                 );
             } catch (Throwable $e) {
-                $this->compensateAfterRuntimeAbort($definition, $context, $completedSteps, $run, $persist, $step);
+                $failedAt = $this->now();
+                $this->compensateAfterRuntimeAbort(
+                    $definition,
+                    $context,
+                    $completedSteps,
+                    $run,
+                    $persist,
+                    $step,
+                    $sequence,
+                    FlowStepResult::failed($e),
+                    $stepStartedAt,
+                    $failedAt,
+                );
 
                 throw $e;
             }
@@ -463,10 +498,34 @@ class FlowEngine
         FlowRun $run,
         bool $persist,
         ?FlowStep $failedStep,
+        ?int $sequence = null,
+        ?FlowStepResult $failedResult = null,
+        ?DateTimeInterface $stepStartedAt = null,
+        ?DateTimeImmutable $failedAt = null,
     ): void {
+        $failedAt ??= $this->now();
+
         if ($failedStep !== null && $run->finishedAt === null) {
-            $run->markFailed($failedStep->name, $this->now());
+            $run->markFailed($failedStep->name, $failedAt);
             $this->persistRunFinishedBestEffort($persist, $run);
+        }
+
+        if (
+            $failedStep !== null
+            && $sequence !== null
+            && $failedResult instanceof FlowStepResult
+            && $stepStartedAt instanceof DateTimeInterface
+        ) {
+            $this->persistStepFailedBestEffort(
+                $persist,
+                $run,
+                $failedStep,
+                $sequence,
+                $context,
+                $failedResult,
+                $stepStartedAt,
+                $failedAt,
+            );
         }
 
         try {
@@ -478,6 +537,43 @@ class FlowEngine
         }
 
         $this->persistRunFinishedBestEffort($persist, $run, $run->compensated ? 'succeeded' : null);
+    }
+
+    private function persistStepFailedBestEffort(
+        bool $persist,
+        FlowRun $run,
+        FlowStep $step,
+        int $sequence,
+        FlowContext $context,
+        FlowStepResult $result,
+        DateTimeInterface $startedAt,
+        DateTimeInterface $failedAt,
+    ): void {
+        try {
+            $this->persistAtomically($persist, function () use (
+                $persist,
+                $run,
+                $step,
+                $sequence,
+                $context,
+                $result,
+                $startedAt,
+                $failedAt,
+            ): void {
+                $this->persistStepFinished(
+                    $persist,
+                    $run,
+                    $step,
+                    $sequence,
+                    $context,
+                    $result,
+                    $startedAt,
+                    $failedAt,
+                );
+            });
+        } catch (Throwable) {
+            // Preserve the original execution/listener/persistence exception.
+        }
     }
 
     private function persistRunFinishedBestEffort(
@@ -529,7 +625,10 @@ class FlowEngine
                 $e,
             ): void {
                 if ($shouldPersistStepFailure) {
-                    $run->recordStepResult($step->name, $failedResult);
+                    if (! $stepAlreadyFinished) {
+                        $run->recordStepResult($step->name, $failedResult);
+                    }
+
                     $this->persistStepFinished(
                         true,
                         $run,

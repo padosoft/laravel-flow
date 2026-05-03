@@ -336,6 +336,7 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         $this->assertSame('FlowStepCompleted', $failedAudit->payload['listener_event']);
         $this->assertStringNotContainsString('plain-secret', (string) $failedAudit->payload['error_message']);
         $this->assertCount(1, RecordingCompensator::$invocations);
+        $this->assertSame(AlwaysSucceedsHandler::class, RecordingCompensator::$invocations[0]['originalOutput']['handler']);
     }
 
     public function test_persisted_compensation_listener_failure_does_not_abort_rollback(): void
@@ -393,6 +394,12 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
             $this->assertSame('audit down for FlowStepCompleted', $exception->getMessage());
         }
 
+        $stepRecord = FlowStepRecord::query()
+            ->where('step_name', 'create')
+            ->first();
+
+        $this->assertInstanceOf(FlowStepRecord::class, $stepRecord);
+        $this->assertSame('failed', $stepRecord->status);
         $this->assertCount(1, RecordingCompensator::$invocations);
     }
 
@@ -414,6 +421,12 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
             $this->assertSame('audit down for FlowStepFailed', $exception->getMessage());
         }
 
+        $failedStep = FlowStepRecord::query()
+            ->where('step_name', 'charge')
+            ->first();
+
+        $this->assertInstanceOf(FlowStepRecord::class, $failedStep);
+        $this->assertSame('failed', $failedStep->status);
         $this->assertCount(1, RecordingCompensator::$invocations);
     }
 

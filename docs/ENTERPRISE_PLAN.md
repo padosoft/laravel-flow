@@ -93,7 +93,7 @@ Public API:
 
 - `Flow::dispatch(...)`
 - `flow:replay {runId}`
-- Compensation strategy config: `reverse_order`, `parallel`
+- Compensation strategy config: `reverse-order`, `parallel`
 
 Key changes:
 

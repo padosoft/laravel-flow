@@ -119,7 +119,7 @@
 - Engine execution redactor freeze should be expressed through store/redactor capability contracts, not concrete class checks, so decorators can preserve JSON/text redaction and transaction consistency.
 - Compensation failure paths should advance `finishedAt` to the rollback failure time so persisted duration includes partial rollback work.
 - Current-redactor provider chains should be unwrapped recursively, and execution-scope redactor self-resolution guards should treat any scope wrapper instance as recursive.
-- Cyclic current-redactor provider chains should fail before invoking `redact()` again; returning a provider from the cycle just moves the stack overflow to the caller.
+- Cyclic `CurrentPayloadRedactorProvider` chains should fail before invoking `redact()` again; returning a provider from the cycle just moves the stack overflow to the caller.
 - Provider cycle guards need a max-depth fallback in addition to object identity; decorators can allocate fresh wrapper objects on every hop.
 - Core classes should avoid facade roots and Laravel support dependencies; inject Laravel clocks from the service provider and keep DTO legacy fallbacks framework-agnostic.
 - Text redaction should treat `key=Bearer token` as a single keyed value; otherwise bearer and key/value passes can leave noisy duplicate replacement tokens.
@@ -146,7 +146,7 @@
 - Public execution identity values should validate against the persisted schema length before repository writes so callers get package-level input errors instead of database exceptions.
 - On Windows, PHPUnit `--filter` regexes containing `|` can be consumed by the `.bat` wrapper shell even when quoted; run separate filters or the full suite instead of trusting that pattern.
 - Character limits in public DTOs should count UTF-8 characters, not bytes, and should include normalization tests when docs promise trim/blank semantics.
-- README audit persistence wording must mention both gates: persisted audit rows require `persistence.enabled=true` and `audit_trail_enabled=true`.
+- README audit persistence wording must mention every gate: persisted audit rows require `persistence.enabled=true`, `audit_trail_enabled=true`, and a non-dry-run execution.
 - README feature and comparison sections must not advertise approval gates as shipped until the approval/webhook macro lands.
 - README audit claims should distinguish runtime events from append-only persisted rows; `flow:prune` means persisted audit rows are not immutable forever.
 - README event wording must include the `audit_trail_enabled` gate and avoid saying every transition emits all event classes.

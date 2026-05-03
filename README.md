@@ -86,7 +86,7 @@ Saga semantics: when step N fails, the engine walks the previously-completed ste
 
 ### 4. The audit trail is event-driven
 
-When `audit_trail_enabled` is enabled, step and compensation transitions dispatch Laravel events such as `FlowStepStarted`, `FlowStepCompleted`, `FlowStepFailed`, and `FlowCompensated`. The host application subscribes once and routes them to the logger, DB, or metrics backend it already runs. When both persistence and `audit_trail_enabled` are enabled, v0.2 also records default audit rows in `flow_audit`.
+When `audit_trail_enabled` is enabled, step and compensation transitions dispatch Laravel events such as `FlowStepStarted`, `FlowStepCompleted`, `FlowStepFailed`, and `FlowCompensated`. The host application subscribes once and routes them to the logger, DB, or metrics backend it already runs. For non-dry-run executions, when both persistence and `audit_trail_enabled` are enabled, v0.2 also records default audit rows in `flow_audit`.
 
 ### 5. Standalone-agnostic — zero AskMyDocs symbols
 
@@ -382,7 +382,7 @@ Custom `FlowStore` implementations that need the same per-execution `PayloadReda
                                                    └─────────────────────┘
 ```
 
-Every box is one PHP class under `src/`. The engine path is still synchronous and in-memory by default; when persistence is enabled, runtime runs and steps are written to `flow_runs` and `flow_steps`. Audit transitions are written to `flow_audit` only while persistence and `audit_trail_enabled` are both enabled. The next v0.2 slices add queues, replay, and compensation strategy expansion.
+Every box is one PHP class under `src/`. The engine path is still synchronous and in-memory by default; when persistence is enabled, runtime runs and steps are written to `flow_runs` and `flow_steps`. Audit transitions are written to `flow_audit` only for non-dry-run executions while persistence and `audit_trail_enabled` are both enabled. The next v0.2 slices add queues, replay, and compensation strategy expansion.
 
 ---
 
@@ -426,7 +426,7 @@ CI runs Pint (style), PHPStan (level 6), and the Unit + Architecture suites thro
 
 | Version | Scope                                                                                                                                                                                                                                                              | Target            |
 | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
-| v0.1    | In-memory engine, fluent builder, dry-run, reverse-order compensation, four audit events, business-impact field on results, Facade. Architecture test enforces standalone-agnostic.                                                                                  | code complete     |
+| v0.1    | In-memory engine, fluent builder, dry-run, reverse-order compensation, four audit event classes, business-impact field on results, Facade. Architecture test enforces standalone-agnostic.                                                                            | code complete     |
 | v0.2    | Persistence core: `flow_runs` / `flow_steps` / `flow_audit` tables, synchronous engine writes, redacted payload storage, correlation/idempotency keys, and terminal-run retention pruning. Queue-backed workers, replay command, and parallel compensation strategy remain next. | Q3 2026           |
 | v0.3    | Approval-gate primitive (a step type that pauses until an external token is presented), webhooks for resume.                                                                                                                                                         | Q4 2026           |
 | v1.0    | Stable API, semver guarantee, full migration helpers from Spatie Workflow / Symfony Workflow.                                                                                                                                                                        | 2027              |

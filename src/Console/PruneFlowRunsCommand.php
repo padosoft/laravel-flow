@@ -7,8 +7,10 @@ namespace Padosoft\LaravelFlow\Console;
 use Illuminate\Console\Command;
 use Illuminate\Console\ConfirmableTrait;
 use Illuminate\Contracts\Config\Repository as ConfigRepository;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
+use InvalidArgumentException;
 use Padosoft\LaravelFlow\Persistence\FlowPruner;
 
 final class PruneFlowRunsCommand extends Command
@@ -54,8 +56,14 @@ final class PruneFlowRunsCommand extends Command
         $dryRun = (bool) $this->option('dry-run');
         $database = $this->databaseConnection($config);
 
-        if (! $this->persistenceTablesExist($database)) {
-            $this->error('Laravel Flow persistence tables were not found on the selected database connection. Publish and run the migrations before pruning.');
+        try {
+            if (! $this->persistenceTablesExist($database)) {
+                $this->error('Laravel Flow persistence tables were not found on the selected database connection. Publish and run the migrations before pruning.');
+
+                return self::FAILURE;
+            }
+        } catch (InvalidArgumentException|QueryException $e) {
+            $this->error('Laravel Flow could not access the selected persistence database connection: '.$e->getMessage());
 
             return self::FAILURE;
         }
@@ -64,8 +72,15 @@ final class PruneFlowRunsCommand extends Command
             return self::FAILURE;
         }
 
-        $cutoff = Date::now()->subDays($days)->toDateTimeImmutable();
-        $result = (new FlowPruner($database))->prune($cutoff, $chunkSize, $dryRun);
+        try {
+            $cutoff = Date::now()->subDays($days)->toDateTimeImmutable();
+            $result = (new FlowPruner($database))->prune($cutoff, $chunkSize, $dryRun);
+        } catch (InvalidArgumentException|QueryException $e) {
+            $this->error('Laravel Flow could not prune persistence records: '.$e->getMessage());
+
+            return self::FAILURE;
+        }
+
         $summary = sprintf(
             '%s %d flow run(s), %d step row(s), and %d audit row(s) finished before %s.',
             $dryRun ? 'Matched' : 'Pruned',

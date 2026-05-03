@@ -86,6 +86,16 @@ final class PruneFlowRunsCommandTest extends PersistenceTestCase
             ->assertExitCode(1);
     }
 
+    public function test_prune_command_fails_cleanly_when_database_connection_is_invalid(): void
+    {
+        $this->artisan('flow:prune', [
+            '--database' => 'missing-flow-connection',
+            '--days' => '30',
+        ])
+            ->expectsOutputToContain('Laravel Flow could not access the selected persistence database connection')
+            ->assertExitCode(1);
+    }
+
     private function insertRunGraph(string $runId, string $status, ?string $finishedAt): void
     {
         $timestamp = Carbon::parse('2026-03-01 09:00:00');

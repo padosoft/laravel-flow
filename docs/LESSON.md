@@ -132,3 +132,4 @@
 - If migration FKs already cascade child rows, retention pruning should rely on the cascade instead of issuing redundant child deletes; count child rows before deleting parent runs when reporting pruned totals.
 - Operational commands for opt-in persistence must fail cleanly when migrations have not been published/run, because the in-memory package path is still supported without tables.
 - Avoid redundant standalone indexes when a new composite index has the same leading column and covers the known query pattern.
+- Artisan commands that accept a database connection name should catch invalid-connection and query exceptions around schema guards and return actionable failures instead of surfacing raw framework exceptions.

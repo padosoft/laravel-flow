@@ -7,6 +7,7 @@ namespace Padosoft\LaravelFlow\Persistence;
 use DateTimeInterface;
 use Illuminate\Database\ConnectionInterface;
 use Illuminate\Database\Query\Builder;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 use Padosoft\LaravelFlow\FlowRun;
@@ -35,25 +36,49 @@ final class FlowPruner
 
         $connection = DB::connection($this->connection);
 
-        if ($dryRun) {
-            return $this->countMatchingRows($connection, $finishedBefore);
-        }
-
         $runs = 0;
         $steps = 0;
         $audit = 0;
+        $afterFinishedAt = null;
+        $afterId = null;
 
         while (true) {
-            $runIds = $this->matchingRunIds($connection, $finishedBefore)
-                ->orderBy('finished_at')
-                ->orderBy('id')
-                ->limit($chunkSize)
+            $batch = $this->matchingRunIdBatch(
+                $connection,
+                $finishedBefore,
+                $chunkSize,
+                $dryRun ? $afterFinishedAt : null,
+                $dryRun ? $afterId : null,
+            );
+
+            if ($batch->isEmpty()) {
+                break;
+            }
+
+            $runIds = $batch
                 ->pluck('id')
                 ->map(static fn (mixed $id): string => (string) $id)
                 ->all();
 
             if ($runIds === []) {
                 break;
+            }
+
+            if ($dryRun) {
+                $runs += count($runIds);
+                $steps += (int) $connection->table('flow_steps')
+                    ->whereIn('run_id', $runIds)
+                    ->count();
+                $audit += (int) $connection->table('flow_audit')
+                    ->whereIn('run_id', $runIds)
+                    ->count();
+
+                /** @var object{id:mixed, finished_at:mixed} $last */
+                $last = $batch->last();
+                $afterFinishedAt = (string) $last->finished_at;
+                $afterId = (string) $last->id;
+
+                continue;
             }
 
             $connection->transaction(function () use ($connection, $runIds, &$runs, &$steps, &$audit): void {
@@ -74,25 +99,45 @@ final class FlowPruner
         return new FlowPruneResult($runs, $steps, $audit);
     }
 
-    private function countMatchingRows(ConnectionInterface $connection, DateTimeInterface $finishedBefore): FlowPruneResult
-    {
-        return new FlowPruneResult(
-            runs: (int) $this->matchingRunIds($connection, $finishedBefore)->count(),
-            steps: (int) $connection->table('flow_steps')
-                ->whereIn('run_id', $this->matchingRunIds($connection, $finishedBefore))
-                ->count(),
-            audit: (int) $connection->table('flow_audit')
-                ->whereIn('run_id', $this->matchingRunIds($connection, $finishedBefore))
-                ->count(),
-        );
+    /**
+     * @return Collection<int, object{id:mixed, finished_at:mixed}>
+     */
+    private function matchingRunIdBatch(
+        ConnectionInterface $connection,
+        DateTimeInterface $finishedBefore,
+        int $chunkSize,
+        ?string $afterFinishedAt,
+        ?string $afterId,
+    ): Collection {
+        return $this->matchingRunIds($connection, $finishedBefore, $afterFinishedAt, $afterId)
+            ->orderBy('finished_at')
+            ->orderBy('id')
+            ->limit($chunkSize)
+            ->get();
     }
 
-    private function matchingRunIds(ConnectionInterface $connection, DateTimeInterface $finishedBefore): Builder
-    {
-        return $connection->table('flow_runs')
-            ->select('id')
+    private function matchingRunIds(
+        ConnectionInterface $connection,
+        DateTimeInterface $finishedBefore,
+        ?string $afterFinishedAt,
+        ?string $afterId,
+    ): Builder {
+        $query = $connection->table('flow_runs')
+            ->select(['id', 'finished_at'])
             ->whereNotNull('finished_at')
             ->where('finished_at', '<', $finishedBefore)
             ->whereIn('status', self::TERMINAL_STATUSES);
+
+        if ($afterFinishedAt !== null && $afterId !== null) {
+            $query->where(function (Builder $query) use ($afterFinishedAt, $afterId): void {
+                $query->where('finished_at', '>', $afterFinishedAt)
+                    ->orWhere(function (Builder $query) use ($afterFinishedAt, $afterId): void {
+                        $query->where('finished_at', '=', $afterFinishedAt)
+                            ->where('id', '>', $afterId);
+                    });
+            });
+        }
+
+        return $query;
     }
 }

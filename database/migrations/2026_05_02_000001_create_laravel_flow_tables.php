@@ -13,7 +13,7 @@ return new class extends Migration
         Schema::create('flow_runs', function (Blueprint $table): void {
             $table->string('id', 36)->primary();
             $table->string('definition_name')->index();
-            $table->string('status', 32);
+            $table->string('status', 32)->index();
             $table->boolean('dry_run')->default(false);
             $table->json('input')->nullable();
             $table->json('output')->nullable();
@@ -28,7 +28,7 @@ return new class extends Migration
             $table->unsignedInteger('duration_ms')->nullable();
             $table->timestampsTz();
 
-            $table->index(['status', 'finished_at']);
+            $table->index(['finished_at', 'id']);
         });
 
         Schema::create('flow_steps', function (Blueprint $table): void {

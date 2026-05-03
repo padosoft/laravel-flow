@@ -133,3 +133,5 @@
 - Operational commands for opt-in persistence must fail cleanly when migrations have not been published/run, because the in-memory package path is still supported without tables.
 - Avoid redundant standalone indexes when a new composite index has the same leading column and covers the known query pattern.
 - Artisan commands that accept a database connection name should catch invalid-connection and query exceptions around schema guards and return actionable failures instead of surfacing raw framework exceptions.
+- Prune indexes should lead with the range/order column (`finished_at`) rather than a low-cardinality status column when the command scans old terminal runs by age.
+- Dry-run counts should use the same chunked scan as destructive pruning; repeated independent subquery counts can be slower and internally inconsistent under concurrent writes.

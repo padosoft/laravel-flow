@@ -21,6 +21,8 @@ use Padosoft\LaravelFlow\FlowRun;
  * @property string|null $compensation_status
  * @property string|null $correlation_id
  * @property string|null $idempotency_key
+ * @property \DateTimeInterface|null $started_at
+ * @property \DateTimeInterface|null $finished_at
  */
 final class FlowRunRecord extends Model
 {

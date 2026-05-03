@@ -102,7 +102,7 @@ Every transition (`FlowStepStarted`, `FlowStepCompleted`, `FlowStepFailed`, `Flo
 - **Reverse-order saga compensation** — `compensateWith(Compensator::class)` per step; failures unwind cleanly.
 - **Immutable audit trail** — four Laravel events per transition; subscribe once.
 - **Business-impact projection** — handlers return `businessImpact: [...]` alongside output, surfaced on every step result.
-- **Opt-in persisted execution** — `flow_runs`, `flow_steps`, and `flow_audit` migrations, Eloquent repositories, immutable run identity updates, transaction-scoped run/step/audit transitions, compensate-first runtime-abort recovery, sanitized listener/error storage, clock-aware audit timestamps, redacted JSON payload storage, and retention pruning.
+- **Opt-in persisted execution** — `flow_runs`, `flow_steps`, and `flow_audit` migrations, Eloquent repositories, immutable run identity updates, correlation/idempotency keys, transaction-scoped run/step/audit transitions, compensate-first runtime-abort recovery, sanitized listener/error storage, clock-aware audit timestamps, redacted JSON payload storage, and retention pruning.
 - **Container-resolved handlers** — full DI, type hints, and stack traces.
 - **Strict input validation** — `withInput(['a','b'])` throws `FlowInputException` if a key is missing.
 - **Multi-strategy compensation knob** — `reverse-order` (default), `parallel` (v0.2).
@@ -122,7 +122,7 @@ Every transition (`FlowStepStarted`, `FlowStepCompleted`, `FlowStepFailed`, `Flo
 | Container-resolved handlers      | ✅                            | ⚠️ partial                  | ✅                          | ✅ (via worker DI)         | ❌ (Lambda fanout)      |
 | Audit trail (events)             | ✅ 4 events / transition      | ⚠️ via state machine hooks  | ✅                          | ✅                         | ✅ (CloudWatch)         |
 | Business-impact projection       | ✅ on every result            | ❌                          | ❌                          | ❌                         | ❌                      |
-| Persistence model                | in-memory by default; opt-in DB runs/steps/audit with immutable run updates, atomic step upserts, successful-step output aggregation, and terminal-run pruning | DB                          | DB                          | dedicated cluster         | managed                |
+| Persistence model                | in-memory by default; opt-in DB runs/steps/audit with immutable run updates, correlation/idempotency keys, atomic step upserts, successful-step output aggregation, and terminal-run pruning | DB                          | DB                          | dedicated cluster         | managed                |
 | Persisted transition safety      | ✅ transaction-scoped writes + compensate-first runtime-abort recovery | ⚠️ package/app-defined      | ⚠️ app-defined marking store | ✅ managed event history | ✅ managed execution history |
 | Setup time                       | `composer require` + 1 file  | medium                      | medium                      | run a Temporal cluster    | AWS account + IAM      |
 | Self-hosted, zero infra          | ✅                            | ✅                           | ✅                          | ❌ (cluster needed)        | ❌ (AWS-only)           |
@@ -209,6 +209,23 @@ if ($run->status === \Padosoft\LaravelFlow\FlowRun::STATUS_SUCCEEDED) {
 ---
 
 ## Usage examples
+
+### Correlation and idempotency
+
+```php
+use Padosoft\LaravelFlow\FlowExecutionOptions;
+
+$run = Flow::execute(
+    'promotion.create',
+    $input,
+    FlowExecutionOptions::make(
+        correlationId: 'checkout-2026-0001',
+        idempotencyKey: 'tenant-42:promotion-abc',
+    ),
+);
+```
+
+When persistence is enabled, `correlationId` and `idempotencyKey` are stored on `flow_runs`. Both values are trimmed, empty strings become `null`, and non-empty values are limited to 255 characters to match the published migrations. A later persisted execution with the same idempotency key returns the existing run state without executing handlers again. Dry-runs still avoid persistence writes.
 
 ### Compensation chain (saga rollback)
 
@@ -366,7 +383,7 @@ Custom `FlowStore` implementations that need the same per-execution `PayloadReda
                                                    └─────────────────────┘
 ```
 
-Every box is one PHP class under `src/`. The engine path is still synchronous and in-memory by default; when persistence is enabled, runtime runs and steps are written to `flow_runs` and `flow_steps`. Audit transitions are written to `flow_audit` only while `audit_trail_enabled` remains enabled. The next v0.2 slices add idempotency/correlation ergonomics, queues, and replay.
+Every box is one PHP class under `src/`. The engine path is still synchronous and in-memory by default; when persistence is enabled, runtime runs and steps are written to `flow_runs` and `flow_steps`. Audit transitions are written to `flow_audit` only while `audit_trail_enabled` remains enabled. The next v0.2 slices add queues and replay.
 
 ---
 
@@ -411,7 +428,7 @@ CI runs Pint (style), PHPStan (level 6), and the Unit + Architecture suites thro
 | Version | Scope                                                                                                                                                                                                                                                              | Target            |
 | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
 | v0.1    | In-memory engine, fluent builder, dry-run, reverse-order compensation, four audit events, business-impact field on results, Facade. Architecture test enforces standalone-agnostic.                                                                                  | code complete     |
-| v0.2    | Persistence core is landing in slices: `flow_runs` / `flow_steps` / `flow_audit` tables, synchronous engine writes, and terminal-run retention pruning are in progress; queued workers, replay command, parallel compensation strategy, and companion web dashboard contracts/app integration remain next. | Q3 2026           |
+| v0.2    | Persistence core is landing in slices: `flow_runs` / `flow_steps` / `flow_audit` tables, synchronous engine writes, correlation/idempotency keys, and terminal-run retention pruning are in progress; queued workers, replay command, parallel compensation strategy, and companion web dashboard contracts/app integration remain next. | Q3 2026           |
 | v0.3    | Approval-gate primitive (a step type that pauses until an external token is presented), webhooks for resume.                                                                                                                                                         | Q4 2026           |
 | v1.0    | Stable API, semver guarantee, full migration helpers from Spatie Workflow / Symfony Workflow.                                                                                                                                                                        | 2027              |
 

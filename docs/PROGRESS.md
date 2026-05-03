@@ -10,7 +10,7 @@ Known workstreams:
 | --- | --- |
 | Macro Task 0 - durable agent operating system | Completed after merge of the macro PR to `main`. |
 | Macro Task 1 - baseline tooling and Laravel 13 policy | Completed after merge of the macro PR to `main`; Composer/CI/docs now narrow to Laravel 13, PHP 8.3/8.4, and Composer-script quality gates. |
-| Macro Task 2 - v0.2 persistence layer | In progress. Persistence migrations/repositories and synchronous engine wiring have landed on the macro branch; retention pruning is the active slice being finalized through the PR loop. |
+| Macro Task 2 - v0.2 persistence layer | In progress. Persistence migrations/repositories, synchronous engine wiring, and retention pruning have landed on the macro branch; the correlation/idempotency slice is in PR loop with identifier length validation, persisted step-result rehydration, and create-race fallback covered locally. |
 
 Concurrent subtasks should add rows here instead of replacing existing workstreams.
 

@@ -19,6 +19,8 @@ use Padosoft\LaravelFlow\Exceptions\FlowCompensationException;
 use Padosoft\LaravelFlow\Exceptions\FlowExecutionException;
 use Padosoft\LaravelFlow\Exceptions\FlowInputException;
 use Padosoft\LaravelFlow\Exceptions\FlowNotRegisteredException;
+use Padosoft\LaravelFlow\Models\FlowRunRecord;
+use Padosoft\LaravelFlow\Models\FlowStepRecord;
 use Padosoft\LaravelFlow\Persistence\PayloadRedactorResolution;
 use Throwable;
 
@@ -91,31 +93,39 @@ class FlowEngine
      *
      * @param  array<string, mixed>  $input
      */
-    public function execute(string $name, array $input): FlowRun
+    public function execute(string $name, array $input, ?FlowExecutionOptions $options = null): FlowRun
     {
         $dryRunDefault = (bool) ($this->config['dry_run_default'] ?? false);
 
-        return $this->run($name, $input, $dryRunDefault);
+        return $this->run($name, $input, $dryRunDefault, $options);
     }
 
     /**
      * @param  array<string, mixed>  $input
      */
-    public function dryRun(string $name, array $input): FlowRun
+    public function dryRun(string $name, array $input, ?FlowExecutionOptions $options = null): FlowRun
     {
-        return $this->run($name, $input, true);
+        return $this->run($name, $input, true, $options);
     }
 
     /**
      * @param  array<string, mixed>  $input
      */
-    private function run(string $name, array $input, bool $dryRun): FlowRun
+    private function run(string $name, array $input, bool $dryRun, ?FlowExecutionOptions $options = null): FlowRun
     {
+        $options ??= new FlowExecutionOptions;
         $definition = $this->definition($name);
         $this->validateInput($definition, $input);
         $store = $this->storeForExecution($dryRun);
         $redactor = $store instanceof FlowStore ? $this->redactorForExecution() : null;
         $store = $this->storeWithExecutionRedactor($store, $redactor);
+
+        $existingRun = $this->existingRunForIdempotency($store, $definition, $options);
+
+        if ($existingRun instanceof FlowRun) {
+            return $existingRun;
+        }
+
         $startedAt = $this->now();
 
         $run = new FlowRun(
@@ -123,11 +133,24 @@ class FlowEngine
             definitionName: $definition->name,
             dryRun: $dryRun,
             startedAt: $startedAt,
+            correlationId: $options->correlationId,
+            idempotencyKey: $options->idempotencyKey,
         );
         $run->markRunning();
-        $this->persistAtomically($store, function () use ($store, $run, $input): void {
-            $this->persistRunStarted($store, $run, $input);
-        });
+
+        try {
+            $this->persistAtomically($store, function () use ($store, $run, $input): void {
+                $this->persistRunStarted($store, $run, $input);
+            });
+        } catch (Throwable $e) {
+            $existingRun = $this->existingRunForIdempotency($store, $definition, $options);
+
+            if ($existingRun instanceof FlowRun) {
+                return $existingRun;
+            }
+
+            throw $e;
+        }
 
         $context = new FlowContext(
             flowRunId: $run->id,
@@ -857,12 +880,100 @@ class FlowEngine
 
         $store->runs()->create([
             'definition_name' => $run->definitionName,
+            'correlation_id' => $run->correlationId,
             'dry_run' => $run->dryRun,
             'id' => $run->id,
+            'idempotency_key' => $run->idempotencyKey,
             'input' => $input,
             'started_at' => $run->startedAt,
             'status' => $run->status,
         ]);
+    }
+
+    private function existingRunForIdempotency(
+        ?FlowStore $store,
+        FlowDefinition $definition,
+        FlowExecutionOptions $options,
+    ): ?FlowRun {
+        if (! $store instanceof FlowStore || $options->idempotencyKey === null) {
+            return null;
+        }
+
+        $existingRun = $store->runs()->findByIdempotencyKey($options->idempotencyKey);
+
+        if (! $existingRun instanceof FlowRunRecord) {
+            return null;
+        }
+
+        if ($existingRun->definition_name !== $definition->name) {
+            throw new FlowExecutionException('The supplied idempotency key is already associated with a different flow definition.');
+        }
+
+        return $this->flowRunFromRecord($existingRun, $store);
+    }
+
+    private function flowRunFromRecord(FlowRunRecord $record, ?FlowStore $store = null): FlowRun
+    {
+        $run = new FlowRun(
+            id: $record->id,
+            definitionName: $record->definition_name,
+            dryRun: (bool) $record->dry_run,
+            startedAt: $this->immutableDate($record->started_at) ?? $this->now(),
+            correlationId: $record->correlation_id,
+            idempotencyKey: $record->idempotency_key,
+        );
+        $run->status = $record->status;
+        $run->failedStep = $record->failed_step;
+        $run->compensated = (bool) $record->compensated;
+        $run->finishedAt = $this->immutableDate($record->finished_at);
+
+        if ($store instanceof FlowStore) {
+            foreach ($store->steps()->forRun($record->id) as $stepRecord) {
+                $result = $this->flowStepResultFromRecord($stepRecord);
+
+                if ($result instanceof FlowStepResult) {
+                    $run->recordStepResult($stepRecord->step_name, $result);
+                }
+            }
+        }
+
+        return $run;
+    }
+
+    private function flowStepResultFromRecord(FlowStepRecord $record): ?FlowStepResult
+    {
+        if ($record->status === 'failed') {
+            return FlowStepResult::failed(new FlowExecutionException(
+                $record->error_message ?? 'Persisted flow step failed.',
+            ));
+        }
+
+        if ($record->status === 'skipped' || $record->dry_run_skipped) {
+            return FlowStepResult::dryRunSkipped();
+        }
+
+        if ($record->status !== 'succeeded') {
+            return null;
+        }
+
+        return FlowStepResult::success($record->output ?? [], $record->business_impact);
+    }
+
+    private function immutableDate(mixed $value): ?DateTimeImmutable
+    {
+        if ($value instanceof DateTimeImmutable) {
+            return $value;
+        }
+
+        if ($value instanceof DateTimeInterface) {
+            return DateTimeImmutable::createFromInterface($value);
+        }
+
+        if (is_string($value) && $value !== '') {
+            return new DateTimeImmutable($value);
+        }
+
+        return null;
     }
 
     private function persistRunFinished(?FlowStore $store, FlowRun $run, ?string $compensationStatus = null): void

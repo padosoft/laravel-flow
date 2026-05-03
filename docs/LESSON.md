@@ -138,3 +138,11 @@
 - Artisan commands that accept a database connection name should catch invalid-connection and query exceptions around schema guards and return actionable failures instead of surfacing raw framework exceptions.
 - Prune indexes should lead with the range/order column (`finished_at`) rather than a low-cardinality status column when the command scans old terminal runs by age.
 - Dry-run counts should use the same chunked scan as destructive pruning; repeated independent subquery counts can be slower and internally inconsistent under concurrent writes.
+- Execution identity should use a structured options DTO instead of positional string parameters so future run metadata can grow without ambiguous call sites.
+- Synchronous idempotency should check the persisted run repository before creating a new run; returning the existing run state prevents duplicate handler side effects.
+- Idempotency keys must not return runs from a different flow definition; reject cross-definition reuse before any handler side effects.
+- Idempotent persisted-run reuse must rehydrate stored step results, otherwise duplicate callers see the same run id/status but lose per-step outputs and business impact.
+- Idempotency lookup/create needs a create-race fallback: if the create path loses to an already-committed key, re-query and return that existing run before invoking any handlers.
+- Public execution identity values should validate against the persisted schema length before repository writes so callers get package-level input errors instead of database exceptions.
+- On Windows, PHPUnit `--filter` regexes containing `|` can be consumed by the `.bat` wrapper shell even when quoted; run separate filters or the full suite instead of trusting that pattern.
+- Character limits in public DTOs should count UTF-8 characters, not bytes, and should include normalization tests when docs promise trim/blank semantics.

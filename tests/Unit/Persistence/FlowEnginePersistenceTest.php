@@ -21,7 +21,9 @@ use Padosoft\LaravelFlow\Events\FlowStepCompleted;
 use Padosoft\LaravelFlow\Events\FlowStepFailed;
 use Padosoft\LaravelFlow\Events\FlowStepStarted;
 use Padosoft\LaravelFlow\Exceptions\FlowCompensationException;
+use Padosoft\LaravelFlow\Exceptions\FlowExecutionException;
 use Padosoft\LaravelFlow\FlowEngine;
+use Padosoft\LaravelFlow\FlowExecutionOptions;
 use Padosoft\LaravelFlow\FlowRun;
 use Padosoft\LaravelFlow\Models\FlowAuditRecord;
 use Padosoft\LaravelFlow\Models\FlowRunRecord;
@@ -45,6 +47,7 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
     {
         parent::setUp();
 
+        AlwaysSucceedsHandler::$callCount = 0;
         RecordingCompensator::reset();
     }
 
@@ -110,6 +113,174 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
             'FlowStepStarted',
             'FlowStepCompleted',
         ], $auditEvents);
+    }
+
+    public function test_execution_options_persist_correlation_and_idempotency_keys(): void
+    {
+        $this->migrateFlowTables();
+        $engine = $this->engineWithPersistence();
+
+        $engine->define('flow.persist.identity')
+            ->step('create', AlwaysSucceedsHandler::class)
+            ->register();
+
+        $run = $engine->execute(
+            'flow.persist.identity',
+            ['safe' => 'visible'],
+            FlowExecutionOptions::make(correlationId: 'corr-123', idempotencyKey: 'identity-123'),
+        );
+
+        $runRecord = FlowRunRecord::query()->find($run->id);
+
+        $this->assertInstanceOf(FlowRunRecord::class, $runRecord);
+        $this->assertSame('corr-123', $run->correlationId);
+        $this->assertSame('identity-123', $run->idempotencyKey);
+        $this->assertSame('corr-123', $runRecord->correlation_id);
+        $this->assertSame('identity-123', $runRecord->idempotency_key);
+    }
+
+    public function test_idempotency_key_returns_existing_persisted_run_without_reexecuting_steps(): void
+    {
+        $this->migrateFlowTables();
+        $engine = $this->engineWithPersistence();
+
+        $engine->define('flow.persist.idempotent')
+            ->step('create', AlwaysSucceedsHandler::class)
+            ->register();
+
+        $options = FlowExecutionOptions::make(correlationId: 'corr-original', idempotencyKey: 'identity-once');
+
+        $firstRun = $engine->execute('flow.persist.idempotent', ['attempt' => 1], $options);
+        $secondRun = $engine->execute('flow.persist.idempotent', ['attempt' => 2], $options);
+
+        $this->assertSame($firstRun->id, $secondRun->id);
+        $this->assertSame(FlowRun::STATUS_SUCCEEDED, $secondRun->status);
+        $this->assertSame('corr-original', $secondRun->correlationId);
+        $this->assertSame('identity-once', $secondRun->idempotencyKey);
+        $this->assertSame(1, AlwaysSucceedsHandler::$callCount);
+        $this->assertArrayHasKey('create', $secondRun->stepResults);
+        $this->assertTrue($secondRun->stepResults['create']->success);
+        $this->assertSame($firstRun->stepResults['create']->output, $secondRun->stepResults['create']->output);
+        $this->assertSame(1, (int) FlowRunRecord::query()->where('idempotency_key', 'identity-once')->count());
+        $this->assertSame(1, (int) FlowStepRecord::query()->where('run_id', $firstRun->id)->count());
+    }
+
+    public function test_idempotency_create_race_returns_existing_run_before_side_effects(): void
+    {
+        $this->migrateFlowTables();
+        $this->app['config']->set('laravel-flow.persistence.enabled', true);
+
+        /** @var FlowStore $inner */
+        $inner = $this->app->make(FlowStore::class);
+        $state = new IdempotencyCreateRaceState;
+        $store = new class($inner, $state) implements FlowStore
+        {
+            public function __construct(
+                private readonly FlowStore $inner,
+                private readonly IdempotencyCreateRaceState $state,
+            ) {}
+
+            public function runs(): RunRepository
+            {
+                return new class($this->inner->runs(), $this->state) implements RunRepository
+                {
+                    public function __construct(
+                        private readonly RunRepository $inner,
+                        private readonly IdempotencyCreateRaceState $state,
+                    ) {}
+
+                    public function create(array $attributes): FlowRunRecord
+                    {
+                        if (($attributes['idempotency_key'] ?? null) === 'identity-race') {
+                            $winnerAttributes = $attributes;
+                            $winnerAttributes['id'] = 'existing-race-run';
+
+                            $this->inner->create($winnerAttributes);
+                            $this->state->winnerInserted = true;
+
+                            throw new RuntimeException('duplicate idempotency race');
+                        }
+
+                        return $this->inner->create($attributes);
+                    }
+
+                    public function update(string $runId, array $attributes): FlowRunRecord
+                    {
+                        return $this->inner->update($runId, $attributes);
+                    }
+
+                    public function find(string $runId): ?FlowRunRecord
+                    {
+                        return $this->inner->find($runId);
+                    }
+
+                    public function findByIdempotencyKey(string $idempotencyKey): ?FlowRunRecord
+                    {
+                        if ($idempotencyKey === 'identity-race' && $this->state->winnerInserted === false) {
+                            return null;
+                        }
+
+                        return $this->inner->findByIdempotencyKey($idempotencyKey);
+                    }
+                };
+            }
+
+            public function steps(): StepRunRepository
+            {
+                return $this->inner->steps();
+            }
+
+            public function audit(): AuditRepository
+            {
+                return $this->inner->audit();
+            }
+
+            public function transaction(callable $callback): mixed
+            {
+                return $callback();
+            }
+        };
+
+        /** @var array<string, mixed> $config */
+        $config = $this->app['config']->get('laravel-flow');
+        $engine = new FlowEngine($this->app, $this->app['events'], $config, $store);
+
+        $engine->define('flow.persist.idempotent-race')
+            ->step('create', AlwaysSucceedsHandler::class)
+            ->register();
+
+        $run = $engine->execute(
+            'flow.persist.idempotent-race',
+            ['attempt' => 1],
+            FlowExecutionOptions::make(idempotencyKey: 'identity-race'),
+        );
+
+        $this->assertSame('existing-race-run', $run->id);
+        $this->assertSame(FlowRun::STATUS_RUNNING, $run->status);
+        $this->assertSame(0, AlwaysSucceedsHandler::$callCount);
+        $this->assertSame(1, (int) FlowRunRecord::query()->where('idempotency_key', 'identity-race')->count());
+        $this->assertSame(0, (int) FlowStepRecord::query()->where('run_id', 'existing-race-run')->count());
+    }
+
+    public function test_idempotency_key_cannot_reuse_a_different_flow_definition(): void
+    {
+        $this->migrateFlowTables();
+        $engine = $this->engineWithPersistence();
+        $options = FlowExecutionOptions::make(idempotencyKey: 'identity-shared');
+
+        $engine->define('flow.persist.idempotent.first')
+            ->step('create', AlwaysSucceedsHandler::class)
+            ->register();
+        $engine->define('flow.persist.idempotent.second')
+            ->step('create', AlwaysSucceedsHandler::class)
+            ->register();
+
+        $engine->execute('flow.persist.idempotent.first', [], $options);
+
+        $this->expectException(FlowExecutionException::class);
+        $this->expectExceptionMessage('The supplied idempotency key is already associated with a different flow definition.');
+
+        $engine->execute('flow.persist.idempotent.second', [], $options);
     }
 
     public function test_successful_empty_step_output_is_preserved_in_persisted_run_output(): void
@@ -1641,4 +1812,9 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         $this->assertSame(0, FlowStepRecord::query()->count());
         $this->assertSame(0, FlowAuditRecord::query()->count());
     }
+}
+
+final class IdempotencyCreateRaceState
+{
+    public bool $winnerInserted = false;
 }

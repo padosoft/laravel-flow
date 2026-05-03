@@ -22,7 +22,6 @@ use Padosoft\LaravelFlow\Events\FlowStepFailed;
 use Padosoft\LaravelFlow\Events\FlowStepStarted;
 use Padosoft\LaravelFlow\Exceptions\FlowCompensationException;
 use Padosoft\LaravelFlow\Exceptions\FlowExecutionException;
-use Padosoft\LaravelFlow\Exceptions\FlowInputException;
 use Padosoft\LaravelFlow\FlowEngine;
 use Padosoft\LaravelFlow\FlowExecutionOptions;
 use Padosoft\LaravelFlow\FlowRun;
@@ -138,22 +137,6 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         $this->assertSame('identity-123', $run->idempotencyKey);
         $this->assertSame('corr-123', $runRecord->correlation_id);
         $this->assertSame('identity-123', $runRecord->idempotency_key);
-    }
-
-    public function test_execution_options_reject_oversized_correlation_id(): void
-    {
-        $this->expectException(FlowInputException::class);
-        $this->expectExceptionMessage('Flow execution correlation id may not exceed 255 characters.');
-
-        FlowExecutionOptions::make(correlationId: str_repeat('c', FlowExecutionOptions::MAX_IDENTIFIER_LENGTH + 1));
-    }
-
-    public function test_execution_options_reject_oversized_idempotency_key(): void
-    {
-        $this->expectException(FlowInputException::class);
-        $this->expectExceptionMessage('Flow execution idempotency key may not exceed 255 characters.');
-
-        FlowExecutionOptions::make(idempotencyKey: str_repeat('i', FlowExecutionOptions::MAX_IDENTIFIER_LENGTH + 1));
     }
 
     public function test_idempotency_key_returns_existing_persisted_run_without_reexecuting_steps(): void

@@ -1,6 +1,6 @@
 {
     "name": "padosoft/laravel-flow",
-    "description": "DX-first workflow / saga / compensation engine for Laravel with native dry-run, reverse-order compensation, approval gate, business impact tracking, and immutable audit trail.",
+    "description": "DX-first workflow / saga / compensation engine for Laravel with native dry-run, reverse-order compensation, business impact tracking, opt-in persistence, and audit events.",
     "type": "library",
     "license": "Apache-2.0",
     "keywords": [
@@ -8,7 +8,6 @@
         "workflow",
         "saga",
         "dry-run",
-        "approval",
         "compensation",
         "audit-trail",
         "business-impact",

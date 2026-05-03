@@ -7,7 +7,7 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg?style=flat-square)](LICENSE)
 [![Total Downloads](https://img.shields.io/packagist/dt/padosoft/laravel-flow.svg?style=flat-square)](https://packagist.org/packages/padosoft/laravel-flow)
 
-> **DX-first workflow / saga / compensation engine for Laravel — with native dry-run, reverse-order rollback, business-impact projection, opt-in persistence, and append-only audit events. Built for the Laravel team that needs Temporal-class semantics without leaving Eloquent.**
+> **DX-first workflow / saga / compensation engine for Laravel — with native dry-run, reverse-order rollback, business-impact projection, opt-in persistence, and audit events. Built for the Laravel team that needs Temporal-class semantics without leaving Eloquent.**
 
 `laravel-flow` is the third deliverable of the [Padosoft v4.0 cycle](https://github.com/lopadova/AskMyDocs) (W5). It is a community Apache-2.0 package, **standalone-agnostic** (zero references to AskMyDocs / sister packages), and ships with the Padosoft AI vibe-coding pack so you can extend it with Claude Code or GitHub Copilot in minutes — not days.
 
@@ -99,12 +99,12 @@ When `audit_trail_enabled` is enabled, step and compensation transitions dispatc
 - **Fluent definition builder** — `Flow::define($name)->withInput([...])->step(...)->register()`.
 - **Native dry-run** — `Flow::dryRun($name, $input)` simulates without persisting; supporting handlers project impact, others self-skip.
 - **Reverse-order saga compensation** — `compensateWith(Compensator::class)` per step; failures unwind cleanly.
-- **Append-only audit events** — step started/completed/failed and compensated events when audit is enabled; optional persisted audit rows can be retention-pruned with `flow:prune`.
+- **Audit events and persisted audit rows** — step started/completed/failed and compensated events when audit is enabled; optional persisted audit rows are append-only during normal runtime and can be retention-pruned with `flow:prune`.
 - **Business-impact projection** — handlers return `businessImpact: [...]` alongside output, surfaced on every step result.
 - **Opt-in persisted execution** — `flow_runs`, `flow_steps`, and `flow_audit` migrations, Eloquent repositories, immutable run identity updates, correlation/idempotency keys, transaction-scoped run/step/audit transitions, compensate-first runtime-abort recovery, sanitized listener/error storage, clock-aware audit timestamps, redacted JSON payload storage, and retention pruning.
 - **Container-resolved handlers** — full DI, type hints, and stack traces.
 - **Strict input validation** — `withInput(['a','b'])` throws `FlowInputException` if a key is missing.
-- **Multi-strategy compensation knob** — `reverse-order` (default), `parallel` (v0.2).
+- **Compensation strategy config** — `reverse-order` today; `parallel` is reserved for a future v0.2 slice and currently falls back to reverse-order.
 - **Testbench-friendly** — TestCase + stubs ready to copy.
 - **🚀 AI vibe-coding pack included** — `.claude/` directory with skills, rules, agents, commands, and the Padosoft Copilot review loop pre-wired.
 - **PHP 8.3 / 8.4 × Laravel 13** matrix on every CI run.

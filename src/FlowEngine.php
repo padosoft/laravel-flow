@@ -42,7 +42,10 @@ class FlowEngine
          *     compensation_strategy?: string,
          *     audit_trail_enabled?: bool,
          *     dry_run_default?: bool,
-         *     persistence?: array{enabled?: bool}
+         *     persistence?: array{
+         *         enabled?: bool,
+         *         redaction?: array{enabled?: bool, keys?: array<int, string>, replacement?: string}
+         *     }
          * }
          */
         private readonly array $config = [],
@@ -132,12 +135,23 @@ class FlowEngine
         foreach ($definition->steps as $step) {
             $sequence++;
             $stepStartedAt = $this->now();
-            $this->persistStepStarted($persist, $run, $step, $sequence, $context, $stepStartedAt);
-            $this->recordAudit($persist, 'FlowStepStarted', $run, $step->name, [
-                'definition_name' => $definition->name,
-                'dry_run' => $dryRun,
-                'status' => 'running',
-            ]);
+            $this->persistAtomically($persist, function () use (
+                $persist,
+                $run,
+                $step,
+                $sequence,
+                $context,
+                $stepStartedAt,
+                $definition,
+                $dryRun,
+            ): void {
+                $this->persistStepStarted($persist, $run, $step, $sequence, $context, $stepStartedAt);
+                $this->recordAudit($persist, 'FlowStepStarted', $run, $step->name, [
+                    'definition_name' => $definition->name,
+                    'dry_run' => $dryRun,
+                    'status' => 'running',
+                ]);
+            });
             $this->dispatchOrPersistListenerFailure(
                 $persist,
                 new FlowStepStarted($run->id, $definition->name, $step->name, $dryRun),
@@ -154,7 +168,8 @@ class FlowEngine
             $run->recordStepResult($step->name, $result);
 
             if (! $result->success) {
-                $this->persistStepFinished(
+                $error = $result->error;
+                $this->persistAtomically($persist, function () use (
                     $persist,
                     $run,
                     $step,
@@ -163,15 +178,28 @@ class FlowEngine
                     $result,
                     $stepStartedAt,
                     $stepFinishedAt,
-                );
-                $error = $result->error;
-                $this->recordAudit($persist, 'FlowStepFailed', $run, $step->name, [
-                    'definition_name' => $definition->name,
-                    'dry_run' => $dryRun,
-                    'error_class' => $error instanceof Throwable ? $error::class : null,
-                    'error_message' => $error instanceof Throwable ? $error->getMessage() : null,
-                    'status' => 'failed',
-                ]);
+                    $definition,
+                    $dryRun,
+                    $error,
+                ): void {
+                    $this->persistStepFinished(
+                        $persist,
+                        $run,
+                        $step,
+                        $sequence,
+                        $context,
+                        $result,
+                        $stepStartedAt,
+                        $stepFinishedAt,
+                    );
+                    $this->recordAudit($persist, 'FlowStepFailed', $run, $step->name, [
+                        'definition_name' => $definition->name,
+                        'dry_run' => $dryRun,
+                        'error_class' => $error instanceof Throwable ? $error::class : null,
+                        'error_message' => $this->safeErrorMessage($error),
+                        'status' => 'failed',
+                    ]);
+                });
                 $this->dispatchOrPersistListenerFailure(
                     $persist,
                     new FlowStepFailed($run->id, $definition->name, $step->name, $result, $dryRun),
@@ -198,7 +226,7 @@ class FlowEngine
                 return $run;
             }
 
-            $this->persistStepFinished(
+            $this->persistAtomically($persist, function () use (
                 $persist,
                 $run,
                 $step,
@@ -207,14 +235,27 @@ class FlowEngine
                 $result,
                 $stepStartedAt,
                 $stepFinishedAt,
-            );
-            $this->recordAudit($persist, 'FlowStepCompleted', $run, $step->name, [
-                'definition_name' => $definition->name,
-                'dry_run' => $dryRun,
-                'dry_run_skipped' => $result->dryRunSkipped,
-                'output' => $result->output,
-                'status' => $result->dryRunSkipped ? 'skipped' : 'succeeded',
-            ], $result->businessImpact);
+                $definition,
+                $dryRun,
+            ): void {
+                $this->persistStepFinished(
+                    $persist,
+                    $run,
+                    $step,
+                    $sequence,
+                    $context,
+                    $result,
+                    $stepStartedAt,
+                    $stepFinishedAt,
+                );
+                $this->recordAudit($persist, 'FlowStepCompleted', $run, $step->name, [
+                    'definition_name' => $definition->name,
+                    'dry_run' => $dryRun,
+                    'dry_run_skipped' => $result->dryRunSkipped,
+                    'output' => $result->output,
+                    'status' => $result->dryRunSkipped ? 'skipped' : 'succeeded',
+                ], $result->businessImpact);
+            });
             $this->dispatchOrPersistListenerFailure(
                 $persist,
                 new FlowStepCompleted($run->id, $definition->name, $step->name, $result, $dryRun),
@@ -345,7 +386,7 @@ class FlowEngine
         }
 
         if ($compensatedAtLeastOne) {
-            $run->markCompensated();
+            $run->markCompensated($this->now());
         }
 
         if ($compensationErrors !== []) {
@@ -411,6 +452,20 @@ class FlowEngine
 
             throw $e;
         }
+    }
+
+    /**
+     * @param  callable(): void  $callback
+     */
+    private function persistAtomically(bool $persist, callable $callback): void
+    {
+        $store = $this->storeFor($persist);
+
+        if ($store === null) {
+            return;
+        }
+
+        $store->transaction($callback);
     }
 
     /**
@@ -504,7 +559,7 @@ class FlowEngine
             'duration_ms' => $this->durationMs($startedAt, $finishedAt),
             'dry_run_skipped' => $result->dryRunSkipped,
             'error_class' => $error instanceof Throwable ? $error::class : null,
-            'error_message' => $error instanceof Throwable ? $error->getMessage() : null,
+            'error_message' => $this->safeErrorMessage($error),
             'finished_at' => $finishedAt,
             'handler' => $step->handlerFqcn,
             'input' => [
@@ -516,6 +571,48 @@ class FlowEngine
             'started_at' => $startedAt,
             'status' => $result->success ? ($result->dryRunSkipped ? 'skipped' : 'succeeded') : 'failed',
         ]);
+    }
+
+    private function safeErrorMessage(?Throwable $error): ?string
+    {
+        if (! $error instanceof Throwable) {
+            return null;
+        }
+
+        return $this->redactText($error->getMessage());
+    }
+
+    private function redactText(string $message): string
+    {
+        $persistence = $this->config['persistence'] ?? [];
+        $redaction = is_array($persistence) ? ($persistence['redaction'] ?? []) : [];
+
+        if (! is_array($redaction) || (bool) ($redaction['enabled'] ?? true) === false) {
+            return $message;
+        }
+
+        $replacement = (string) ($redaction['replacement'] ?? '[redacted]');
+        $keys = array_values(array_filter((array) ($redaction['keys'] ?? []), 'is_string'));
+
+        foreach ($keys as $key) {
+            $quotedKey = preg_quote($key, '/');
+            $message = preg_replace_callback(
+                '/\b('.$quotedKey.')\b(\s*[:=]\s*)([^\s,;]+)/i',
+                static fn (array $matches): string => $matches[1].$matches[2].$replacement,
+                $message,
+            ) ?? $message;
+            $message = preg_replace_callback(
+                '/(["\']'.$quotedKey.'["\']\s*:\s*["\'])([^"\']+)(["\'])/i',
+                static fn (array $matches): string => $matches[1].$replacement.$matches[3],
+                $message,
+            ) ?? $message;
+        }
+
+        return preg_replace_callback(
+            '/\bBearer\s+([A-Za-z0-9._~+\/=-]+)/i',
+            static fn (): string => 'Bearer '.$replacement,
+            $message,
+        ) ?? $message;
     }
 
     /**

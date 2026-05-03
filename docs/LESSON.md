@@ -54,6 +54,9 @@
 - Engine-level persistence must stay gated by both `persistence.enabled` and `!dryRun`; native dry-run semantics mean no database writes even when the host app has persistence enabled.
 - Step finish upserts must include insert-required invariants (`sequence`, handler, input, started_at) as well as finish fields; atomic upsert SQL still needs a valid insert payload even when the row normally exists.
 - When runtime persistence is enabled, synchronous event listener exceptions must still close the persisted run/step state before the exception is rethrown; otherwise monitoring and replay see stale `running` rows.
+- Step/audit persistence for the same transition should be grouped with `FlowStore::transaction()` so a failed audit write does not leave a half-persisted step transition.
+- Persisted exception messages need text-level sanitization in addition to key-based JSON redaction; secrets can be interpolated into free-form exception strings.
+- Compensated runs should advance `finishedAt` after the compensation unwind finishes so persisted durations include rollback time, not only time-to-failure.
 - Public README examples should avoid Laravel dump-and-die or other debug helpers; use normal variable assignment or assertions so docs do not teach debug output patterns.
 - When `composer validate --strict --no-check-publish` is a hard CI/PR gate, list it explicitly in contributor quick starts and PR expectation checklists, not only in CI or PR templates.
 - README comparison updates must stay factual. If a feature only reaches parity with a competitor, document parity rather than implying an advantage.

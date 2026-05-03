@@ -102,7 +102,7 @@ Every transition (`FlowStepStarted`, `FlowStepCompleted`, `FlowStepFailed`, `Flo
 - **Reverse-order saga compensation** — `compensateWith(Compensator::class)` per step; failures unwind cleanly.
 - **Immutable audit trail** — four Laravel events per transition; subscribe once.
 - **Business-impact projection** — handlers return `businessImpact: [...]` alongside output, surfaced on every step result.
-- **Opt-in persisted execution** — `flow_runs`, `flow_steps`, and `flow_audit` migrations, Eloquent repositories, immutable run identity updates, timestamped atomic step upserts, clock-aware audit timestamps, and redacted JSON payload storage.
+- **Opt-in persisted execution** — `flow_runs`, `flow_steps`, and `flow_audit` migrations, Eloquent repositories, immutable run identity updates, timestamped atomic step upserts, sanitized error storage, clock-aware audit timestamps, and redacted JSON payload storage.
 - **Container-resolved handlers** — full DI, type hints, and stack traces.
 - **Strict input validation** — `withInput(['a','b'])` throws `FlowInputException` if a key is missing.
 - **Multi-strategy compensation knob** — `reverse-order` (default), `parallel` (v0.2).

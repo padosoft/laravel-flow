@@ -475,6 +475,34 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         $this->assertCount(1, RecordingCompensator::$invocations);
     }
 
+    public function test_failed_transition_run_update_failure_keeps_failed_step_audit_context(): void
+    {
+        $this->migrateFlowTables();
+        $engine = $this->engineWithFailingRunUpdateStatus(FlowRun::STATUS_FAILED);
+
+        $engine->define('flow.persist.failed-run-update-down')
+            ->step('create', AlwaysSucceedsHandler::class)
+            ->compensateWith(RecordingCompensator::class)
+            ->step('charge', AlwaysFailsHandler::class)
+            ->register();
+
+        try {
+            $engine->execute('flow.persist.failed-run-update-down', []);
+            $this->fail('The failing run repository should abort execution.');
+        } catch (RuntimeException $exception) {
+            $this->assertSame('run update down for failed', $exception->getMessage());
+        }
+
+        $failedAudit = FlowAuditRecord::query()
+            ->where('event', 'FlowStepFailed')
+            ->where('step_name', 'charge')
+            ->first();
+
+        $this->assertInstanceOf(FlowAuditRecord::class, $failedAudit);
+        $this->assertTrue($failedAudit->payload['runtime_abort_recovery']);
+        $this->assertCount(1, RecordingCompensator::$invocations);
+    }
+
     public function test_compensation_audit_persistence_failure_does_not_abort_rollback(): void
     {
         $this->migrateFlowTables();
@@ -514,7 +542,7 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         $this->assertCount(1, RecordingCompensator::$invocations);
     }
 
-    public function test_final_run_update_failure_marks_run_failed_when_no_compensators_exist(): void
+    public function test_final_run_update_failure_marks_run_aborted_when_no_compensators_exist(): void
     {
         $this->migrateFlowTables();
         $engine = $this->engineWithFailingRunUpdateStatus(FlowRun::STATUS_SUCCEEDED);
@@ -533,8 +561,8 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         $runRecord = FlowRunRecord::query()->first();
 
         $this->assertInstanceOf(FlowRunRecord::class, $runRecord);
-        $this->assertSame(FlowRun::STATUS_FAILED, $runRecord->status);
-        $this->assertSame('create', $runRecord->failed_step);
+        $this->assertSame(FlowRun::STATUS_ABORTED, $runRecord->status);
+        $this->assertNull($runRecord->failed_step);
     }
 
     private function engineWithPersistence(): FlowEngine

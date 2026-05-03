@@ -257,9 +257,7 @@ class FlowEngine
                 try {
                     $this->compensate($definition, $context, $completedSteps, $run, $persist);
                 } catch (Throwable $e) {
-                    $this->persistAtomically($persist, function () use ($persist, $run): void {
-                        $this->persistRunFinished($persist, $run, 'failed');
-                    });
+                    $this->persistRunFinishedBestEffort($persist, $run, 'failed');
 
                     throw $e;
                 }
@@ -275,6 +273,12 @@ class FlowEngine
                 }
 
                 return $run;
+            }
+
+            $contextAfterStep = $context;
+
+            if (! $result->dryRunSkipped) {
+                $contextAfterStep = $context->withStepOutput($step->name, $result->output);
             }
 
             $completedSteps[] = $step;
@@ -324,7 +328,7 @@ class FlowEngine
                 $failedAt = $this->now();
                 $this->compensateAfterRuntimeAbort(
                     $definition,
-                    $context,
+                    $contextAfterStep,
                     $completedSteps,
                     $run,
                     $persist,
@@ -338,10 +342,7 @@ class FlowEngine
                 throw $e;
             }
 
-            // Accumulate output into context for downstream steps (skip dry-run-skipped).
-            if (! $result->dryRunSkipped) {
-                $context = $context->withStepOutput($step->name, $result->output);
-            }
+            $context = $contextAfterStep;
         }
 
         try {
@@ -543,11 +544,17 @@ class FlowEngine
             $run->markAborted($failedAt);
         }
 
+        $failureTransitionAlreadyPersisted = $listenerEvent === 'FlowStepFailed'
+            && $failedStep !== null
+            && $run->status === FlowRun::STATUS_FAILED
+            && $run->failedStep === $failedStep->name;
+
         if (
             $failedStep !== null
             && $sequence !== null
             && $failedResult instanceof FlowStepResult
             && $stepStartedAt instanceof DateTimeInterface
+            && ! $failureTransitionAlreadyPersisted
         ) {
             $this->persistRuntimeAbortStateBestEffort(
                 $persist,

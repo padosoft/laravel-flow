@@ -11,6 +11,7 @@ Known workstreams:
 | Macro Task 0 - durable agent operating system | Completed after merge of the macro PR to `main`. |
 | Macro Task 1 - baseline tooling and Laravel 13 policy | Completed after merge of the macro PR to `main`; Composer/CI/docs now narrow to Laravel 13, PHP 8.3/8.4, and Composer-script quality gates. |
 | Macro Task 2 - v0.2 persistence layer | In progress. Continue Macro Task 2 from `docs/ENTERPRISE_PLAN.md`. |
+| Macro Task 2 / persistence engine wiring | Active subtask on `task/persistence-engine-wiring` against `task/v02-persistence`; PR #11 is in the Copilot/CI loop. Current focus is resolving Copilot feedback around runtime-abort fallback state, lazy runtime service resolution, and README comparison wording. |
 
 Concurrent subtasks should add rows here instead of replacing existing workstreams.
 

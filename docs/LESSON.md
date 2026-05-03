@@ -96,3 +96,6 @@
 - Public README examples should avoid Laravel dump-and-die or other debug helpers; use normal variable assignment or assertions so docs do not teach debug output patterns.
 - When `composer validate --strict --no-check-publish` is a hard CI/PR gate, list it explicitly in contributor quick starts and PR expectation checklists, not only in CI or PR templates.
 - README comparison updates must stay factual. If a feature only reaches parity with a competitor, document parity rather than implying an advantage.
+- Runtime-abort grouped persistence recovery must report whether the final run row was actually updated. If grouped run+step+audit fails and only step fallback succeeds, the outer recovery still needs a later run-only retry.
+- Singleton `FlowEngine` instances must not accidentally freeze host-rebound runtime services. Unless tests explicitly inject a store/redactor, resolve the current `FlowStore` and `PayloadRedactor` bindings at execution time.
+- README comparison claims must scope recovery guarantees precisely. The compensate-first ordering applies to runtime-abort recovery; normal business step failures still persist the failed transition before compensation.

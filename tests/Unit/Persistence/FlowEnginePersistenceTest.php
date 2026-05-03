@@ -269,6 +269,46 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         $this->assertStringContainsString('[custom-redacted]', (string) $failedStep->error_message);
     }
 
+    public function test_resolved_engine_uses_current_payload_redactor_binding_at_execution_time(): void
+    {
+        $this->migrateFlowTables();
+        $this->app['config']->set('laravel-flow.persistence.enabled', true);
+
+        /** @var FlowEngine $engine */
+        $engine = $this->app->make(FlowEngine::class);
+
+        $this->app->bind(PayloadRedactor::class, static fn (): PayloadRedactor => new class implements PayloadRedactor
+        {
+            public function redact(array $payload): array
+            {
+                foreach ($payload as $key => $value) {
+                    if (is_string($value)) {
+                        $payload[$key] = str_replace('custom-secret', '[late-redacted]', $value);
+                    }
+                }
+
+                return $payload;
+            }
+        });
+
+        $engine->define('flow.persist.late-redactor')
+            ->step('charge', CustomSecretFailsHandler::class)
+            ->register();
+
+        $run = $engine->execute('flow.persist.late-redactor', ['token' => 'custom-secret']);
+
+        $runRecord = FlowRunRecord::query()->find($run->id);
+        $failedStep = FlowStepRecord::query()
+            ->where('run_id', $run->id)
+            ->where('step_name', 'charge')
+            ->first();
+
+        $this->assertInstanceOf(FlowRunRecord::class, $runRecord);
+        $this->assertInstanceOf(FlowStepRecord::class, $failedStep);
+        $this->assertSame('[late-redacted]', $runRecord->input['token']);
+        $this->assertStringContainsString('[late-redacted]', (string) $failedStep->error_message);
+    }
+
     public function test_persisted_error_messages_redact_normalized_key_variants(): void
     {
         $this->migrateFlowTables();
@@ -432,6 +472,46 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         $this->assertStringNotContainsString('plain-secret', (string) $failedAudit->payload['error_message']);
         $this->assertCount(1, RecordingCompensator::$invocations);
         $this->assertSame(AlwaysSucceedsHandler::class, RecordingCompensator::$invocations[0]['originalOutput']['handler']);
+    }
+
+    public function test_runtime_abort_step_fallback_still_retries_final_run_state(): void
+    {
+        $this->migrateFlowTables();
+        $engine = $this->engineWithFailingRunUpdateStatusOnAttempt(FlowRun::STATUS_COMPENSATED, 1);
+
+        $this->app['events']->listen(
+            FlowStepCompleted::class,
+            static fn (): never => throw new RuntimeException('completed listener exploded'),
+        );
+
+        $engine->define('flow.persist.runtime-abort-run-retry')
+            ->step('create', AlwaysSucceedsHandler::class)
+            ->compensateWith(RecordingCompensator::class)
+            ->register();
+
+        try {
+            $engine->execute('flow.persist.runtime-abort-run-retry', []);
+            $this->fail('The throwing listener should abort execution.');
+        } catch (RuntimeException $exception) {
+            $this->assertSame('completed listener exploded', $exception->getMessage());
+        }
+
+        $runRecord = FlowRunRecord::query()->first();
+        $stepRecord = FlowStepRecord::query()
+            ->where('step_name', 'create')
+            ->first();
+        $failedAudit = FlowAuditRecord::query()
+            ->where('event', 'FlowStepFailed')
+            ->where('step_name', 'create')
+            ->first();
+
+        $this->assertInstanceOf(FlowRunRecord::class, $runRecord);
+        $this->assertInstanceOf(FlowStepRecord::class, $stepRecord);
+        $this->assertInstanceOf(FlowAuditRecord::class, $failedAudit);
+        $this->assertSame(FlowRun::STATUS_COMPENSATED, $runRecord->status);
+        $this->assertTrue($runRecord->compensated);
+        $this->assertSame('failed', $stepRecord->status);
+        $this->assertSame('FlowStepCompleted', $failedAudit->payload['listener_event']);
     }
 
     public function test_persisted_failed_listener_failure_does_not_duplicate_failed_transition_audit(): void

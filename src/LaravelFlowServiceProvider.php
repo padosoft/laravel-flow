@@ -40,8 +40,6 @@ final class LaravelFlowServiceProvider extends ServiceProvider
                 $app,
                 $events,
                 $config,
-                $app->make(FlowStore::class),
-                $app->make(PayloadRedactor::class),
             );
         });
 

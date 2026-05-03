@@ -561,7 +561,7 @@ class FlowEngine
             && $stepStartedAt instanceof DateTimeInterface
             && ! $failureTransitionAlreadyPersisted
         ) {
-            $this->persistRuntimeAbortStateBestEffort(
+            $persistedRunState = $this->persistRuntimeAbortStateBestEffort(
                 $persist,
                 $run,
                 $failedStep,
@@ -573,7 +573,6 @@ class FlowEngine
                 $listenerEvent,
                 $compensationStatus,
             );
-            $persistedRunState = true;
         } elseif ($shouldMarkRunFailed || $shouldMarkRunAborted) {
             $this->persistRunFinishedBestEffort($persist, $run, $compensationStatus);
             $persistedRunState = true;
@@ -595,7 +594,7 @@ class FlowEngine
         DateTimeInterface $failedAt,
         ?string $listenerEvent,
         ?string $compensationStatus,
-    ): void {
+    ): bool {
         try {
             $this->persistAtomically($persist, function () use (
                 $persist,
@@ -638,6 +637,8 @@ class FlowEngine
 
                 $this->persistRunFinished($persist, $run, $compensationStatus);
             });
+
+            return true;
         } catch (Throwable) {
             $this->persistStepFailureTransitionBestEffort(
                 $persist,
@@ -650,6 +651,8 @@ class FlowEngine
                 $failedAt,
                 $listenerEvent,
             );
+
+            return false;
         }
     }
 
@@ -992,11 +995,13 @@ class FlowEngine
 
     private function redactTextWithPayloadRedactor(string $message): string
     {
-        if (! $this->redactor instanceof PayloadRedactor) {
+        $redactor = $this->redactor ?? $this->resolvePayloadRedactor();
+
+        if (! $redactor instanceof PayloadRedactor) {
             return $message;
         }
 
-        $redacted = $this->redactor->redact([
+        $redacted = $redactor->redact([
             'error_message' => $message,
             'message' => $message,
         ]);
@@ -1084,16 +1089,39 @@ class FlowEngine
         return ! $dryRun
             && is_array($persistence)
             && (bool) ($persistence['enabled'] ?? false)
-            && $this->store instanceof FlowStore;
+            && $this->storeFor(true) instanceof FlowStore;
     }
 
     private function storeFor(bool $persist): ?FlowStore
     {
-        if (! $persist || ! $this->store instanceof FlowStore) {
+        if (! $persist) {
             return null;
         }
 
-        return $this->store;
+        if ($this->store instanceof FlowStore) {
+            return $this->store;
+        }
+
+        try {
+            /** @var FlowStore $store */
+            $store = $this->container->make(FlowStore::class);
+
+            return $store;
+        } catch (Throwable) {
+            return null;
+        }
+    }
+
+    private function resolvePayloadRedactor(): ?PayloadRedactor
+    {
+        try {
+            /** @var PayloadRedactor $redactor */
+            $redactor = $this->container->make(PayloadRedactor::class);
+
+            return $redactor;
+        } catch (Throwable) {
+            return null;
+        }
     }
 
     /**

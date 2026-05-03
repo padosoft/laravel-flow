@@ -86,7 +86,7 @@ Saga semantics: when step N fails, the engine walks the previously-completed ste
 
 ### 4. The audit trail is event-driven
 
-Every transition (`FlowStepStarted`, `FlowStepCompleted`, `FlowStepFailed`, `FlowCompensated`) is a Laravel event. The host application subscribes once and routes them to the logger, DB, or metrics backend it already runs. When both persistence and `audit_trail_enabled` are enabled, v0.2 also records default audit rows in `flow_audit`.
+When `audit_trail_enabled` is enabled, step and compensation transitions dispatch Laravel events such as `FlowStepStarted`, `FlowStepCompleted`, `FlowStepFailed`, and `FlowCompensated`. The host application subscribes once and routes them to the logger, DB, or metrics backend it already runs. When both persistence and `audit_trail_enabled` are enabled, v0.2 also records default audit rows in `flow_audit`.
 
 ### 5. Standalone-agnostic — zero AskMyDocs symbols
 
@@ -99,7 +99,7 @@ Every transition (`FlowStepStarted`, `FlowStepCompleted`, `FlowStepFailed`, `Flo
 - **Fluent definition builder** — `Flow::define($name)->withInput([...])->step(...)->register()`.
 - **Native dry-run** — `Flow::dryRun($name, $input)` simulates without persisting; supporting handlers project impact, others self-skip.
 - **Reverse-order saga compensation** — `compensateWith(Compensator::class)` per step; failures unwind cleanly.
-- **Append-only audit events** — four Laravel events per transition; optional persisted audit rows can be retention-pruned with `flow:prune`.
+- **Append-only audit events** — step started/completed/failed and compensated events when audit is enabled; optional persisted audit rows can be retention-pruned with `flow:prune`.
 - **Business-impact projection** — handlers return `businessImpact: [...]` alongside output, surfaced on every step result.
 - **Opt-in persisted execution** — `flow_runs`, `flow_steps`, and `flow_audit` migrations, Eloquent repositories, immutable run identity updates, correlation/idempotency keys, transaction-scoped run/step/audit transitions, compensate-first runtime-abort recovery, sanitized listener/error storage, clock-aware audit timestamps, redacted JSON payload storage, and retention pruning.
 - **Container-resolved handlers** — full DI, type hints, and stack traces.
@@ -119,7 +119,7 @@ Every transition (`FlowStepStarted`, `FlowStepCompleted`, `FlowStepFailed`, `Flo
 | Reverse-order saga compensation  | ✅ built-in                   | ⚠️ manual                   | ⚠️ manual                   | ✅ via SDK                 | ⚠️ via Catch + state    |
 | Approval gate as a step type     | planned v0.3                  | ⚠️ via guards               | ✅ via transition guard     | ⚠️ via `Workflow.await`   | ✅ via task token        |
 | Container-resolved handlers      | ✅                            | ⚠️ partial                  | ✅                          | ✅ (via worker DI)         | ❌ (Lambda fanout)      |
-| Audit trail (events)             | ✅ 4 events / transition      | ⚠️ via state machine hooks  | ✅                          | ✅                         | ✅ (CloudWatch)         |
+| Audit trail (events)             | ✅ transition events when enabled | ⚠️ via state machine hooks  | ✅                          | ✅                         | ✅ (CloudWatch)         |
 | Business-impact projection       | ✅ on every result            | ❌                          | ❌                          | ❌                         | ❌                      |
 | Persistence model                | in-memory by default; opt-in DB runs/steps/audit with immutable run updates, correlation/idempotency keys, atomic step upserts, successful-step output aggregation, and terminal-run pruning | DB                          | DB                          | dedicated cluster         | managed                |
 | Persisted transition safety      | ✅ transaction-scoped writes + compensate-first runtime-abort recovery | ⚠️ package/app-defined      | ⚠️ app-defined marking store | ✅ managed event history | ✅ managed execution history |

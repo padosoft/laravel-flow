@@ -107,3 +107,5 @@
 - Freeze the runtime `PayloadRedactor` once per engine execution and pass it through text-redaction helpers so step error rows and audit error payloads cannot diverge because of transient redactor bindings.
 - README comparison wording should avoid "lossless output" claims while runtime-abort recovery can intentionally persist a previously successful transition as failed with null step output.
 - Repository JSON redaction must share the engine's execution-scoped `PayloadRedactor`; resolving the redactor per repository write can diverge from text error redaction when applications bind transient redactors.
+- Repository methods that redact more than one JSON payload in a single write should batch those payloads through one redactor call so transient redactor bindings stay consistent within the stored record.
+- Execution-scoped mutable state in singleton services must be isolated by Fiber/request context or avoided; a plain singleton stack is unsafe under overlapping worker executions.

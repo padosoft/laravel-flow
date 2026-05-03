@@ -16,6 +16,7 @@ use Padosoft\LaravelFlow\Contracts\RunRepository;
 use Padosoft\LaravelFlow\Contracts\StepRunRepository;
 use Padosoft\LaravelFlow\FlowRun;
 use Padosoft\LaravelFlow\Models\FlowAuditRecord;
+use Padosoft\LaravelFlow\Persistence\ExecutionScopedPayloadRedactor;
 use RuntimeException;
 
 final class PersistenceRepositoryTest extends PersistenceTestCase
@@ -127,6 +128,93 @@ final class PersistenceRepositoryTest extends PersistenceTestCase
 
         $this->assertSame($firstStore, $secondStore);
         $this->assertSame('second-redactor', $run->input['token']);
+    }
+
+    public function test_public_audit_repository_write_uses_one_payload_redactor_instance(): void
+    {
+        $this->migrateFlowTables();
+        $counter = new class
+        {
+            public int $value = 0;
+        };
+
+        $this->app->bind(PayloadRedactor::class, static function () use ($counter): PayloadRedactor {
+            $counter->value++;
+
+            return new class($counter->value) implements PayloadRedactor
+            {
+                public function __construct(
+                    private readonly int $instance,
+                ) {}
+
+                public function redact(array $payload): array
+                {
+                    foreach ($payload as $key => $value) {
+                        $payload[$key] = $this->redactValue($value);
+                    }
+
+                    return $payload;
+                }
+
+                private function redactValue(mixed $value): mixed
+                {
+                    if (is_array($value)) {
+                        foreach ($value as $key => $nested) {
+                            $value[$key] = $this->redactValue($nested);
+                        }
+
+                        return $value;
+                    }
+
+                    return is_string($value) ? 'redactor-'.$this->instance : $value;
+                }
+            };
+        });
+
+        $record = $this->app->make(AuditRepository::class)->append(
+            runId: '00000000-0000-4000-8000-000000000009',
+            event: 'FlowStepCompleted',
+            payload: ['token' => 'payload-secret'],
+            businessImpact: ['secret' => 'impact-secret'],
+        );
+
+        $this->assertSame(1, $counter->value);
+        $this->assertSame('redactor-1', $record->payload['token']);
+        $this->assertSame('redactor-1', $record->business_impact['secret']);
+    }
+
+    public function test_execution_scoped_payload_redactor_is_isolated_per_fiber(): void
+    {
+        /** @var ExecutionScopedPayloadRedactor $scope */
+        $scope = $this->app->make(ExecutionScopedPayloadRedactor::class);
+        $first = $this->labelRedactor('first');
+        $second = $this->labelRedactor('second');
+
+        $fiberOne = new \Fiber(function () use ($scope, $first): void {
+            $scope->push($first);
+
+            try {
+                \Fiber::suspend($scope->redact(['value' => 'plain'])['value']);
+                \Fiber::suspend($scope->redact(['value' => 'plain'])['value']);
+            } finally {
+                $scope->pop();
+            }
+        });
+        $fiberTwo = new \Fiber(function () use ($scope, $second): void {
+            $scope->push($second);
+
+            try {
+                \Fiber::suspend($scope->redact(['value' => 'plain'])['value']);
+                \Fiber::suspend($scope->redact(['value' => 'plain'])['value']);
+            } finally {
+                $scope->pop();
+            }
+        });
+
+        $this->assertSame('first', $fiberOne->start());
+        $this->assertSame('second', $fiberTwo->start());
+        $this->assertSame('first', $fiberOne->resume());
+        $this->assertSame('second', $fiberTwo->resume());
     }
 
     public function test_flow_store_runs_repository_operations_inside_transactions(): void
@@ -363,5 +451,26 @@ final class PersistenceRepositoryTest extends PersistenceTestCase
         FlowAuditRecord::query()
             ->whereKey($record->id)
             ->delete();
+    }
+
+    private function labelRedactor(string $label): PayloadRedactor
+    {
+        return new class($label) implements PayloadRedactor
+        {
+            public function __construct(
+                private readonly string $label,
+            ) {}
+
+            public function redact(array $payload): array
+            {
+                foreach ($payload as $key => $value) {
+                    if (is_string($value)) {
+                        $payload[$key] = $this->label;
+                    }
+                }
+
+                return $payload;
+            }
+        };
     }
 }

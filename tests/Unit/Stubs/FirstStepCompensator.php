@@ -16,6 +16,7 @@ final class FirstStepCompensator implements FlowCompensator
             'flowRunId' => $context->flowRunId,
             'definitionName' => $context->definitionName,
             'originalOutput' => array_merge($stepResult->output, ['compensator' => 'first']),
+            'stepOutputs' => $context->stepOutputs,
         ];
     }
 }

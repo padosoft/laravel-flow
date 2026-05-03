@@ -10,9 +10,9 @@ return [
     |--------------------------------------------------------------------------
     |
     | Persistence remains opt-in: the in-memory engine path still works with no
-    | database writes. When enabled by a future engine-wiring step, these
-    | settings choose the connection and redact common secret-looking payload
-    | keys before JSON payloads are stored.
+    | database writes. When enabled, synchronous engine runs are written to the
+    | configured connection and common secret-looking payload keys are redacted
+    | before JSON payloads are stored.
     |
     */
     'default_storage' => env('LARAVEL_FLOW_STORAGE', null),
@@ -39,8 +39,8 @@ return [
     |--------------------------------------------------------------------------
     |
     | When true, every flow run + step transition emits a Laravel event the
-    | host application can subscribe to. v0.2 will additionally persist the
-    | trail to a `flow_audit` table.
+    | host application can subscribe to. With persistence enabled, the same
+    | transition audit is also written to the `flow_audit` table.
     |
     */
     'audit_trail_enabled' => env('LARAVEL_FLOW_AUDIT_ENABLED', true),

@@ -16,6 +16,7 @@ final class SecondStepCompensator implements FlowCompensator
             'flowRunId' => $context->flowRunId,
             'definitionName' => $context->definitionName,
             'originalOutput' => array_merge($stepResult->output, ['compensator' => 'second']),
+            'stepOutputs' => $context->stepOutputs,
         ];
     }
 }

@@ -14,7 +14,7 @@ use Padosoft\LaravelFlow\FlowStepResult;
 final class RecordingCompensator implements FlowCompensator
 {
     /**
-     * @var list<array{flowRunId: string, definitionName: string, originalOutput: array<string, mixed>}>
+     * @var list<array{flowRunId: string, definitionName: string, originalOutput: array<string, mixed>, stepOutputs: array<string, array<string, mixed>>}>
      */
     public static array $invocations = [];
 
@@ -29,6 +29,7 @@ final class RecordingCompensator implements FlowCompensator
             'flowRunId' => $context->flowRunId,
             'definitionName' => $context->definitionName,
             'originalOutput' => $stepResult->output,
+            'stepOutputs' => $context->stepOutputs,
         ];
     }
 }

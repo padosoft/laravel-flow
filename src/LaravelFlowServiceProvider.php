@@ -6,6 +6,7 @@ namespace Padosoft\LaravelFlow;
 
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Contracts\Events\Dispatcher;
+use Illuminate\Support\Facades\Date;
 use Illuminate\Support\ServiceProvider;
 use Padosoft\LaravelFlow\Contracts\AuditRepository;
 use Padosoft\LaravelFlow\Contracts\FlowStore;
@@ -13,6 +14,7 @@ use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
 use Padosoft\LaravelFlow\Contracts\RunRepository;
 use Padosoft\LaravelFlow\Contracts\StepRunRepository;
 use Padosoft\LaravelFlow\Persistence\EloquentFlowStore;
+use Padosoft\LaravelFlow\Persistence\ExecutionScopedPayloadRedactor;
 use Padosoft\LaravelFlow\Persistence\KeyBasedPayloadRedactor;
 
 /**
@@ -36,7 +38,12 @@ final class LaravelFlowServiceProvider extends ServiceProvider
             /** @var Dispatcher $events */
             $events = $app->make(Dispatcher::class);
 
-            return new FlowEngine($app, $events, $config);
+            return new FlowEngine(
+                $app,
+                $events,
+                $config,
+                clock: static fn (): \DateTimeImmutable => Date::now()->toDateTimeImmutable(),
+            );
         });
 
         $this->app->singleton(PayloadRedactor::class, function (Container $app): PayloadRedactor {
@@ -50,13 +57,15 @@ final class LaravelFlowServiceProvider extends ServiceProvider
             );
         });
 
+        $this->app->singleton(ExecutionScopedPayloadRedactor::class, fn (Container $app): ExecutionScopedPayloadRedactor => new ExecutionScopedPayloadRedactor($app));
+
         $this->app->singleton(FlowStore::class, function (Container $app): FlowStore {
             /** @var string|null $connection */
             $connection = $app['config']->get('laravel-flow.default_storage');
 
             return new EloquentFlowStore(
                 connection: $connection,
-                redactor: $app->make(PayloadRedactor::class),
+                redactor: $app->make(ExecutionScopedPayloadRedactor::class),
             );
         });
 

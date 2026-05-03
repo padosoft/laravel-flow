@@ -4,18 +4,21 @@ declare(strict_types=1);
 
 namespace Padosoft\LaravelFlow\Tests\Unit;
 
+use Padosoft\LaravelFlow\Events\FlowCompensated;
 use Padosoft\LaravelFlow\Exceptions\FlowCompensationException;
 use Padosoft\LaravelFlow\FlowEngine;
 use Padosoft\LaravelFlow\FlowRun;
 use Padosoft\LaravelFlow\Tests\TestCase;
 use Padosoft\LaravelFlow\Tests\Unit\Stubs\AlwaysFailsHandler;
 use Padosoft\LaravelFlow\Tests\Unit\Stubs\AlwaysSucceedsHandler;
+use Padosoft\LaravelFlow\Tests\Unit\Stubs\DryRunAwareHandler;
 use Padosoft\LaravelFlow\Tests\Unit\Stubs\FirstStepCompensator;
 use Padosoft\LaravelFlow\Tests\Unit\Stubs\RecordingCompensator;
 use Padosoft\LaravelFlow\Tests\Unit\Stubs\SecondHandler;
 use Padosoft\LaravelFlow\Tests\Unit\Stubs\SecondStepCompensator;
 use Padosoft\LaravelFlow\Tests\Unit\Stubs\ThirdHandler;
 use Padosoft\LaravelFlow\Tests\Unit\Stubs\ThrowingCompensator;
+use RuntimeException;
 
 final class FlowEngineCompensationTest extends TestCase
 {
@@ -144,5 +147,52 @@ final class FlowEngineCompensationTest extends TestCase
         // compensator having thrown earlier in the reverse-order walk.
         $this->assertCount(1, RecordingCompensator::$invocations);
         $this->assertSame('first', RecordingCompensator::$invocations[0]['originalOutput']['compensator']);
+    }
+
+    public function test_compensated_event_listener_failure_does_not_abort_in_memory_rollback(): void
+    {
+        /** @var FlowEngine $engine */
+        $engine = $this->app->make(FlowEngine::class);
+
+        $this->app['events']->listen(
+            FlowCompensated::class,
+            static fn (): never => throw new RuntimeException('compensated listener down'),
+        );
+
+        $engine->define('flow.compensated-listener-down')
+            ->step('first', AlwaysSucceedsHandler::class)
+            ->compensateWith(FirstStepCompensator::class)
+            ->step('second', SecondHandler::class)
+            ->compensateWith(SecondStepCompensator::class)
+            ->step('third', AlwaysFailsHandler::class)
+            ->register();
+
+        $run = $engine->execute('flow.compensated-listener-down', []);
+
+        $this->assertSame(FlowRun::STATUS_COMPENSATED, $run->status);
+        $this->assertCount(2, RecordingCompensator::$invocations);
+        $this->assertSame('second', RecordingCompensator::$invocations[0]['originalOutput']['compensator']);
+        $this->assertSame('first', RecordingCompensator::$invocations[1]['originalOutput']['compensator']);
+    }
+
+    public function test_dry_run_failure_does_not_invoke_compensators(): void
+    {
+        /** @var FlowEngine $engine */
+        $engine = $this->app->make(FlowEngine::class);
+
+        $engine->define('flow.dry-run-failure')
+            ->step('simulate', DryRunAwareHandler::class)
+            ->withDryRun(true)
+            ->compensateWith(RecordingCompensator::class)
+            ->step('fail', AlwaysFailsHandler::class)
+            ->withDryRun(true)
+            ->register();
+
+        $run = $engine->dryRun('flow.dry-run-failure', []);
+
+        $this->assertTrue($run->dryRun);
+        $this->assertSame(FlowRun::STATUS_FAILED, $run->status);
+        $this->assertFalse($run->compensated);
+        $this->assertSame([], RecordingCompensator::$invocations);
     }
 }

@@ -73,10 +73,11 @@ final class FlowRun
         $this->finishedAt = $now;
     }
 
-    public function markCompensated(): void
+    public function markCompensated(?DateTimeImmutable $now = null): void
     {
         $this->status = self::STATUS_COMPENSATED;
         $this->compensated = true;
+        $this->finishedAt = $now ?? new DateTimeImmutable;
     }
 
     public function markAborted(DateTimeImmutable $now): void

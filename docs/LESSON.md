@@ -138,3 +138,6 @@
 - Artisan commands that accept a database connection name should catch invalid-connection and query exceptions around schema guards and return actionable failures instead of surfacing raw framework exceptions.
 - Prune indexes should lead with the range/order column (`finished_at`) rather than a low-cardinality status column when the command scans old terminal runs by age.
 - Dry-run counts should use the same chunked scan as destructive pruning; repeated independent subquery counts can be slower and internally inconsistent under concurrent writes.
+- Execution identity should use a structured options DTO instead of positional string parameters so future run metadata can grow without ambiguous call sites.
+- Synchronous idempotency should check the persisted run repository before creating a new run; returning the existing run state prevents duplicate handler side effects.
+- Idempotency keys must not return runs from a different flow definition; reject cross-definition reuse before any handler side effects.

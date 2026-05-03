@@ -21,7 +21,9 @@ use Padosoft\LaravelFlow\Events\FlowStepCompleted;
 use Padosoft\LaravelFlow\Events\FlowStepFailed;
 use Padosoft\LaravelFlow\Events\FlowStepStarted;
 use Padosoft\LaravelFlow\Exceptions\FlowCompensationException;
+use Padosoft\LaravelFlow\Exceptions\FlowExecutionException;
 use Padosoft\LaravelFlow\FlowEngine;
+use Padosoft\LaravelFlow\FlowExecutionOptions;
 use Padosoft\LaravelFlow\FlowRun;
 use Padosoft\LaravelFlow\Models\FlowAuditRecord;
 use Padosoft\LaravelFlow\Models\FlowRunRecord;
@@ -45,6 +47,7 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
     {
         parent::setUp();
 
+        AlwaysSucceedsHandler::$callCount = 0;
         RecordingCompensator::reset();
     }
 
@@ -110,6 +113,74 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
             'FlowStepStarted',
             'FlowStepCompleted',
         ], $auditEvents);
+    }
+
+    public function test_execution_options_persist_correlation_and_idempotency_keys(): void
+    {
+        $this->migrateFlowTables();
+        $engine = $this->engineWithPersistence();
+
+        $engine->define('flow.persist.identity')
+            ->step('create', AlwaysSucceedsHandler::class)
+            ->register();
+
+        $run = $engine->execute(
+            'flow.persist.identity',
+            ['safe' => 'visible'],
+            FlowExecutionOptions::make(correlationId: 'corr-123', idempotencyKey: 'identity-123'),
+        );
+
+        $runRecord = FlowRunRecord::query()->find($run->id);
+
+        $this->assertInstanceOf(FlowRunRecord::class, $runRecord);
+        $this->assertSame('corr-123', $run->correlationId);
+        $this->assertSame('identity-123', $run->idempotencyKey);
+        $this->assertSame('corr-123', $runRecord->correlation_id);
+        $this->assertSame('identity-123', $runRecord->idempotency_key);
+    }
+
+    public function test_idempotency_key_returns_existing_persisted_run_without_reexecuting_steps(): void
+    {
+        $this->migrateFlowTables();
+        $engine = $this->engineWithPersistence();
+
+        $engine->define('flow.persist.idempotent')
+            ->step('create', AlwaysSucceedsHandler::class)
+            ->register();
+
+        $options = FlowExecutionOptions::make(correlationId: 'corr-original', idempotencyKey: 'identity-once');
+
+        $firstRun = $engine->execute('flow.persist.idempotent', ['attempt' => 1], $options);
+        $secondRun = $engine->execute('flow.persist.idempotent', ['attempt' => 2], $options);
+
+        $this->assertSame($firstRun->id, $secondRun->id);
+        $this->assertSame(FlowRun::STATUS_SUCCEEDED, $secondRun->status);
+        $this->assertSame('corr-original', $secondRun->correlationId);
+        $this->assertSame('identity-once', $secondRun->idempotencyKey);
+        $this->assertSame(1, AlwaysSucceedsHandler::$callCount);
+        $this->assertSame(1, (int) FlowRunRecord::query()->where('idempotency_key', 'identity-once')->count());
+        $this->assertSame(1, (int) FlowStepRecord::query()->where('run_id', $firstRun->id)->count());
+    }
+
+    public function test_idempotency_key_cannot_reuse_a_different_flow_definition(): void
+    {
+        $this->migrateFlowTables();
+        $engine = $this->engineWithPersistence();
+        $options = FlowExecutionOptions::make(idempotencyKey: 'identity-shared');
+
+        $engine->define('flow.persist.idempotent.first')
+            ->step('create', AlwaysSucceedsHandler::class)
+            ->register();
+        $engine->define('flow.persist.idempotent.second')
+            ->step('create', AlwaysSucceedsHandler::class)
+            ->register();
+
+        $engine->execute('flow.persist.idempotent.first', [], $options);
+
+        $this->expectException(FlowExecutionException::class);
+        $this->expectExceptionMessage('The supplied idempotency key is already associated with a different flow definition.');
+
+        $engine->execute('flow.persist.idempotent.second', [], $options);
     }
 
     public function test_successful_empty_step_output_is_preserved_in_persisted_run_output(): void

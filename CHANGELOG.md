@@ -8,7 +8,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Added
 
-- **Persistence foundation** — publishable `flow_runs`, `flow_steps`, and `flow_audit` migrations; public `FlowStore`, `RedactorAwareFlowStore`, `CurrentPayloadRedactorProvider`, `RunRepository`, `StepRunRepository`, and `AuditRepository` contracts; Eloquent-backed records/repositories; opt-in synchronous engine writes; immutable run identity updates; transaction-scoped run/step/audit transitions; compensate-first handling for persistence/listener failures after side effects; timestamped atomic step upserts with bounded input snapshots; sanitized error and listener-failure storage; clock-aware audit timestamps; append-only audit record guard; configurable payload redaction for stored JSON payloads; and `flow:prune` retention cleanup for old terminal runs.
+- **Persistence foundation** — publishable `flow_runs`, `flow_steps`, and `flow_audit` migrations; public `FlowStore`, `RedactorAwareFlowStore`, `CurrentPayloadRedactorProvider`, `RunRepository`, `StepRunRepository`, and `AuditRepository` contracts; `FlowExecutionOptions` for correlation/idempotency keys; Eloquent-backed records/repositories; opt-in synchronous engine writes; immutable run identity updates; idempotency reuse of existing persisted runs; transaction-scoped run/step/audit transitions; compensate-first handling for persistence/listener failures after side effects; timestamped atomic step upserts with bounded input snapshots; sanitized error and listener-failure storage; clock-aware audit timestamps; append-only audit record guard; configurable payload redaction for stored JSON payloads; and `flow:prune` retention cleanup for old terminal runs.
 
 ### Changed
 

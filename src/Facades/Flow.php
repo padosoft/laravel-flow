@@ -15,8 +15,8 @@ use Padosoft\LaravelFlow\FlowRun;
  * / `Flow::dryRun()` / `Flow::definitions()`.
  *
  * @method static FlowDefinitionBuilder define(string $name)
- * @method static FlowRun execute(string $name, array<string, mixed> $input)
- * @method static FlowRun dryRun(string $name, array<string, mixed> $input)
+ * @method static FlowRun execute(string $name, array<string, mixed> $input, ?\Padosoft\LaravelFlow\FlowExecutionOptions $options = null)
+ * @method static FlowRun dryRun(string $name, array<string, mixed> $input, ?\Padosoft\LaravelFlow\FlowExecutionOptions $options = null)
  * @method static array<string, FlowDefinition> definitions()
  * @method static FlowDefinition definition(string $name)
  * @method static void registerDefinition(FlowDefinition $definition)

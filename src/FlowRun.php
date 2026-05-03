@@ -48,6 +48,8 @@ final class FlowRun
         public readonly string $definitionName,
         public readonly bool $dryRun,
         public readonly DateTimeImmutable $startedAt,
+        public readonly ?string $correlationId = null,
+        public readonly ?string $idempotencyKey = null,
     ) {}
 
     public function recordStepResult(string $stepName, FlowStepResult $result): void

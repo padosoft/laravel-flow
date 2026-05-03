@@ -220,6 +220,39 @@ final class FlowDispatchTest extends TestCase
         $this->assertSame(1, AlwaysSucceedsHandler::$callCount);
     }
 
+    public function test_run_flow_job_fails_queue_job_when_completion_marker_write_fails(): void
+    {
+        /** @var FlowEngine $engine */
+        $engine = $this->app->make(FlowEngine::class);
+        $engine->define('flow.job.marker-failure-queued')
+            ->step('one', AlwaysSucceedsHandler::class)
+            ->register();
+
+        $repository = $this->createMock(CacheRepository::class);
+        $repository->expects($this->once())->method('getStore')->willReturn(Cache::store('file')->getStore());
+        $repository->expects($this->once())->method('get')->willReturn(null);
+        $repository->expects($this->once())->method('put')->willReturn(false);
+
+        $cache = $this->createMock(CacheFactory::class);
+        $cache->expects($this->once())->method('store')->willReturn($repository);
+
+        $job = new RunFlowJob('flow.job.marker-failure-queued', dispatchId: 'marker-failure-queued-dispatch', lockStore: 'file');
+        $job->withFakeQueueInteractions();
+
+        try {
+            $job->handle($engine, $cache, $this->app['config']);
+            $this->fail('Expected completion marker write failure to surface.');
+        } catch (RuntimeException $e) {
+            $this->assertStringContainsString('completion marker', $e->getMessage());
+        }
+
+        $job->assertFailedWith(RuntimeException::class);
+        $lock = Cache::store('file')->getStore()->lock($job->lockKey(), 60);
+        $this->assertFalse($lock->get());
+        $lock->forceRelease();
+        $this->assertSame(1, AlwaysSucceedsHandler::$callCount);
+    }
+
     public function test_run_flow_job_rejects_process_local_array_lock_store(): void
     {
         $this->app['config']->set('queue.default', 'database');

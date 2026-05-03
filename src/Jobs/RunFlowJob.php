@@ -70,8 +70,6 @@ final class RunFlowJob implements ShouldQueueAfterCommit
 
                 if ($this->job !== null) {
                     $this->fail($exception);
-
-                    return $run;
                 }
 
                 throw $exception;

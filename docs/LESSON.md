@@ -115,3 +115,6 @@
 - Persisted run aggregates should exclude any step that runtime-abort recovery reclassified as the failed step, including both output and business-impact summaries.
 - Terminal lifecycle methods should require the timestamp needed to complete their invariant; do not make `finishedAt` optional for terminal states such as `compensated`.
 - Prefer per-execution store instances with a frozen redactor over shared mutable redactor stacks when engine persistence needs JSON/text redaction consistency.
+- Repository redaction should capture one current redactor instance for a record write while preserving each JSON field's original payload shape; synthetic wrappers can break valid top-level custom redactors.
+- Engine execution redactor freeze should be expressed through a store capability contract, not a concrete store check, so decorators can preserve JSON/text redaction consistency.
+- Compensation failure paths should advance `finishedAt` to the rollback failure time so persisted duration includes partial rollback work.

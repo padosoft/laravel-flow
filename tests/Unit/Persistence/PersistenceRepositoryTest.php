@@ -182,6 +182,54 @@ final class PersistenceRepositoryTest extends PersistenceTestCase
         $this->assertSame('redactor-1', $step->output['authorization']);
     }
 
+    public function test_public_repository_redaction_preserves_each_json_payload_shape_for_custom_redactors(): void
+    {
+        $this->migrateFlowTables();
+        $this->app->bind(PayloadRedactor::class, fn (): PayloadRedactor => $this->topLevelSecretRedactor());
+
+        $runs = $this->app->make(RunRepository::class);
+        $steps = $this->app->make(StepRunRepository::class);
+        $audit = $this->app->make(AuditRepository::class);
+
+        $run = $runs->create([
+            'definition_name' => 'flow.redactor.shape',
+            'dry_run' => false,
+            'id' => '00000000-0000-4000-8000-000000000012',
+            'input' => ['token' => 'input-secret'],
+            'started_at' => new DateTimeImmutable('2026-05-02 11:00:00'),
+            'status' => FlowRun::STATUS_RUNNING,
+        ]);
+
+        $updated = $runs->update($run->id, [
+            'business_impact' => ['secret' => 'impact-secret'],
+            'output' => ['authorization' => 'output-secret'],
+            'status' => FlowRun::STATUS_SUCCEEDED,
+        ]);
+        $step = $steps->createOrUpdate($run->id, 'charge', [
+            'business_impact' => ['secret' => 'step-impact-secret'],
+            'handler' => 'Tests\\Charge',
+            'input' => ['token' => 'step-input-secret'],
+            'output' => ['authorization' => 'step-output-secret'],
+            'sequence' => 1,
+            'status' => 'succeeded',
+        ]);
+        $auditRecord = $audit->append(
+            runId: $run->id,
+            event: 'FlowStepCompleted',
+            payload: ['authorization' => 'audit-payload-secret'],
+            businessImpact: ['secret' => 'audit-impact-secret'],
+        );
+
+        $this->assertSame('[top-level-redacted]', $run->input['token']);
+        $this->assertSame('[top-level-redacted]', $updated->business_impact['secret']);
+        $this->assertSame('[top-level-redacted]', $updated->output['authorization']);
+        $this->assertSame('[top-level-redacted]', $step->business_impact['secret']);
+        $this->assertSame('[top-level-redacted]', $step->input['token']);
+        $this->assertSame('[top-level-redacted]', $step->output['authorization']);
+        $this->assertSame('[top-level-redacted]', $auditRecord->payload['authorization']);
+        $this->assertSame('[top-level-redacted]', $auditRecord->business_impact['secret']);
+    }
+
     public function test_execution_scoped_payload_redactor_falls_back_when_bound_to_payload_redactor_contract(): void
     {
         /** @var ExecutionScopedPayloadRedactor $scope */
@@ -457,6 +505,27 @@ final class PersistenceRepositoryTest extends PersistenceTestCase
                 }
 
                 return is_string($value) ? $this->label : $value;
+            }
+        };
+    }
+
+    private function topLevelSecretRedactor(): PayloadRedactor
+    {
+        return new class implements PayloadRedactor
+        {
+            /**
+             * @param  array<string, mixed>  $payload
+             * @return array<string, mixed>
+             */
+            public function redact(array $payload): array
+            {
+                foreach (['authorization', 'secret', 'token'] as $key) {
+                    if (array_key_exists($key, $payload)) {
+                        $payload[$key] = '[top-level-redacted]';
+                    }
+                }
+
+                return $payload;
             }
         };
     }

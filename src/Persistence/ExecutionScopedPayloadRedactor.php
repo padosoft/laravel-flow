@@ -18,12 +18,10 @@ final class ExecutionScopedPayloadRedactor implements PayloadRedactor
 
     public function redact(array $payload): array
     {
-        $redactor = $this->currentRedactor();
-
-        return $redactor->redact($payload);
+        return $this->currentRedactor()->redact($payload);
     }
 
-    private function currentRedactor(): PayloadRedactor
+    public function currentRedactor(): PayloadRedactor
     {
         /** @var PayloadRedactor $redactor */
         $redactor = $this->container->make(PayloadRedactor::class);

@@ -11,6 +11,7 @@ use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Support\Facades\Date;
 use Padosoft\LaravelFlow\Contracts\FlowStore;
 use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
+use Padosoft\LaravelFlow\Contracts\RedactorAwareFlowStore;
 use Padosoft\LaravelFlow\Events\FlowCompensated;
 use Padosoft\LaravelFlow\Events\FlowStepCompleted;
 use Padosoft\LaravelFlow\Events\FlowStepFailed;
@@ -19,7 +20,6 @@ use Padosoft\LaravelFlow\Exceptions\FlowCompensationException;
 use Padosoft\LaravelFlow\Exceptions\FlowExecutionException;
 use Padosoft\LaravelFlow\Exceptions\FlowInputException;
 use Padosoft\LaravelFlow\Exceptions\FlowNotRegisteredException;
-use Padosoft\LaravelFlow\Persistence\EloquentFlowStore;
 use Throwable;
 
 /**
@@ -494,6 +494,7 @@ class FlowEngine
         }
 
         if ($compensationErrors !== []) {
+            $run->finishedAt = $this->now();
             $summary = implode('; ', array_map(
                 static fn (array $entry): string => sprintf(
                     '[%s] %s',
@@ -1123,11 +1124,11 @@ class FlowEngine
 
     private function storeWithExecutionRedactor(?FlowStore $store, ?PayloadRedactor $redactor): ?FlowStore
     {
-        if (! $store instanceof EloquentFlowStore || ! $redactor instanceof PayloadRedactor) {
+        if (! $store instanceof RedactorAwareFlowStore || ! $redactor instanceof PayloadRedactor) {
             return $store;
         }
 
-        return $store->withRedactor($redactor);
+        return $store->withPayloadRedactor($redactor);
     }
 
     private function resolvePayloadRedactor(): ?PayloadRedactor

@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\Event;
 use Padosoft\LaravelFlow\Contracts\AuditRepository;
 use Padosoft\LaravelFlow\Contracts\FlowStore;
 use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
+use Padosoft\LaravelFlow\Contracts\RedactorAwareFlowStore;
 use Padosoft\LaravelFlow\Contracts\RunRepository;
 use Padosoft\LaravelFlow\Contracts\StepRunRepository;
 use Padosoft\LaravelFlow\Events\FlowCompensated;
@@ -27,6 +28,7 @@ use Padosoft\LaravelFlow\Models\FlowStepRecord;
 use Padosoft\LaravelFlow\Tests\Unit\Stubs\AlwaysFailsHandler;
 use Padosoft\LaravelFlow\Tests\Unit\Stubs\AlwaysSucceedsHandler;
 use Padosoft\LaravelFlow\Tests\Unit\Stubs\ClockAdvancingCompensator;
+use Padosoft\LaravelFlow\Tests\Unit\Stubs\ClockAdvancingThrowingCompensator;
 use Padosoft\LaravelFlow\Tests\Unit\Stubs\CustomSecretFailsHandler;
 use Padosoft\LaravelFlow\Tests\Unit\Stubs\DryRunAwareHandler;
 use Padosoft\LaravelFlow\Tests\Unit\Stubs\EmptyOutputHandler;
@@ -415,6 +417,107 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         $this->assertSame('[scoped-redacted-1]', $runRecord->input['token']);
         $this->assertStringContainsString('[scoped-redacted-1]', (string) $failedStep->error_message);
         $this->assertSame($failedStep->error_message, $failedAudit->payload['error_message']);
+    }
+
+    public function test_engine_freezes_payload_redactor_for_redactor_aware_flow_store_decorators(): void
+    {
+        $this->migrateFlowTables();
+        $this->app['config']->set('laravel-flow.persistence.enabled', true);
+
+        $counter = new class
+        {
+            public int $value = 0;
+        };
+        $tracker = new class
+        {
+            public int $withPayloadRedactorCalls = 0;
+        };
+
+        $this->app->bind(PayloadRedactor::class, static function () use ($counter): PayloadRedactor {
+            $counter->value++;
+
+            return new class($counter->value) implements PayloadRedactor
+            {
+                public function __construct(
+                    private readonly int $instance,
+                ) {}
+
+                public function redact(array $payload): array
+                {
+                    foreach ($payload as $key => $value) {
+                        if (is_string($value)) {
+                            $payload[$key] = str_replace('custom-secret', '[aware-redacted-'.$this->instance.']', $value);
+                        }
+                    }
+
+                    return $payload;
+                }
+            };
+        });
+
+        /** @var FlowStore $inner */
+        $inner = $this->app->make(FlowStore::class);
+        $store = new class($inner, $tracker) implements RedactorAwareFlowStore
+        {
+            public function __construct(
+                private readonly FlowStore $inner,
+                private readonly object $tracker,
+            ) {}
+
+            public function withPayloadRedactor(PayloadRedactor $redactor): FlowStore
+            {
+                $this->tracker->withPayloadRedactorCalls++;
+
+                $inner = $this->inner instanceof RedactorAwareFlowStore
+                    ? $this->inner->withPayloadRedactor($redactor)
+                    : $this->inner;
+
+                return new self($inner, $this->tracker);
+            }
+
+            public function runs(): RunRepository
+            {
+                return $this->inner->runs();
+            }
+
+            public function steps(): StepRunRepository
+            {
+                return $this->inner->steps();
+            }
+
+            public function audit(): AuditRepository
+            {
+                return $this->inner->audit();
+            }
+
+            public function transaction(callable $callback): mixed
+            {
+                return $this->inner->transaction($callback);
+            }
+        };
+
+        /** @var array<string, mixed> $config */
+        $config = $this->app['config']->get('laravel-flow');
+        $engine = new FlowEngine($this->app, $this->app['events'], $config, $store);
+
+        $engine->define('flow.persist.redactor-aware-store')
+            ->step('charge', CustomSecretFailsHandler::class)
+            ->register();
+
+        $run = $engine->execute('flow.persist.redactor-aware-store', ['token' => 'custom-secret']);
+
+        $runRecord = FlowRunRecord::query()->find($run->id);
+        $failedStep = FlowStepRecord::query()
+            ->where('run_id', $run->id)
+            ->where('step_name', 'charge')
+            ->first();
+
+        $this->assertInstanceOf(FlowRunRecord::class, $runRecord);
+        $this->assertInstanceOf(FlowStepRecord::class, $failedStep);
+        $this->assertSame(1, $counter->value);
+        $this->assertSame(1, $tracker->withPayloadRedactorCalls);
+        $this->assertSame('[aware-redacted-1]', $runRecord->input['token']);
+        $this->assertStringContainsString('[aware-redacted-1]', (string) $failedStep->error_message);
     }
 
     public function test_persisted_error_messages_redact_normalized_key_variants(): void
@@ -1158,6 +1261,40 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         $this->assertSame(FlowRun::STATUS_FAILED, $runRecord->status);
         $this->assertFalse($runRecord->compensated);
         $this->assertSame('failed', $runRecord->compensation_status);
+    }
+
+    public function test_compensation_failure_advances_finished_at_to_rollback_failure_time(): void
+    {
+        $this->migrateFlowTables();
+        $engine = $this->engineWithPersistence();
+        $started = Carbon::parse('2026-05-02 10:00:00');
+        $rollbackFailed = Carbon::parse('2026-05-02 10:00:05');
+
+        $engine->define('flow.persist.compensation-fails-after-time')
+            ->step('create', AlwaysSucceedsHandler::class)
+            ->compensateWith(ClockAdvancingThrowingCompensator::class)
+            ->step('charge', AlwaysFailsHandler::class)
+            ->register();
+
+        Date::setTestNow($started);
+
+        try {
+            $engine->execute('flow.persist.compensation-fails-after-time', []);
+            $this->fail('The throwing compensator should abort execution.');
+        } catch (FlowCompensationException $exception) {
+            $this->assertStringContainsString('clock-advanced rollback failure', $exception->getMessage());
+        } finally {
+            Date::setTestNow();
+        }
+
+        $runRecord = FlowRunRecord::query()
+            ->where('definition_name', 'flow.persist.compensation-fails-after-time')
+            ->first();
+
+        $this->assertInstanceOf(FlowRunRecord::class, $runRecord);
+        $this->assertSame(FlowRun::STATUS_FAILED, $runRecord->status);
+        $this->assertSame($rollbackFailed->getTimestamp(), $runRecord->finished_at->getTimestamp());
+        $this->assertSame(5000, $runRecord->duration_ms);
     }
 
     private function engineWithPersistence(): FlowEngine

@@ -25,25 +25,15 @@ final class PersistencePayloadRedaction
      */
     public static function redactFields(PayloadRedactor $redactor, array $attributes, array $fields): array
     {
-        $payloads = [];
+        $redactor = $redactor instanceof ExecutionScopedPayloadRedactor
+            ? $redactor->currentRedactor()
+            : $redactor;
 
         foreach ($fields as $key) {
             if (isset($attributes[$key]) && is_array($attributes[$key])) {
                 /** @var array<string, mixed> $payload */
                 $payload = $attributes[$key];
-                $payloads[$key] = $payload;
-            }
-        }
-
-        if ($payloads === []) {
-            return $attributes;
-        }
-
-        $redacted = $redactor->redact($payloads);
-
-        foreach (array_keys($payloads) as $key) {
-            if (array_key_exists($key, $redacted)) {
-                $attributes[$key] = $redacted[$key];
+                $attributes[$key] = $redactor->redact($payload);
             }
         }
 

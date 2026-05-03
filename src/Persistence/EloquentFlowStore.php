@@ -8,10 +8,11 @@ use Illuminate\Support\Facades\DB;
 use Padosoft\LaravelFlow\Contracts\AuditRepository;
 use Padosoft\LaravelFlow\Contracts\FlowStore;
 use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
+use Padosoft\LaravelFlow\Contracts\RedactorAwareFlowStore;
 use Padosoft\LaravelFlow\Contracts\RunRepository;
 use Padosoft\LaravelFlow\Contracts\StepRunRepository;
 
-final class EloquentFlowStore implements FlowStore
+final class EloquentFlowStore implements FlowStore, RedactorAwareFlowStore
 {
     public function __construct(
         private readonly ?string $connection,
@@ -33,7 +34,7 @@ final class EloquentFlowStore implements FlowStore
         return new EloquentAuditRepository($this->connection, $this->redactor);
     }
 
-    public function withRedactor(PayloadRedactor $redactor): self
+    public function withPayloadRedactor(PayloadRedactor $redactor): FlowStore
     {
         return new self($this->connection, $redactor);
     }

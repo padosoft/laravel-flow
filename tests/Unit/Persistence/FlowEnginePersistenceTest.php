@@ -245,6 +245,29 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         $this->assertStringContainsString('[custom-redacted]', (string) $failedStep->error_message);
     }
 
+    public function test_persisted_error_messages_redact_normalized_key_variants(): void
+    {
+        $this->migrateFlowTables();
+        $this->app['config']->set('laravel-flow.persistence.redaction.keys', ['apikey', 'authorization']);
+        $engine = $this->engineWithPersistence();
+
+        $engine->define('flow.persist.normalized-redaction')
+            ->step('charge', SecretFailsHandler::class)
+            ->register();
+
+        $run = $engine->execute('flow.persist.normalized-redaction', []);
+
+        $failedStep = FlowStepRecord::query()
+            ->where('run_id', $run->id)
+            ->where('step_name', 'charge')
+            ->first();
+
+        $this->assertInstanceOf(FlowStepRecord::class, $failedStep);
+        $this->assertStringNotContainsString('camel-secret', (string) $failedStep->error_message);
+        $this->assertStringNotContainsString('dash-secret', (string) $failedStep->error_message);
+        $this->assertStringNotContainsString('auth-secret', (string) $failedStep->error_message);
+    }
+
     public function test_engine_does_not_write_when_persistence_is_disabled(): void
     {
         $this->migrateFlowTables();

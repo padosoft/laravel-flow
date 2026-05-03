@@ -35,6 +35,8 @@ class FlowEngine
      */
     private array $definitions = [];
 
+    private ?string $pendingListenerFailureEvent = null;
+
     public function __construct(
         private readonly Container $container,
         private readonly Dispatcher $events,
@@ -262,9 +264,15 @@ class FlowEngine
                     throw $e;
                 }
 
-                $this->persistAtomically($persist, function () use ($persist, $run): void {
-                    $this->persistRunFinished($persist, $run, $run->compensated ? 'succeeded' : null);
-                });
+                try {
+                    $this->persistAtomically($persist, function () use ($persist, $run): void {
+                        $this->persistRunFinished($persist, $run, $run->compensated ? 'succeeded' : null);
+                    });
+                } catch (Throwable $e) {
+                    $this->persistRunFinishedBestEffort($persist, $run, $run->compensated ? 'succeeded' : null);
+
+                    throw $e;
+                }
 
                 return $run;
             }
@@ -521,6 +529,8 @@ class FlowEngine
         bool $markRunAborted = false,
     ): void {
         $failedAt ??= $this->now();
+        $listenerEvent = $this->pendingListenerFailureEvent;
+        $this->pendingListenerFailureEvent = null;
         $shouldMarkRunFailed = $failedStep !== null
             && ! in_array($run->status, [FlowRun::STATUS_FAILED, FlowRun::STATUS_COMPENSATED], true);
         $shouldMarkRunAborted = $failedStep === null
@@ -548,6 +558,7 @@ class FlowEngine
                 $failedResult,
                 $stepStartedAt,
                 $failedAt,
+                $listenerEvent,
             );
         } elseif ($shouldMarkRunFailed || $shouldMarkRunAborted) {
             $this->persistRunFinishedBestEffort($persist, $run);
@@ -573,6 +584,7 @@ class FlowEngine
         FlowStepResult $result,
         DateTimeInterface $startedAt,
         DateTimeInterface $failedAt,
+        ?string $listenerEvent,
     ): void {
         try {
             $this->persistAtomically($persist, function () use (
@@ -584,6 +596,7 @@ class FlowEngine
                 $result,
                 $startedAt,
                 $failedAt,
+                $listenerEvent,
             ): void {
                 $this->persistStepFinished(
                     $persist,
@@ -597,14 +610,20 @@ class FlowEngine
                 );
 
                 $error = $result->error;
-                $this->recordAudit($persist, 'FlowStepFailed', $run, $step->name, [
+                $payload = [
                     'definition_name' => $context->definitionName,
                     'dry_run' => $context->dryRun,
                     'error_class' => $error instanceof Throwable ? $error::class : null,
                     'error_message' => $this->safeErrorMessage($error),
                     'runtime_abort_recovery' => true,
                     'status' => 'failed',
-                ], occurredAt: $failedAt);
+                ];
+
+                if ($listenerEvent !== null) {
+                    $payload['listener_event'] = $listenerEvent;
+                }
+
+                $this->recordAudit($persist, 'FlowStepFailed', $run, $step->name, $payload, occurredAt: $failedAt);
 
                 $this->persistRunFinished($persist, $run);
             });
@@ -618,6 +637,7 @@ class FlowEngine
                 $result,
                 $startedAt,
                 $failedAt,
+                $listenerEvent,
             );
         }
     }
@@ -631,6 +651,7 @@ class FlowEngine
         FlowStepResult $result,
         DateTimeInterface $startedAt,
         DateTimeInterface $failedAt,
+        ?string $listenerEvent,
     ): void {
         try {
             $this->persistAtomically($persist, function () use (
@@ -642,6 +663,7 @@ class FlowEngine
                 $result,
                 $startedAt,
                 $failedAt,
+                $listenerEvent,
             ): void {
                 $this->persistStepFinished(
                     $persist,
@@ -655,14 +677,20 @@ class FlowEngine
                 );
 
                 $error = $result->error;
-                $this->recordAudit($persist, 'FlowStepFailed', $run, $step->name, [
+                $payload = [
                     'definition_name' => $context->definitionName,
                     'dry_run' => $context->dryRun,
                     'error_class' => $error instanceof Throwable ? $error::class : null,
                     'error_message' => $this->safeErrorMessage($error),
                     'runtime_abort_recovery' => true,
                     'status' => 'failed',
-                ], occurredAt: $failedAt);
+                ];
+
+                if ($listenerEvent !== null) {
+                    $payload['listener_event'] = $listenerEvent;
+                }
+
+                $this->recordAudit($persist, 'FlowStepFailed', $run, $step->name, $payload, occurredAt: $failedAt);
             });
         } catch (Throwable) {
             $this->persistStepFinishedOnlyBestEffort(
@@ -742,6 +770,8 @@ class FlowEngine
         try {
             $this->dispatch($event);
         } catch (Throwable $e) {
+            $this->pendingListenerFailureEvent = $this->eventName($event);
+
             if (! $persist) {
                 throw $e;
             }
@@ -761,8 +791,6 @@ class FlowEngine
                     $shouldPersistStepFailure,
                     $failedResult,
                     $failedAt,
-                    $event,
-                    $e,
                 ): void {
                     if ($shouldPersistStepFailure) {
                         if (! $stepAlreadyFinished) {
@@ -784,16 +812,6 @@ class FlowEngine
                     if ($run->finishedAt === null) {
                         $run->markFailed($step->name, $failedAt);
                     }
-
-                    $this->recordAudit(true, 'FlowStepFailed', $run, $step->name, [
-                        'definition_name' => $context->definitionName,
-                        'dry_run' => $context->dryRun,
-                        'error_class' => $e::class,
-                        'error_message' => $this->safeErrorMessage($e),
-                        'listener_event' => $this->eventName($event),
-                        'previous_step_state_finished' => $stepAlreadyFinished,
-                        'status' => 'failed',
-                    ], occurredAt: $failedAt);
 
                     $this->persistRunFinished(true, $run);
                 });
@@ -969,6 +987,7 @@ class FlowEngine
         $replacement = (string) ($redaction['replacement'] ?? '[redacted]');
         $keys = array_values(array_filter((array) ($redaction['keys'] ?? []), 'is_string'));
         $message = $this->redactBearerTokens($message, $replacement);
+        $message = $this->redactConfiguredKeyValues($message, $keys, $replacement);
 
         foreach ($keys as $key) {
             $keyPattern = $this->redactionKeyPattern($key);
@@ -985,6 +1004,34 @@ class FlowEngine
         }
 
         return $this->redactBearerTokens($message, $replacement);
+    }
+
+    /**
+     * @param  list<string>  $keys
+     */
+    private function redactConfiguredKeyValues(string $message, array $keys, string $replacement): string
+    {
+        $normalizedKeys = [];
+
+        foreach ($keys as $key) {
+            $normalizedKeys[$this->normalizeRedactionKey($key)] = true;
+        }
+
+        if ($normalizedKeys === []) {
+            return $message;
+        }
+
+        return preg_replace_callback(
+            '/\b([A-Za-z][A-Za-z0-9_-]*)\b(\s*[:=]\s*)([^\s,;]+)/',
+            function (array $matches) use ($normalizedKeys, $replacement): string {
+                if (! isset($normalizedKeys[$this->normalizeRedactionKey((string) $matches[1])])) {
+                    return (string) $matches[0];
+                }
+
+                return $matches[1].$matches[2].$replacement;
+            },
+            $message,
+        ) ?? $message;
     }
 
     private function redactTextWithPayloadRedactor(string $message): string
@@ -1029,6 +1076,11 @@ class FlowEngine
             static fn (string $part): string => preg_quote($part, '/'),
             $parts,
         ));
+    }
+
+    private function normalizeRedactionKey(string $key): string
+    {
+        return strtolower((string) preg_replace('/[^a-zA-Z0-9]/', '', $key));
     }
 
     /**

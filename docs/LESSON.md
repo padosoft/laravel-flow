@@ -72,6 +72,7 @@
 - Final success persistence failures are infrastructure aborts, not handler failures; use `aborted`/no `failed_step` rather than blaming the last successful business step.
 - Recovery can need progressive best-effort tiers: first try run+step+audit together for consistency, then step+audit if run update is the failing dependency, then step-only if audit is also unavailable so rows do not remain `running`.
 - Compensation listener failures should annotate the single `FlowCompensated` audit transition when possible, not append a duplicate compensation event for the same rollback.
+- Step listener failures should be marked once and consumed by the outer runtime-abort recovery; otherwise inner listener recovery plus outer compensation recovery can duplicate `FlowStepFailed` audit rows.
 - Public README examples should avoid Laravel dump-and-die or other debug helpers; use normal variable assignment or assertions so docs do not teach debug output patterns.
 - When `composer validate --strict --no-check-publish` is a hard CI/PR gate, list it explicitly in contributor quick starts and PR expectation checklists, not only in CI or PR templates.
 - README comparison updates must stay factual. If a feature only reaches parity with a competitor, document parity rather than implying an advantage.

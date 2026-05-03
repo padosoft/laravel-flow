@@ -27,11 +27,11 @@ final class ExecutionScopedPayloadRedactor implements CurrentPayloadRedactorProv
         /** @var PayloadRedactor $redactor */
         $redactor = $this->container->make(PayloadRedactor::class);
 
-        if ($redactor === $this) {
+        if ($redactor instanceof self) {
             return $this->fallbackRedactor();
         }
 
-        return $redactor;
+        return PayloadRedactorResolution::current($redactor);
     }
 
     private function fallbackRedactor(): PayloadRedactor

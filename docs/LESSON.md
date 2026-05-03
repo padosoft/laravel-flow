@@ -118,3 +118,4 @@
 - Repository redaction should capture one current redactor instance for a record write while preserving each JSON field's original payload shape; synthetic wrappers can break valid top-level custom redactors.
 - Engine execution redactor freeze should be expressed through store/redactor capability contracts, not concrete class checks, so decorators can preserve JSON/text redaction and transaction consistency.
 - Compensation failure paths should advance `finishedAt` to the rollback failure time so persisted duration includes partial rollback work.
+- Current-redactor provider chains should be unwrapped recursively, and execution-scope redactor self-resolution guards should treat any scope wrapper instance as recursive.

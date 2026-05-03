@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Padosoft\LaravelFlow\Persistence;
 
-use Padosoft\LaravelFlow\Contracts\CurrentPayloadRedactorProvider;
 use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
 
 final class PersistencePayloadRedaction
@@ -38,9 +37,7 @@ final class PersistencePayloadRedaction
             return $attributes;
         }
 
-        $redactor = $redactor instanceof CurrentPayloadRedactorProvider
-            ? $redactor->currentRedactor()
-            : $redactor;
+        $redactor = PayloadRedactorResolution::current($redactor);
 
         foreach ($redactableFields as $key) {
             /** @var array<string, mixed> $payload */

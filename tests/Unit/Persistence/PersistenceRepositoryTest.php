@@ -240,10 +240,29 @@ final class PersistenceRepositoryTest extends PersistenceTestCase
         {
             public int $currentCalls = 0;
         };
-        $provider = new class($this->topLevelSecretRedactor(), $counter) implements CurrentPayloadRedactorProvider
+        $innerProvider = new class($this->topLevelSecretRedactor(), $counter) implements CurrentPayloadRedactorProvider
         {
             public function __construct(
                 private readonly PayloadRedactor $inner,
+                private readonly object $counter,
+            ) {}
+
+            public function currentRedactor(): PayloadRedactor
+            {
+                $this->counter->currentCalls++;
+
+                return $this->inner;
+            }
+
+            public function redact(array $payload): array
+            {
+                return $this->inner->redact($payload);
+            }
+        };
+        $provider = new class($innerProvider, $counter) implements CurrentPayloadRedactorProvider
+        {
+            public function __construct(
+                private readonly CurrentPayloadRedactorProvider $inner,
                 private readonly object $counter,
             ) {}
 
@@ -284,7 +303,7 @@ final class PersistenceRepositoryTest extends PersistenceTestCase
             businessImpact: ['secret' => 'audit-impact-secret'],
         );
 
-        $this->assertSame(2, $counter->currentCalls);
+        $this->assertSame(4, $counter->currentCalls);
         $this->assertSame('[top-level-redacted]', $updated->business_impact['secret']);
         $this->assertSame('[top-level-redacted]', $updated->output['authorization']);
         $this->assertSame('[top-level-redacted]', $auditRecord->payload['authorization']);
@@ -297,6 +316,21 @@ final class PersistenceRepositoryTest extends PersistenceTestCase
         $scope = $this->app->make(ExecutionScopedPayloadRedactor::class);
 
         $this->app->instance(PayloadRedactor::class, $scope);
+        $redacted = $scope->redact(['token' => 'plain-secret']);
+
+        $this->assertSame('[redacted]', $redacted['token']);
+    }
+
+    public function test_execution_scoped_payload_redactor_falls_back_when_payload_contract_returns_fresh_scope(): void
+    {
+        /** @var ExecutionScopedPayloadRedactor $scope */
+        $scope = $this->app->make(ExecutionScopedPayloadRedactor::class);
+
+        $this->app->bind(
+            PayloadRedactor::class,
+            fn (): PayloadRedactor => new ExecutionScopedPayloadRedactor($this->app),
+        );
+
         $redacted = $scope->redact(['token' => 'plain-secret']);
 
         $this->assertSame('[redacted]', $redacted['token']);

@@ -51,7 +51,8 @@ class FlowEngine
          *     persistence?: array{
          *         enabled?: bool,
          *         redaction?: array{enabled?: bool, keys?: array<int, string>, replacement?: string}
-         *     }
+         *     },
+         *     queue?: array{lock_store?: string|null, lock_seconds?: int, lock_retry_seconds?: int}
          * }
          */
         private readonly array $config = [],
@@ -123,7 +124,15 @@ class FlowEngine
         /** @var BusDispatcher $bus */
         $bus = $this->container->make(BusDispatcher::class);
 
-        return $bus->dispatch(new RunFlowJob($definition->name, $input, $options));
+        return $bus->dispatch(new RunFlowJob(
+            name: $definition->name,
+            input: $input,
+            options: $options,
+            dispatchId: $this->generateId(),
+            lockStore: $this->queueLockStore(),
+            lockSeconds: $this->queueLockSeconds(),
+            lockRetrySeconds: $this->queueLockRetrySeconds(),
+        ));
     }
 
     /**
@@ -1346,6 +1355,33 @@ class FlowEngine
                 implode(', ', $missing),
             ));
         }
+    }
+
+    private function queueLockStore(): ?string
+    {
+        $store = $this->config['queue']['lock_store'] ?? null;
+
+        if (is_string($store) && $store !== '') {
+            return $store;
+        }
+
+        $defaultStore = $this->container->make('config')->get('cache.default');
+
+        return is_string($defaultStore) && $defaultStore !== '' ? $defaultStore : null;
+    }
+
+    private function queueLockSeconds(): int
+    {
+        $seconds = $this->config['queue']['lock_seconds'] ?? 3600;
+
+        return is_int($seconds) && $seconds >= 1 ? $seconds : 3600;
+    }
+
+    private function queueLockRetrySeconds(): int
+    {
+        $seconds = $this->config['queue']['lock_retry_seconds'] ?? 30;
+
+        return is_int($seconds) && $seconds >= 1 ? $seconds : 30;
     }
 
     private function dispatchEvent(object $event): void

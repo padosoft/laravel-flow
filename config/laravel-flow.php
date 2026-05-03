@@ -2,6 +2,9 @@
 
 declare(strict_types=1);
 
+$queueLockSeconds = env('LARAVEL_FLOW_QUEUE_LOCK_SECONDS', 3600);
+$queueLockRetrySeconds = env('LARAVEL_FLOW_QUEUE_LOCK_RETRY_SECONDS', 30);
+
 return [
 
     /*
@@ -35,6 +38,31 @@ return [
         'retention' => [
             'days' => env('LARAVEL_FLOW_RETENTION_DAYS', null),
         ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Queue execution
+    |--------------------------------------------------------------------------
+    |
+    | Flow::dispatch() queues a RunFlowJob. Each queued job uses a per-dispatch
+    | cache lock before executing so duplicate delivery cannot run the same
+    | queued flow concurrently. Duplicate deliveries that find the lock held
+    | are released for another attempt; duplicates that arrive after a run has
+    | completed are acknowledged as no-ops. Set the lock TTL longer than the
+    | expected maximum flow runtime; Laravel's portable lock contract cannot
+    | renew it. The store must support shared Laravel atomic locks; the
+    | process-local array store is accepted only when the queue driver is sync.
+    |
+    */
+    'queue' => [
+        'lock_store' => env('LARAVEL_FLOW_QUEUE_LOCK_STORE', null),
+        'lock_seconds' => is_numeric($queueLockSeconds) && (int) $queueLockSeconds >= 1
+            ? (int) $queueLockSeconds
+            : 3600,
+        'lock_retry_seconds' => is_numeric($queueLockRetrySeconds) && (int) $queueLockRetrySeconds >= 1
+            ? (int) $queueLockRetrySeconds
+            : 30,
     ],
 
     /*

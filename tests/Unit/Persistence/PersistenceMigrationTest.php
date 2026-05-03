@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Padosoft\LaravelFlow\Tests\Unit\Persistence;
 
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 final class PersistenceMigrationTest extends PersistenceTestCase
@@ -54,5 +55,27 @@ final class PersistenceMigrationTest extends PersistenceTestCase
         $this->assertFalse(Schema::hasTable('flow_audit'));
         $this->assertFalse(Schema::hasTable('flow_steps'));
         $this->assertFalse(Schema::hasTable('flow_runs'));
+    }
+
+    public function test_audit_rows_cascade_when_run_is_deleted(): void
+    {
+        $this->migrateFlowTables();
+
+        DB::table('flow_runs')->insert([
+            'id' => '00000000-0000-4000-8000-000000000099',
+            'definition_name' => 'flow.audit.cascade',
+            'dry_run' => false,
+            'status' => 'succeeded',
+        ]);
+        DB::table('flow_audit')->insert([
+            'run_id' => '00000000-0000-4000-8000-000000000099',
+            'event' => 'FlowStepStarted',
+        ]);
+
+        DB::table('flow_runs')
+            ->where('id', '00000000-0000-4000-8000-000000000099')
+            ->delete();
+
+        $this->assertSame(0, DB::table('flow_audit')->where('run_id', '00000000-0000-4000-8000-000000000099')->count());
     }
 }

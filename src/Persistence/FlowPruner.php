@@ -88,7 +88,7 @@ final class FlowPruner
 
                 $audit += (int) $connection->table('flow_audit')
                     ->whereIn('run_id', $runIds)
-                    ->delete();
+                    ->count();
 
                 $runs += (int) $connection->table('flow_runs')
                     ->whereIn('id', $runIds)

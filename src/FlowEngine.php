@@ -143,7 +143,11 @@ class FlowEngine
                 $this->persistRunStarted($store, $run, $input);
             });
         } catch (Throwable $e) {
-            $existingRun = $this->existingRunForIdempotency($store, $definition, $options);
+            try {
+                $existingRun = $this->existingRunForIdempotency($store, $definition, $options);
+            } catch (Throwable) {
+                throw $e;
+            }
 
             if ($existingRun instanceof FlowRun) {
                 return $existingRun;

@@ -114,6 +114,7 @@ final class PersistenceRepositoryTest extends PersistenceTestCase
     {
         $this->migrateFlowTables();
         $counter = $this->bindCountingStringRedactor();
+        $this->createAuditRun('00000000-0000-4000-8000-000000000009');
 
         $record = $this->app->make(AuditRepository::class)->append(
             runId: '00000000-0000-4000-8000-000000000009',
@@ -130,6 +131,7 @@ final class PersistenceRepositoryTest extends PersistenceTestCase
     public function test_public_audit_repository_does_not_resolve_payload_redactor_for_empty_payloads(): void
     {
         $this->migrateFlowTables();
+        $this->createAuditRun('00000000-0000-4000-8000-000000000014');
         $counter = new class
         {
             public int $value = 0;
@@ -660,6 +662,7 @@ final class PersistenceRepositoryTest extends PersistenceTestCase
     public function test_audit_records_are_append_only(): void
     {
         $this->migrateFlowTables();
+        $this->createAuditRun('00000000-0000-4000-8000-000000000003');
 
         $audit = $this->app->make(AuditRepository::class);
         $record = $audit->append(
@@ -685,6 +688,7 @@ final class PersistenceRepositoryTest extends PersistenceTestCase
     public function test_audit_append_uses_laravel_clock_for_default_timestamps(): void
     {
         $this->migrateFlowTables();
+        $this->createAuditRun('00000000-0000-4000-8000-000000000008');
 
         $audit = $this->app->make(AuditRepository::class);
         $frozen = Carbon::parse('2026-05-02 11:00:00');
@@ -710,6 +714,7 @@ final class PersistenceRepositoryTest extends PersistenceTestCase
     public function test_audit_records_reject_query_builder_mutations(): void
     {
         $this->migrateFlowTables();
+        $this->createAuditRun('00000000-0000-4000-8000-000000000005');
 
         $audit = $this->app->make(AuditRepository::class);
         $record = $audit->append(
@@ -733,6 +738,16 @@ final class PersistenceRepositoryTest extends PersistenceTestCase
         FlowAuditRecord::query()
             ->whereKey($record->id)
             ->delete();
+    }
+
+    private function createAuditRun(string $runId): void
+    {
+        DB::table('flow_runs')->insert([
+            'definition_name' => 'flow.audit.repository',
+            'dry_run' => false,
+            'id' => $runId,
+            'status' => FlowRun::STATUS_RUNNING,
+        ]);
     }
 
     private function labelRedactor(string $label): PayloadRedactor

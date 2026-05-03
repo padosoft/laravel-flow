@@ -96,6 +96,8 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         $this->assertSame(['create', 'impact'], $steps->pluck('step_name')->all());
         $this->assertSame(['succeeded', 'succeeded'], $steps->pluck('status')->all());
         $this->assertSame($frozen->getTimestamp(), $steps[0]->started_at->getTimestamp());
+        $this->assertIsInt($steps[0]->sequence);
+        $this->assertIsInt($steps[0]->duration_ms);
         $this->assertSame('[redacted]', $steps[0]->input['flow_input']['token']);
         $this->assertSame(['create'], $steps[1]->input['step_output_keys']);
         $this->assertArrayNotHasKey('step_outputs', $steps[1]->input);

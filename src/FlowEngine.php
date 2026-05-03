@@ -337,6 +337,7 @@ class FlowEngine
                     FlowStepResult::failed($e),
                     $stepStartedAt,
                     $failedAt,
+                    failedStepPersistenceContext: $context,
                 );
 
                 throw $e;
@@ -410,6 +411,10 @@ class FlowEngine
         FlowRun $run,
         bool $persist,
     ): void {
+        if ($context->dryRun) {
+            return;
+        }
+
         // 'parallel' compensation strategy is reserved for v0.2; always reverse-order for now.
         $reversed = array_reverse($completedSteps);
 
@@ -527,9 +532,11 @@ class FlowEngine
         ?FlowStepResult $failedResult = null,
         ?DateTimeInterface $stepStartedAt = null,
         ?DateTimeImmutable $failedAt = null,
+        ?FlowContext $failedStepPersistenceContext = null,
         bool $markRunAborted = false,
     ): void {
         $failedAt ??= $this->now();
+        $failedStepPersistenceContext ??= $context;
         $listenerEvent = $this->pendingListenerFailureEvent;
         $this->pendingListenerFailureEvent = null;
         $shouldMarkRunFailed = $failedStep !== null
@@ -561,7 +568,7 @@ class FlowEngine
                 $run,
                 $failedStep,
                 $sequence,
-                $context,
+                $failedStepPersistenceContext,
                 $failedResult,
                 $stepStartedAt,
                 $failedAt,
@@ -1155,7 +1162,7 @@ class FlowEngine
         $output = [];
 
         foreach ($run->stepResults as $stepName => $result) {
-            if ($result->dryRunSkipped) {
+            if (! $result->success || $result->dryRunSkipped) {
                 continue;
             }
 

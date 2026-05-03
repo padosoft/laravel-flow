@@ -116,7 +116,7 @@ Every transition (`FlowStepStarted`, `FlowStepCompleted`, `FlowStepFailed`, `Flo
 
 | Feature                          | `laravel-flow`               | Spatie Workflow             | Symfony Workflow            | Temporal                  | AWS Step Functions     |
 | -------------------------------- | ---------------------------- | --------------------------- | --------------------------- | ------------------------- | ---------------------- |
-| Native dry-run                   | ✅ first-class                | ❌                          | ❌                          | ❌                         | ❌                      |
+| Native dry-run                   | ✅ first-class; no writes or compensator side effects | ❌                          | ❌                          | ❌                         | ❌                      |
 | Reverse-order saga compensation  | ✅ built-in                   | ⚠️ manual                   | ⚠️ manual                   | ✅ via SDK                 | ⚠️ via Catch + state    |
 | Approval gate as a step type     | ✅ via handler contract       | ⚠️ via guards               | ✅ via transition guard     | ⚠️ via `Workflow.await`   | ✅ via task token        |
 | Container-resolved handlers      | ✅                            | ⚠️ partial                  | ✅                          | ✅ (via worker DI)         | ❌ (Lambda fanout)      |
@@ -307,7 +307,7 @@ return [
 | `step_timeout_seconds`    | `300`            | Reserved for v0.2 queued workers.                                                                 |
 | `compensation_strategy`   | `reverse-order`  | `parallel` reserved for v0.2 — currently falls back to reverse-order.                             |
 
-When persistence is enabled, synchronous listener or persistence failures are rethrown after the engine records best-effort recovery state and compensates completed steps. Wrap `Flow::execute()` in application-level exception handling anywhere infrastructure outages must be surfaced separately from business step failures.
+When persistence is enabled, synchronous `FlowStep*` listener or persistence failures are rethrown after the engine records best-effort recovery state and compensates completed steps. `FlowCompensated` listener failures are recorded best-effort and do not interrupt rollback. Wrap `Flow::execute()` in application-level exception handling anywhere infrastructure outages must be surfaced separately from business step failures.
 
 ---
 

@@ -143,6 +143,8 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         $this->assertSame('charge', $runRecord->failed_step);
         $this->assertTrue($runRecord->compensated);
         $this->assertSame('succeeded', $runRecord->compensation_status);
+        $this->assertArrayHasKey('create', $runRecord->output);
+        $this->assertArrayNotHasKey('charge', $runRecord->output);
 
         $failedStep = FlowStepRecord::query()
             ->where('run_id', $run->id)
@@ -425,6 +427,7 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         $this->assertSame('failed', $stepRecord->status);
         $this->assertSame(RuntimeException::class, $stepRecord->error_class);
         $this->assertStringNotContainsString('plain-secret', (string) $stepRecord->error_message);
+        $this->assertArrayNotHasKey('create', $stepRecord->input['step_outputs']);
         $this->assertSame('FlowStepCompleted', $failedAudit->payload['listener_event']);
         $this->assertStringNotContainsString('plain-secret', (string) $failedAudit->payload['error_message']);
         $this->assertCount(1, RecordingCompensator::$invocations);

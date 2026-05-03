@@ -11,6 +11,7 @@ use Padosoft\LaravelFlow\FlowRun;
 use Padosoft\LaravelFlow\Tests\TestCase;
 use Padosoft\LaravelFlow\Tests\Unit\Stubs\AlwaysFailsHandler;
 use Padosoft\LaravelFlow\Tests\Unit\Stubs\AlwaysSucceedsHandler;
+use Padosoft\LaravelFlow\Tests\Unit\Stubs\DryRunAwareHandler;
 use Padosoft\LaravelFlow\Tests\Unit\Stubs\FirstStepCompensator;
 use Padosoft\LaravelFlow\Tests\Unit\Stubs\RecordingCompensator;
 use Padosoft\LaravelFlow\Tests\Unit\Stubs\SecondHandler;
@@ -172,5 +173,26 @@ final class FlowEngineCompensationTest extends TestCase
         $this->assertCount(2, RecordingCompensator::$invocations);
         $this->assertSame('second', RecordingCompensator::$invocations[0]['originalOutput']['compensator']);
         $this->assertSame('first', RecordingCompensator::$invocations[1]['originalOutput']['compensator']);
+    }
+
+    public function test_dry_run_failure_does_not_invoke_compensators(): void
+    {
+        /** @var FlowEngine $engine */
+        $engine = $this->app->make(FlowEngine::class);
+
+        $engine->define('flow.dry-run-failure')
+            ->step('simulate', DryRunAwareHandler::class)
+            ->withDryRun(true)
+            ->compensateWith(RecordingCompensator::class)
+            ->step('fail', AlwaysFailsHandler::class)
+            ->withDryRun(true)
+            ->register();
+
+        $run = $engine->dryRun('flow.dry-run-failure', []);
+
+        $this->assertTrue($run->dryRun);
+        $this->assertSame(FlowRun::STATUS_FAILED, $run->status);
+        $this->assertFalse($run->compensated);
+        $this->assertSame([], RecordingCompensator::$invocations);
     }
 }

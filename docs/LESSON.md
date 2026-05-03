@@ -76,7 +76,11 @@
 - A throwing `FlowStepFailed` listener happens after the failed transition was already stored; recovery must compensate without appending a second `FlowStepFailed` audit row for the same step failure.
 - Text redaction keys configured in normalized form (`apikey`) must still match quoted JSON-style variants (`api-key`, `apiKey`) inside free-form error messages.
 - Persisted aggregate run output should include successful empty-array outputs; omitting them makes "step ran and returned []" indistinguishable from "step absent".
+- Persisted aggregate run output should exclude failed step outputs; failed results also carry `[]`, and including them makes failed steps indistinguishable from successful empty-output steps.
+- Dry-run rollback must not invoke compensators. Dry-run-aware handlers may simulate work and then fail later, but compensators can perform real cleanup I/O.
+- Runtime-abort recovery after a successful step needs two contexts: pre-step context for persisted step input, post-step context for compensators.
 - README persistence docs must call out that opt-in synchronous persistence can rethrow listener/repository infrastructure failures after best-effort recovery and compensation.
+- README exception docs should distinguish `FlowStep*` listener failures, which are rethrown, from `FlowCompensated` listener failures, which are swallowed after best-effort telemetry.
 - Shared test recorders need one documented invocation shape across all writer stubs, otherwise helper phpdoc becomes misleading after a single stub extension.
 - Public README examples should avoid Laravel dump-and-die or other debug helpers; use normal variable assignment or assertions so docs do not teach debug output patterns.
 - When `composer validate --strict --no-check-publish` is a hard CI/PR gate, list it explicitly in contributor quick starts and PR expectation checklists, not only in CI or PR templates.

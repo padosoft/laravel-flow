@@ -65,7 +65,7 @@ The Laravel ecosystem has plenty of tools for *some* of these — `Bus::chain()`
 
 `laravel-flow` is that surface.
 
-It is **deliberately small**. v0.1 is in-memory, synchronous, container-resolved. The current v0.2 foundation adds persisted-run storage primitives; queued workers and companion dashboard contracts remain planned v0.2 slices.
+It is **deliberately small**. v0.1 is in-memory, synchronous, container-resolved. The current v0.2 foundation adds opt-in DB persistence for runs, steps, and audit rows; queued workers and companion dashboard contracts remain planned v0.2 slices.
 
 ---
 
@@ -87,7 +87,7 @@ Saga semantics: when step N fails, the engine walks the previously-completed ste
 
 ### 4. The audit trail is event-driven
 
-Every transition (`FlowStepStarted`, `FlowStepCompleted`, `FlowStepFailed`, `FlowCompensated`) is a Laravel event. The host application subscribes once and routes them to the logger / DB / metrics backend it already runs. v0.2 will add a default `flow_audit` table; v0.1 deliberately leaves the destination open.
+Every transition (`FlowStepStarted`, `FlowStepCompleted`, `FlowStepFailed`, `FlowCompensated`) is a Laravel event. The host application subscribes once and routes them to the logger, DB, or metrics backend it already runs. When persistence is enabled, v0.2 also records default audit rows in `flow_audit`.
 
 ### 5. Standalone-agnostic — zero AskMyDocs symbols
 
@@ -383,7 +383,7 @@ Custom `FlowStore` implementations that need the same per-execution `PayloadReda
                                                    └─────────────────────┘
 ```
 
-Every box is one PHP class under `src/`. The engine path is still synchronous and in-memory by default; when persistence is enabled, runtime runs and steps are written to `flow_runs` and `flow_steps`. Audit transitions are written to `flow_audit` only while `audit_trail_enabled` remains enabled. The next v0.2 slices add queues and replay.
+Every box is one PHP class under `src/`. The engine path is still synchronous and in-memory by default; when persistence is enabled, runtime runs and steps are written to `flow_runs` and `flow_steps`. Audit transitions are written to `flow_audit` only while `audit_trail_enabled` remains enabled. The next v0.2 slices add queues, replay, and compensation strategy expansion.
 
 ---
 
@@ -428,7 +428,7 @@ CI runs Pint (style), PHPStan (level 6), and the Unit + Architecture suites thro
 | Version | Scope                                                                                                                                                                                                                                                              | Target            |
 | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
 | v0.1    | In-memory engine, fluent builder, dry-run, reverse-order compensation, four audit events, business-impact field on results, Facade. Architecture test enforces standalone-agnostic.                                                                                  | code complete     |
-| v0.2    | Persistence core is landing in slices: `flow_runs` / `flow_steps` / `flow_audit` tables, synchronous engine writes, correlation/idempotency keys, and terminal-run retention pruning are in progress; queued workers, replay command, parallel compensation strategy, and companion web dashboard contracts/app integration remain next. | Q3 2026           |
+| v0.2    | Persistence core: `flow_runs` / `flow_steps` / `flow_audit` tables, synchronous engine writes, redacted payload storage, correlation/idempotency keys, and terminal-run retention pruning. Queue-backed workers, replay command, parallel compensation strategy, and companion web dashboard contracts/app integration remain next. | Q3 2026           |
 | v0.3    | Approval-gate primitive (a step type that pauses until an external token is presented), webhooks for resume.                                                                                                                                                         | Q4 2026           |
 | v1.0    | Stable API, semver guarantee, full migration helpers from Spatie Workflow / Symfony Workflow.                                                                                                                                                                        | 2027              |
 

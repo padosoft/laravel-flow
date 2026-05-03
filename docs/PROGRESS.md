@@ -10,7 +10,7 @@ Known workstreams:
 | --- | --- |
 | Macro Task 0 - durable agent operating system | Completed after merge of the macro PR to `main`. |
 | Macro Task 1 - baseline tooling and Laravel 13 policy | Completed after merge of the macro PR to `main`; Composer/CI/docs now narrow to Laravel 13, PHP 8.3/8.4, and Composer-script quality gates. |
-| Macro Task 2 - v0.2 persistence layer | In progress. Persistence migrations/repositories, synchronous engine wiring, and retention pruning have landed on the macro branch; the correlation/idempotency slice is in PR loop with identifier length validation, persisted step-result rehydration, and create-race fallback covered locally. |
+| Macro Task 2 - v0.2 persistence layer | Completed after merge of the macro PR to `main`; the package has opt-in DB persistence for runs, steps, audit rows, redaction, retention pruning, correlation IDs, and idempotency keys. |
 
 Concurrent subtasks should add rows here instead of replacing existing workstreams.
 
@@ -38,6 +38,15 @@ Validation summary:
   - `vendor/bin/phpunit --testsuite Unit` => 32 tests, 97 assertions
   - `vendor/bin/phpunit --testsuite Architecture` => 2 tests, 7 assertions
 
+Completed in Macro Task 2:
+
+- Added publishable `flow_runs`, `flow_steps`, and `flow_audit` migrations with SQLite-tested schema and MySQL/Postgres-friendly indexes.
+- Added public `FlowStore`, `RunRepository`, `StepRunRepository`, `AuditRepository`, `RedactorAwareFlowStore`, and current-redactor provider contracts.
+- Added Eloquent-backed persistence repositories with redacted JSON payload storage, append-only audit protections, immutable run identity updates, and atomic step upserts.
+- Wired the synchronous engine to persist opt-in run/step/audit transitions, business impact, output aggregates, failures, compensation state, timestamps, durations, correlation IDs, and idempotency keys.
+- Added `FlowExecutionOptions` for normalized, length-validated correlation/idempotency metadata and idempotent persisted-run reuse with step-result rehydration and create-race fallback.
+- Added `flow:prune` retention cleanup for old terminal runs while keeping pending/running rows intact.
+
 Next active macro:
 
-- Continue Macro Task 2 from `docs/ENTERPRISE_PLAN.md`: v0.2 persistence layer.
+- Continue Macro Task 3 from `docs/ENTERPRISE_PLAN.md`: v0.2 queues, replay, and compensation strategies.

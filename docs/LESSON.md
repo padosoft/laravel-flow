@@ -4,7 +4,7 @@
 
 - v0.1 is no longer a no-op scaffold. It includes the in-memory Flow engine core, facade, dry-run, compensation, events, business-impact results, README expansion, and architecture tests.
 - The enterprise direction chosen by the user is Laravel 13-only. Macro Task 0 intentionally left `composer.json` and CI on Laravel 12/13; Macro Task 1 is the branch that narrows compatibility.
-- The dashboard direction chosen by the user is companion app, not package-embedded UI.
+- The dashboard direction chosen by the user is companion app, not package-embedded UI; keep it in the later dashboard macro, not in v0.2 persistence or queue/replay roadmap wording.
 - The imported `.claude` pack already contains useful PR-loop and pre-push skills. Do not duplicate the full content; link to it and add laravel-flow-specific rules.
 - For this package repo, Vite/Vitest/Playwright are not local gates unless the companion dashboard app is touched.
 - When tests are added or assertion counts change, run the `test-count-readme-sync` skill before pushing so README and PR descriptions do not drift.
@@ -147,4 +147,3 @@
 - On Windows, PHPUnit `--filter` regexes containing `|` can be consumed by the `.bat` wrapper shell even when quoted; run separate filters or the full suite instead of trusting that pattern.
 - Character limits in public DTOs should count UTF-8 characters, not bytes, and should include normalization tests when docs promise trim/blank semantics.
 - README audit persistence wording must mention both gates: persisted audit rows require `persistence.enabled=true` and `audit_trail_enabled=true`.
-- README roadmap wording must keep companion-dashboard scope in the later dashboard macro, not in v0.2 queue/replay or persistence slices.

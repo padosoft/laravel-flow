@@ -7,7 +7,7 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg?style=flat-square)](LICENSE)
 [![Total Downloads](https://img.shields.io/packagist/dt/padosoft/laravel-flow.svg?style=flat-square)](https://packagist.org/packages/padosoft/laravel-flow)
 
-> **DX-first workflow / saga / compensation engine for Laravel — with native dry-run, reverse-order rollback, approval gate, business-impact projection, and an immutable audit trail. Built for the Laravel team that needs Temporal-class semantics without leaving Eloquent.**
+> **DX-first workflow / saga / compensation engine for Laravel — with native dry-run, reverse-order rollback, business-impact projection, opt-in persistence, and an immutable audit trail. Built for the Laravel team that needs Temporal-class semantics without leaving Eloquent.**
 
 `laravel-flow` is the third deliverable of the [Padosoft v4.0 cycle](https://github.com/lopadova/AskMyDocs) (W5). It is a community Apache-2.0 package, **standalone-agnostic** (zero references to AskMyDocs / sister packages), and ships with the Padosoft AI vibe-coding pack so you can extend it with Claude Code or GitHub Copilot in minutes — not days.
 
@@ -19,7 +19,6 @@ Flow::define('promotion.create')
     ->step('validate', ValidatePromotionInput::class)
     ->step('simulate', SimulatePromotionImpact::class)
         ->withDryRun(true)
-    ->step('approval', RequiresHumanApproval::class)
     ->step('persist', PersistPromotion::class)
         ->compensateWith(ReversePromotion::class)
     ->register();
@@ -56,7 +55,7 @@ Laravel applications routinely need to orchestrate **multi-step business workflo
 
 - **Validations** (some safe to skip, some load-bearing).
 - **Simulations** (project the impact of an operation without writing).
-- **Approval gates** (a human signs off before persistence).
+- **Approval gates** (future macro: a human signs off before persistence).
 - **Side-effecting writes** (DB rows, queue jobs, vendor API calls).
 - **Compensation chains** (when step N fails, undo step N-1 ... step 1).
 - **Audit trails** (regulators want to see *who did what, when, with which inputs, in which order*).
@@ -118,7 +117,7 @@ Every transition (`FlowStepStarted`, `FlowStepCompleted`, `FlowStepFailed`, `Flo
 | -------------------------------- | ---------------------------- | --------------------------- | --------------------------- | ------------------------- | ---------------------- |
 | Native dry-run                   | ✅ first-class; no persistence writes or compensator side effects | ❌                          | ❌                          | ❌                         | ❌                      |
 | Reverse-order saga compensation  | ✅ built-in                   | ⚠️ manual                   | ⚠️ manual                   | ✅ via SDK                 | ⚠️ via Catch + state    |
-| Approval gate as a step type     | ✅ via handler contract       | ⚠️ via guards               | ✅ via transition guard     | ⚠️ via `Workflow.await`   | ✅ via task token        |
+| Approval gate as a step type     | planned v0.3                  | ⚠️ via guards               | ✅ via transition guard     | ⚠️ via `Workflow.await`   | ✅ via task token        |
 | Container-resolved handlers      | ✅                            | ⚠️ partial                  | ✅                          | ✅ (via worker DI)         | ❌ (Lambda fanout)      |
 | Audit trail (events)             | ✅ 4 events / transition      | ⚠️ via state machine hooks  | ✅                          | ✅                         | ✅ (CloudWatch)         |
 | Business-impact projection       | ✅ on every result            | ❌                          | ❌                          | ❌                         | ❌                      |

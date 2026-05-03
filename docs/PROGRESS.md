@@ -10,7 +10,7 @@ Known workstreams:
 | --- | --- |
 | Macro Task 0 - durable agent operating system | Completed after merge of the macro PR to `main`. |
 | Macro Task 1 - baseline tooling and Laravel 13 policy | Completed after merge of the macro PR to `main`; Composer/CI/docs now narrow to Laravel 13, PHP 8.3/8.4, and Composer-script quality gates. |
-| Macro Task 2 - v0.2 persistence layer | Completed by the `task/v02-persistence` macro branch; verify live merge state with `gh` if resuming while the macro PR is still open. The package has opt-in DB persistence for runs, steps, audit rows, redaction, retention pruning, correlation IDs, and idempotency keys. |
+| Macro Task 2 - v0.2 persistence layer | Completed after merge of the macro PR to `main`; the package has opt-in DB persistence for runs, steps, audit rows, redaction, retention pruning, correlation IDs, and idempotency keys. |
 
 Concurrent subtasks should add rows here instead of replacing existing workstreams.
 
@@ -49,4 +49,4 @@ Completed in Macro Task 2:
 
 Next active macro:
 
-- Continue Macro Task 3 from `docs/ENTERPRISE_PLAN.md`: v0.2 queues, replay, and compensation strategies. If resuming before the Macro Task 2 macro PR has merged to `main`, finish that PR loop first.
+- Continue Macro Task 3 from `docs/ENTERPRISE_PLAN.md`: v0.2 queues, replay, and compensation strategies.

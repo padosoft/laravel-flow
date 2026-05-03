@@ -148,3 +148,4 @@
 - Character limits in public DTOs should count UTF-8 characters, not bytes, and should include normalization tests when docs promise trim/blank semantics.
 - README audit persistence wording must mention both gates: persisted audit rows require `persistence.enabled=true` and `audit_trail_enabled=true`.
 - README feature and comparison sections must not advertise approval gates as shipped until the approval/webhook macro lands.
+- README audit claims should say append-only runtime events or retention-aware persisted rows; `flow:prune` means persisted audit rows are not immutable forever.

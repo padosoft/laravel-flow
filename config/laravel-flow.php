@@ -44,8 +44,8 @@ return [
     |
     | When true, normal-case transitions dispatch the matching Laravel event.
     | If persistence is enabled, events are emitted only after required audit
-    | appends succeed. Persisted `flow_audit` rows are written only for
-    | non-dry-run executions when persistence and this flag are both enabled.
+    | appends succeed. Persisted `flow_audit` rows require persistence to be
+    | enabled, this flag to be true, and the execution to be non-dry-run.
     |
     */
     'audit_trail_enabled' => env('LARAVEL_FLOW_AUDIT_ENABLED', true),

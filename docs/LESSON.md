@@ -153,3 +153,4 @@
 - README event wording should qualify event dispatch as normal-case behavior: with persistence enabled, `FlowStep*` events dispatch only after the corresponding audit append succeeds, and `FlowCompensated` is skipped when its compensation audit append fails.
 - Published config comments must carry the same audit gates as README docs: persisted `flow_audit` rows require persistence, `audit_trail_enabled=true`, and a non-dry-run execution.
 - README `Comparison vs alternatives` rows should use explicit `✅ YES - ...`, `⚠️ PARTIAL - ...`, or `❌ NO - ...` prefixes in every capability cell, and the competitor set should name verified current projects rather than stale labels.
+- README tagline and positioning should not imply Temporal-class queue/replay guarantees until queue-backed workers and replay are actually shipped.

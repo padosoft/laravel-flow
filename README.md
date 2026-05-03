@@ -7,7 +7,7 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg?style=flat-square)](LICENSE)
 [![Total Downloads](https://img.shields.io/packagist/dt/padosoft/laravel-flow.svg?style=flat-square)](https://packagist.org/packages/padosoft/laravel-flow)
 
-> **DX-first workflow / saga / compensation engine for Laravel — with native dry-run, reverse-order rollback, business-impact projection, opt-in persistence, and audit events. Built for Laravel teams that need explicit saga semantics without leaving Eloquent.**
+> **DX-first workflow / saga / compensation engine for Laravel — with native dry-run, reverse-order rollback, business-impact projection, opt-in persistence, and audit events. Built for Laravel teams that need dry-run, compensation, and persisted run telemetry inside the app they already operate.**
 
 `laravel-flow` is the third deliverable of the [Padosoft v4.0 cycle](https://github.com/lopadova/AskMyDocs) (W5). It is a community Apache-2.0 package, **standalone-agnostic** (zero references to AskMyDocs / sister packages), and ships with the Padosoft AI vibe-coding pack so you can extend it with Claude Code or GitHub Copilot in minutes — not days.
 
@@ -86,7 +86,7 @@ Saga semantics: when step N fails, the engine walks the previously-completed ste
 
 ### 4. The audit trail is event-driven
 
-When `audit_trail_enabled` is enabled, normal-case step and compensation transitions dispatch the matching Laravel event, such as `FlowStepStarted`, `FlowStepCompleted`, `FlowStepFailed`, or `FlowCompensated`. When persistence is enabled, step events are dispatched only after the matching audit append succeeds, and compensation events are skipped if their audit append fails. The host application subscribes once and routes those events to the logger, DB, or metrics backend it already runs. For non-dry-run executions, when both persistence and `audit_trail_enabled` are enabled, v0.2 also records default audit rows in `flow_audit`. Dry-runs never write run, step, or audit rows.
+When `audit_trail_enabled` is enabled, normal-case step and compensation transitions dispatch the matching Laravel event, such as `FlowStepStarted`, `FlowStepCompleted`, `FlowStepFailed`, or `FlowCompensated`. When persistence is enabled, step events are dispatched only after the matching audit append succeeds, and compensation events are skipped if their audit append fails. The host application subscribes once and routes those events to the logger, DB, or metrics backend it already runs. Persisted `flow_audit` rows are written only for non-dry-run executions when both persistence and `audit_trail_enabled` are enabled. Dry-runs never write run, step, or audit rows.
 
 ### 5. Standalone-agnostic — zero AskMyDocs symbols
 

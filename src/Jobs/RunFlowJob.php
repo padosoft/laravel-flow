@@ -29,6 +29,7 @@ final class RunFlowJob implements ShouldQueueAfterCommit
         public readonly ?string $dispatchId = null,
         public readonly ?string $lockStore = null,
         public readonly int $lockSeconds = 3600,
+        public readonly int $lockRetrySeconds = 30,
     ) {}
 
     public function handle(FlowEngine $flow, CacheFactory $cache, ConfigRepository $config): ?FlowRun
@@ -53,14 +54,25 @@ final class RunFlowJob implements ShouldQueueAfterCommit
         if (! $lock->get()) {
             // InteractsWithQueue marks the underlying Laravel job as released;
             // CallQueuedHandler will not delete a released job.
-            $this->release($this->lockSeconds());
+            $this->release($this->lockRetrySeconds());
 
             return null;
         }
 
         try {
             $run = $flow->execute($this->name, $this->input, $this->options);
-            $repository->put($this->completionKey(), true, $this->lockSeconds());
+
+            if ($repository->put($this->completionKey(), true, $this->lockSeconds()) !== true) {
+                $exception = new RuntimeException('Laravel Flow queued execution could not record the dispatch completion marker.');
+
+                if ($this->job !== null) {
+                    $this->fail($exception);
+
+                    return $run;
+                }
+
+                throw $exception;
+            }
 
             return $run;
         } finally {
@@ -86,6 +98,11 @@ final class RunFlowJob implements ShouldQueueAfterCommit
     private function lockSeconds(): int
     {
         return max(1, $this->lockSeconds);
+    }
+
+    private function lockRetrySeconds(): int
+    {
+        return max(1, min($this->lockSeconds(), $this->lockRetrySeconds));
     }
 
     private function allowsProcessLocalLocks(ConfigRepository $config): bool

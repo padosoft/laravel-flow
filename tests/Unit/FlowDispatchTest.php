@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Padosoft\LaravelFlow\Tests\Unit;
 
+use Illuminate\Contracts\Cache\Factory as CacheFactory;
+use Illuminate\Contracts\Cache\Repository as CacheRepository;
 use Illuminate\Contracts\Queue\ShouldQueueAfterCommit;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Cache;
@@ -49,6 +51,7 @@ final class FlowDispatchTest extends TestCase
                 && $job instanceof ShouldQueueAfterCommit
                 && $job->dispatchId !== null
                 && $job->lockSeconds === 3600
+                && $job->lockRetrySeconds === 30
                 && str_starts_with($job->lockKey(), 'laravel-flow:run:')
                 && $job->input === ['tenant' => 'acme']
                 && $job->options?->correlationId === 'corr-1'
@@ -62,6 +65,7 @@ final class FlowDispatchTest extends TestCase
         Bus::fake();
         $this->app['config']->set('laravel-flow.queue.lock_store', 'file');
         $this->app['config']->set('laravel-flow.queue.lock_seconds', 120);
+        $this->app['config']->set('laravel-flow.queue.lock_retry_seconds', 15);
         $this->app->forgetInstance(FlowEngine::class);
 
         /** @var FlowEngine $engine */
@@ -76,6 +80,7 @@ final class FlowDispatchTest extends TestCase
             RunFlowJob::class,
             static fn (RunFlowJob $job): bool => $job->lockStore === 'file'
                 && $job->lockSeconds === 120
+                && $job->lockRetrySeconds === 15
                 && $job->input === ['tenant' => 'acme'],
         );
     }
@@ -125,7 +130,7 @@ final class FlowDispatchTest extends TestCase
             ->step('one', AlwaysSucceedsHandler::class)
             ->register();
 
-        $job = new RunFlowJob('flow.job.locked', dispatchId: 'locked-dispatch', lockStore: 'file', lockSeconds: 60);
+        $job = new RunFlowJob('flow.job.locked', dispatchId: 'locked-dispatch', lockStore: 'file', lockSeconds: 60, lockRetrySeconds: 5);
         $job->withFakeQueueInteractions();
         $lock = Cache::store('file')->getStore()->lock($job->lockKey(), 60);
         $this->assertTrue($lock->get());
@@ -137,7 +142,31 @@ final class FlowDispatchTest extends TestCase
         }
 
         $this->assertNull($run);
-        $job->assertReleased(60);
+        $job->assertReleased(5);
+        $this->assertSame(0, AlwaysSucceedsHandler::$callCount);
+    }
+
+    public function test_run_flow_job_caps_duplicate_release_delay_to_lock_ttl(): void
+    {
+        /** @var FlowEngine $engine */
+        $engine = $this->app->make(FlowEngine::class);
+        $engine->define('flow.job.locked-cap')
+            ->step('one', AlwaysSucceedsHandler::class)
+            ->register();
+
+        $job = new RunFlowJob('flow.job.locked-cap', dispatchId: 'locked-cap-dispatch', lockStore: 'file', lockSeconds: 10, lockRetrySeconds: 60);
+        $job->withFakeQueueInteractions();
+        $lock = Cache::store('file')->getStore()->lock($job->lockKey(), 10);
+        $this->assertTrue($lock->get());
+
+        try {
+            $run = $job->handle($engine, $this->app->make('cache'), $this->app['config']);
+        } finally {
+            $lock->release();
+        }
+
+        $this->assertNull($run);
+        $job->assertReleased(10);
         $this->assertSame(0, AlwaysSucceedsHandler::$callCount);
     }
 
@@ -158,6 +187,33 @@ final class FlowDispatchTest extends TestCase
         $this->assertNull($run);
         $job->assertNotReleased();
         $this->assertSame(0, AlwaysSucceedsHandler::$callCount);
+    }
+
+    public function test_run_flow_job_surfaces_completion_marker_write_failures(): void
+    {
+        /** @var FlowEngine $engine */
+        $engine = $this->app->make(FlowEngine::class);
+        $engine->define('flow.job.marker-failure')
+            ->step('one', AlwaysSucceedsHandler::class)
+            ->register();
+
+        $repository = $this->createMock(CacheRepository::class);
+        $repository->expects($this->once())->method('getStore')->willReturn(Cache::store('file')->getStore());
+        $repository->expects($this->once())->method('get')->willReturn(null);
+        $repository->expects($this->once())->method('put')->willReturn(false);
+
+        $cache = $this->createMock(CacheFactory::class);
+        $cache->expects($this->once())->method('store')->willReturn($repository);
+
+        try {
+            (new RunFlowJob('flow.job.marker-failure', dispatchId: 'marker-failure-dispatch', lockStore: 'file'))
+                ->handle($engine, $cache, $this->app['config']);
+            $this->fail('Expected completion marker write failure to surface.');
+        } catch (RuntimeException $e) {
+            $this->assertStringContainsString('completion marker', $e->getMessage());
+        }
+
+        $this->assertSame(1, AlwaysSucceedsHandler::$callCount);
     }
 
     public function test_run_flow_job_rejects_process_local_array_lock_store(): void

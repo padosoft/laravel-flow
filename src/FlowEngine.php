@@ -52,7 +52,7 @@ class FlowEngine
          *         enabled?: bool,
          *         redaction?: array{enabled?: bool, keys?: array<int, string>, replacement?: string}
          *     },
-         *     queue?: array{lock_store?: string|null, lock_seconds?: int}
+         *     queue?: array{lock_store?: string|null, lock_seconds?: int, lock_retry_seconds?: int}
          * }
          */
         private readonly array $config = [],
@@ -131,6 +131,7 @@ class FlowEngine
             dispatchId: $this->generateId(),
             lockStore: $this->queueLockStore(),
             lockSeconds: $this->queueLockSeconds(),
+            lockRetrySeconds: $this->queueLockRetrySeconds(),
         ));
     }
 
@@ -1368,6 +1369,13 @@ class FlowEngine
         $seconds = $this->config['queue']['lock_seconds'] ?? 3600;
 
         return is_int($seconds) && $seconds >= 1 ? $seconds : 3600;
+    }
+
+    private function queueLockRetrySeconds(): int
+    {
+        $seconds = $this->config['queue']['lock_retry_seconds'] ?? 30;
+
+        return is_int($seconds) && $seconds >= 1 ? $seconds : 30;
     }
 
     private function dispatchEvent(object $event): void

@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 $queueLockSeconds = env('LARAVEL_FLOW_QUEUE_LOCK_SECONDS', 3600);
+$queueLockRetrySeconds = env('LARAVEL_FLOW_QUEUE_LOCK_RETRY_SECONDS', 30);
 
 return [
 
@@ -59,6 +60,9 @@ return [
         'lock_seconds' => is_numeric($queueLockSeconds) && (int) $queueLockSeconds >= 1
             ? (int) $queueLockSeconds
             : 3600,
+        'lock_retry_seconds' => is_numeric($queueLockRetrySeconds) && (int) $queueLockRetrySeconds >= 1
+            ? (int) $queueLockRetrySeconds
+            : 30,
     ],
 
     /*

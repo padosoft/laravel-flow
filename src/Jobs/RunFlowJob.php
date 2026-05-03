@@ -59,11 +59,14 @@ final class RunFlowJob implements ShouldQueueAfterCommit
             return null;
         }
 
+        $releaseLock = true;
+
         try {
             $run = $flow->execute($this->name, $this->input, $this->options);
 
             if ($repository->put($this->completionKey(), true, $this->lockSeconds()) !== true) {
                 $exception = new RuntimeException('Laravel Flow queued execution could not record the dispatch completion marker.');
+                $releaseLock = false;
 
                 if ($this->job !== null) {
                     $this->fail($exception);
@@ -76,7 +79,9 @@ final class RunFlowJob implements ShouldQueueAfterCommit
 
             return $run;
         } finally {
-            $lock->release();
+            if ($releaseLock) {
+                $lock->release();
+            }
         }
     }
 

@@ -205,14 +205,18 @@ final class FlowDispatchTest extends TestCase
         $cache = $this->createMock(CacheFactory::class);
         $cache->expects($this->once())->method('store')->willReturn($repository);
 
+        $job = new RunFlowJob('flow.job.marker-failure', dispatchId: 'marker-failure-dispatch', lockStore: 'file');
+
         try {
-            (new RunFlowJob('flow.job.marker-failure', dispatchId: 'marker-failure-dispatch', lockStore: 'file'))
-                ->handle($engine, $cache, $this->app['config']);
+            $job->handle($engine, $cache, $this->app['config']);
             $this->fail('Expected completion marker write failure to surface.');
         } catch (RuntimeException $e) {
             $this->assertStringContainsString('completion marker', $e->getMessage());
         }
 
+        $lock = Cache::store('file')->getStore()->lock($job->lockKey(), 60);
+        $this->assertFalse($lock->get());
+        $lock->forceRelease();
         $this->assertSame(1, AlwaysSucceedsHandler::$callCount);
     }
 

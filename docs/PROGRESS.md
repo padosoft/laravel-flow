@@ -11,7 +11,7 @@ Known workstreams:
 | Macro Task 0 - durable agent operating system | Completed after merge of the macro PR to `main`. |
 | Macro Task 1 - baseline tooling and Laravel 13 policy | Completed after merge of the macro PR to `main`; Composer/CI/docs now narrow to Laravel 13, PHP 8.3/8.4, and Composer-script quality gates. |
 | Macro Task 2 - v0.2 persistence layer | Completed after merge of the macro PR to `main`; the package has opt-in DB persistence for runs, steps, audit rows, redaction, retention pruning, correlation IDs, and idempotency keys. |
-| Macro Task 2 macro review hardening | Centralizes execution-scoped redactor provider resolution and aligns prune transaction callback arity so Macro Task 2 persistence review feedback remains folded into the durable implementation. |
+| Macro Task 2 macro review hardening | Centralizes execution-scoped redactor provider resolution, aligns prune transaction callback usage, explicitly deletes pruned child rows, and keeps persistence model PHPDoc aligned with stored timestamp columns so Macro Task 2 review feedback remains folded into the durable implementation. |
 
 Concurrent subtasks should add rows here instead of replacing existing workstreams.
 

@@ -16,6 +16,8 @@ use Padosoft\LaravelFlow\Persistence\AppendOnlyAuditBuilder;
  * @property string $event
  * @property array<string, mixed>|null $payload
  * @property array<string, mixed>|null $business_impact
+ * @property \DateTimeInterface|null $occurred_at
+ * @property \DateTimeInterface|null $created_at
  */
 final class FlowAuditRecord extends Model
 {

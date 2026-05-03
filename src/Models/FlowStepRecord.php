@@ -21,6 +21,10 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property string|null $error_message
  * @property bool $dry_run_skipped
  * @property int|null $duration_ms
+ * @property \DateTimeInterface|null $started_at
+ * @property \DateTimeInterface|null $finished_at
+ * @property \DateTimeInterface|null $created_at
+ * @property \DateTimeInterface|null $updated_at
  */
 final class FlowStepRecord extends Model
 {

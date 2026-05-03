@@ -132,7 +132,7 @@
 
 - Retention pruning is an explicit operational exception to append-only audit storage: keep normal runtime audit append-only, but let `flow:prune` delete old terminal run, step, and audit rows through query-builder transactions.
 - Prune commands should delete only terminal runs with non-null `finished_at` older than the cutoff; pending/running rows must survive even if their `started_at` is old.
-- If migration FKs already cascade child rows, retention pruning should rely on the cascade instead of issuing redundant child deletes; count child rows before deleting parent runs when reporting pruned totals.
+- Even when migration FKs cascade child rows, retention pruning should explicitly delete child rows before deleting parent runs when reporting pruned totals; published schemas may have missing or disabled constraints.
 - Operational commands for opt-in persistence must fail cleanly when migrations have not been published/run, because the in-memory package path is still supported without tables.
 - Avoid redundant standalone indexes when a new composite index has the same leading column and covers the known query pattern.
 - Artisan commands that accept a database connection name should catch invalid-connection and query exceptions around schema guards and return actionable failures instead of surfacing raw framework exceptions.
@@ -157,7 +157,7 @@
 - Composer `suggest` metadata must be updated when a roadmap version partially lands; avoid "when vX lands" wording after that version has shipped a slice.
 - README comparison atomicity claims must distinguish transaction-scoped step transitions and atomic step upserts from compensation audit/finalization writes, which can be separate best-effort operations.
 - Until Macro Task 3 implements strategy selection, `compensation_strategy` must be documented as reserved metadata only; the current engine ignores the value and always compensates in reverse order.
-- Even when `flow_audit` has a run foreign key, `flow:prune` should explicitly delete matching audit rows until there is an additive migration story for installations that already published older tables without that FK.
+- Even when `flow_steps` and `flow_audit` have run foreign keys, `flow:prune` should explicitly delete matching child rows until there is an additive migration story for installations that already published older tables without those FKs.
 - `ExecutionScopedPayloadRedactor` must delegate provider-chain cycle/depth handling to `PayloadRedactorResolution`; keep only the scope-specific self fallback outside the shared resolver so JSON and execution-scoped redaction cannot drift.
 - Laravel transaction callbacks should accept the connection argument even when unused, matching `EloquentFlowStore::transaction()` and avoiding arity drift across connection implementations.
 - When a transaction callback receives the connection instance, use that callback parameter for the enclosed queries instead of capturing the outer connection; it keeps all statements tied to the exact transactional connection.

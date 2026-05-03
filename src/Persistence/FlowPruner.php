@@ -57,11 +57,11 @@ final class FlowPruner
             }
 
             $connection->transaction(function () use ($connection, $runIds, &$runs, &$steps, &$audit): void {
-                $audit += (int) $connection->table('flow_audit')
-                    ->whereIn('run_id', $runIds)
-                    ->delete();
-
                 $steps += (int) $connection->table('flow_steps')
+                    ->whereIn('run_id', $runIds)
+                    ->count();
+
+                $audit += (int) $connection->table('flow_audit')
                     ->whereIn('run_id', $runIds)
                     ->delete();
 

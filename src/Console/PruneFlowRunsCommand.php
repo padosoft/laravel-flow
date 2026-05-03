@@ -8,6 +8,7 @@ use Illuminate\Console\Command;
 use Illuminate\Console\ConfirmableTrait;
 use Illuminate\Contracts\Config\Repository as ConfigRepository;
 use Illuminate\Support\Facades\Date;
+use Illuminate\Support\Facades\DB;
 use Padosoft\LaravelFlow\Persistence\FlowPruner;
 
 final class PruneFlowRunsCommand extends Command
@@ -51,12 +52,18 @@ final class PruneFlowRunsCommand extends Command
         }
 
         $dryRun = (bool) $this->option('dry-run');
+        $database = $this->databaseConnection($config);
+
+        if (! $this->persistenceTablesExist($database)) {
+            $this->error('Laravel Flow persistence tables were not found on the selected database connection. Publish and run the migrations before pruning.');
+
+            return self::FAILURE;
+        }
 
         if (! $dryRun && ! $this->confirmToProceed('This will permanently delete old Laravel Flow persistence rows.')) {
             return self::FAILURE;
         }
 
-        $database = $this->databaseConnection($config);
         $cutoff = Date::now()->subDays($days)->toDateTimeImmutable();
         $result = (new FlowPruner($database))->prune($cutoff, $chunkSize, $dryRun);
         $summary = sprintf(
@@ -106,5 +113,14 @@ final class PruneFlowRunsCommand extends Command
         }
 
         return null;
+    }
+
+    private function persistenceTablesExist(?string $database): bool
+    {
+        $schema = DB::connection($database)->getSchemaBuilder();
+
+        return $schema->hasTable('flow_runs')
+            && $schema->hasTable('flow_steps')
+            && $schema->hasTable('flow_audit');
     }
 }

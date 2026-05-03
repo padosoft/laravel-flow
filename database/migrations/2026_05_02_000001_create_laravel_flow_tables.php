@@ -13,7 +13,7 @@ return new class extends Migration
         Schema::create('flow_runs', function (Blueprint $table): void {
             $table->string('id', 36)->primary();
             $table->string('definition_name')->index();
-            $table->string('status', 32)->index();
+            $table->string('status', 32);
             $table->boolean('dry_run')->default(false);
             $table->json('input')->nullable();
             $table->json('output')->nullable();

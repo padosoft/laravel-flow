@@ -58,14 +58,14 @@ final class ExecutionScopedPayloadRedactor implements CurrentPayloadRedactorProv
             $id = spl_object_id($redactor);
 
             if (isset($seen[$id])) {
-                return $redactor;
+                throw new \RuntimeException('Cyclic CurrentPayloadRedactorProvider chain detected.');
             }
 
             $seen[$id] = true;
             $next = $redactor->currentRedactor();
 
             if ($next === $redactor) {
-                return $redactor;
+                throw new \RuntimeException('Cyclic CurrentPayloadRedactorProvider chain detected.');
             }
 
             $redactor = $next;

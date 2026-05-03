@@ -10,6 +10,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\Event;
 use Padosoft\LaravelFlow\Contracts\AuditRepository;
+use Padosoft\LaravelFlow\Contracts\CurrentPayloadRedactorProvider;
 use Padosoft\LaravelFlow\Contracts\FlowStore;
 use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
 use Padosoft\LaravelFlow\Contracts\RedactorAwareFlowStore;
@@ -520,6 +521,82 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         $this->assertSame(1, $tracker->withPayloadRedactorCalls);
         $this->assertSame('[aware-redacted-1]', $runRecord->input['token']);
         $this->assertStringContainsString('[aware-redacted-1]', (string) $failedStep->error_message);
+    }
+
+    public function test_engine_unwraps_current_payload_redactor_provider_for_text_and_json_redaction(): void
+    {
+        $this->migrateFlowTables();
+        $this->app['config']->set('laravel-flow.persistence.enabled', true);
+
+        $counter = new class
+        {
+            public int $value = 0;
+        };
+
+        $this->app->bind(PayloadRedactor::class, static function () use ($counter): PayloadRedactor {
+            $counter->value++;
+            $inner = new class($counter->value) implements PayloadRedactor
+            {
+                public function __construct(
+                    private readonly int $instance,
+                ) {}
+
+                public function redact(array $payload): array
+                {
+                    foreach ($payload as $key => $value) {
+                        if (is_string($value)) {
+                            $payload[$key] = str_replace('custom-secret', '[provider-redacted-'.$this->instance.']', $value);
+                        }
+                    }
+
+                    return $payload;
+                }
+            };
+
+            return new class($inner) implements CurrentPayloadRedactorProvider
+            {
+                public function __construct(
+                    private readonly PayloadRedactor $inner,
+                ) {}
+
+                public function currentRedactor(): PayloadRedactor
+                {
+                    return $this->inner;
+                }
+
+                public function redact(array $payload): array
+                {
+                    foreach ($payload as $key => $value) {
+                        if (is_string($value)) {
+                            $payload[$key] = str_replace('custom-secret', '[outer-redacted]', $value);
+                        }
+                    }
+
+                    return $payload;
+                }
+            };
+        });
+
+        $engine = $this->engineWithPersistence();
+
+        $engine->define('flow.persist.provider-redactor')
+            ->step('charge', CustomSecretFailsHandler::class)
+            ->register();
+
+        $run = $engine->execute('flow.persist.provider-redactor', ['token' => 'custom-secret']);
+
+        $runRecord = FlowRunRecord::query()->find($run->id);
+        $failedStep = FlowStepRecord::query()
+            ->where('run_id', $run->id)
+            ->where('step_name', 'charge')
+            ->first();
+
+        $this->assertInstanceOf(FlowRunRecord::class, $runRecord);
+        $this->assertInstanceOf(FlowStepRecord::class, $failedStep);
+        $this->assertSame(1, $counter->value);
+        $this->assertSame('[provider-redacted-1]', $runRecord->input['token']);
+        $this->assertStringContainsString('[provider-redacted-1]', (string) $failedStep->error_message);
+        $this->assertStringNotContainsString('[outer-redacted]', (string) $failedStep->error_message);
     }
 
     public function test_persisted_error_messages_redact_normalized_key_variants(): void

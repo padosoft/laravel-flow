@@ -1127,7 +1127,11 @@ class FlowEngine
 
     private function redactorForExecution(): ?PayloadRedactor
     {
-        return $this->redactor ?? $this->resolvePayloadRedactor();
+        $redactor = $this->redactor ?? $this->resolvePayloadRedactor();
+
+        return $redactor instanceof PayloadRedactor
+            ? PayloadRedactorResolution::current($redactor)
+            : null;
     }
 
     private function storeWithExecutionRedactor(?FlowStore $store, ?PayloadRedactor $redactor): ?FlowStore

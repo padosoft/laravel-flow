@@ -8,7 +8,7 @@ use DateTimeImmutable;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Date;
 use Padosoft\LaravelFlow\FlowRun;
-use PHPUnit\Framework\TestCase;
+use Padosoft\LaravelFlow\Tests\TestCase;
 
 final class FlowRunTest extends TestCase
 {

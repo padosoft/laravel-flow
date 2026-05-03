@@ -25,7 +25,7 @@ final class PayloadRedactorResolution
             $next = $redactor->currentRedactor();
 
             if ($next === $redactor) {
-                return $redactor;
+                throw new RuntimeException('Cyclic CurrentPayloadRedactorProvider chain detected.');
             }
 
             $redactor = $next;

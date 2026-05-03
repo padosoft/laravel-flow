@@ -127,6 +127,38 @@ final class PersistenceRepositoryTest extends PersistenceTestCase
         $this->assertSame('redactor-1', $record->business_impact['secret']);
     }
 
+    public function test_public_audit_repository_does_not_resolve_payload_redactor_for_empty_payloads(): void
+    {
+        $this->migrateFlowTables();
+        $counter = new class
+        {
+            public int $value = 0;
+        };
+
+        $this->app->bind(PayloadRedactor::class, static function () use ($counter): PayloadRedactor {
+            $counter->value++;
+
+            return new class implements PayloadRedactor
+            {
+                public function redact(array $payload): array
+                {
+                    return $payload;
+                }
+            };
+        });
+
+        $record = $this->app->make(AuditRepository::class)->append(
+            runId: '00000000-0000-4000-8000-000000000014',
+            event: 'FlowStepStarted',
+            payload: [],
+            businessImpact: null,
+        );
+
+        $this->assertSame(0, $counter->value);
+        $this->assertSame([], $record->payload);
+        $this->assertNull($record->business_impact);
+    }
+
     public function test_public_run_repository_write_uses_one_payload_redactor_instance_for_multiple_json_fields(): void
     {
         $this->migrateFlowTables();

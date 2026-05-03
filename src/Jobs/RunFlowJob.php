@@ -107,6 +107,12 @@ final class RunFlowJob implements ShouldQueueAfterCommit
 
     private function allowsProcessLocalLocks(ConfigRepository $config): bool
     {
-        return $config->get('queue.default') === 'sync';
+        $connection = $config->get('queue.default');
+
+        if (! is_string($connection) || $connection === '') {
+            return false;
+        }
+
+        return $config->get('queue.connections.'.$connection.'.driver') === 'sync';
     }
 }

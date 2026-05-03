@@ -235,7 +235,8 @@ final class FlowDispatchTest extends TestCase
 
     public function test_run_flow_job_allows_process_local_array_lock_store_with_sync_queue_driver(): void
     {
-        $this->app['config']->set('queue.default', 'sync');
+        $this->app['config']->set('queue.default', 'inline');
+        $this->app['config']->set('queue.connections.inline.driver', 'sync');
 
         /** @var FlowEngine $engine */
         $engine = $this->app->make(FlowEngine::class);

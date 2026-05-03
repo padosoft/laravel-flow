@@ -81,6 +81,9 @@
 - Runtime-abort recovery after a successful step needs two contexts: pre-step context for persisted step input, post-step context for compensators.
 - Listener-failure metadata must be local to a single `run()` execution; `FlowEngine` is singleton-resolved, so mutable object state can leak across overlapping or nested executions.
 - Infrastructure aborts after all business steps succeeded should remain `aborted` even when rollback succeeds; do not let compensation status overwrite the abort cause.
+- Runtime-abort recovery should compensate first and persist failed step/run telemetry afterwards. Writing failure state before rollback creates a crash gap where persistence claims recovery that never happened.
+- Listener dispatch helpers should capture listener metadata and rethrow only; persisted recovery writes belong in the outer runtime-abort flow after compensation.
+- Runtime-abort compensation failures must not mask the original listener/repository exception that aborted execution; persist compensation status best-effort and let the original catch block rethrow.
 - README persistence docs must call out that opt-in synchronous persistence can rethrow listener/repository infrastructure failures after best-effort recovery and compensation.
 - README exception docs should distinguish `FlowStep*` listener failures, which are rethrown, from `FlowCompensated` listener failures, which are swallowed after best-effort telemetry.
 - Shared test recorders need one documented invocation shape across all writer stubs, otherwise helper phpdoc becomes misleading after a single stub extension.

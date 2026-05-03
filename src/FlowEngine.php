@@ -159,15 +159,8 @@ class FlowEngine
                         'status' => 'running',
                     ], occurredAt: $stepStartedAt);
                 });
-                $this->dispatchOrPersistListenerFailure(
-                    $persist,
+                $this->dispatchOrCaptureListenerFailure(
                     new FlowStepStarted($run->id, $definition->name, $step->name, $dryRun),
-                    $run,
-                    $step,
-                    $sequence,
-                    $context,
-                    $stepStartedAt,
-                    false,
                     $listenerFailureEvent,
                 );
             } catch (Throwable $e) {
@@ -231,15 +224,8 @@ class FlowEngine
                         ], occurredAt: $stepFinishedAt);
                         $this->persistRunFinished($persist, $run);
                     });
-                    $this->dispatchOrPersistListenerFailure(
-                        $persist,
+                    $this->dispatchOrCaptureListenerFailure(
                         new FlowStepFailed($run->id, $definition->name, $step->name, $result, $dryRun),
-                        $run,
-                        $step,
-                        $sequence,
-                        $context,
-                        $stepStartedAt,
-                        true,
                         $listenerFailureEvent,
                     );
                 } catch (Throwable $e) {
@@ -321,15 +307,8 @@ class FlowEngine
                         'status' => $result->dryRunSkipped ? 'skipped' : 'succeeded',
                     ], $result->businessImpact, $stepFinishedAt);
                 });
-                $this->dispatchOrPersistListenerFailure(
-                    $persist,
+                $this->dispatchOrCaptureListenerFailure(
                     new FlowStepCompleted($run->id, $definition->name, $step->name, $result, $dryRun),
-                    $run,
-                    $step,
-                    $sequence,
-                    $context,
-                    $stepStartedAt,
-                    true,
                     $listenerFailureEvent,
                 );
             } catch (Throwable $e) {
@@ -567,6 +546,17 @@ class FlowEngine
             && $run->status === FlowRun::STATUS_FAILED
             && $run->failedStep === $failedStep->name;
 
+        $compensationError = null;
+        try {
+            $this->compensate($definition, $context, $completedSteps, $run, $persist);
+        } catch (Throwable $e) {
+            $compensationError = $e;
+        }
+
+        $compensationStatus = $compensationError instanceof Throwable
+            ? 'failed'
+            : ($run->compensated ? 'succeeded' : null);
+
         if (
             $failedStep !== null
             && $sequence !== null
@@ -586,18 +576,10 @@ class FlowEngine
                 $listenerEvent,
             );
         } elseif ($shouldMarkRunFailed || $shouldMarkRunAborted) {
-            $this->persistRunFinishedBestEffort($persist, $run);
+            $this->persistRunFinishedBestEffort($persist, $run, $compensationStatus);
         }
 
-        try {
-            $this->compensate($definition, $context, $completedSteps, $run, $persist);
-        } catch (Throwable $e) {
-            $this->persistRunFinishedBestEffort($persist, $run, 'failed');
-
-            throw $e;
-        }
-
-        $this->persistRunFinishedBestEffort($persist, $run, $run->compensated ? 'succeeded' : null);
+        $this->persistRunFinishedBestEffort($persist, $run, $compensationStatus);
     }
 
     private function persistRuntimeAbortStateBestEffort(
@@ -782,68 +764,14 @@ class FlowEngine
         }
     }
 
-    private function dispatchOrPersistListenerFailure(
-        bool $persist,
+    private function dispatchOrCaptureListenerFailure(
         object $event,
-        FlowRun $run,
-        FlowStep $step,
-        int $sequence,
-        FlowContext $context,
-        DateTimeInterface $stepStartedAt,
-        bool $stepAlreadyFinished,
         ?string &$listenerFailureEvent,
     ): void {
         try {
             $this->dispatch($event);
         } catch (Throwable $e) {
             $listenerFailureEvent = $this->eventName($event);
-
-            if (! $persist) {
-                throw $e;
-            }
-
-            $failedAt = $this->now();
-            $failedResult = FlowStepResult::failed($e);
-            $shouldPersistStepFailure = ! $stepAlreadyFinished || $event instanceof FlowStepCompleted;
-
-            try {
-                $this->persistAtomically(true, function () use (
-                    $run,
-                    $step,
-                    $sequence,
-                    $context,
-                    $stepStartedAt,
-                    $stepAlreadyFinished,
-                    $shouldPersistStepFailure,
-                    $failedResult,
-                    $failedAt,
-                ): void {
-                    if ($shouldPersistStepFailure) {
-                        if (! $stepAlreadyFinished) {
-                            $run->recordStepResult($step->name, $failedResult);
-                        }
-
-                        $this->persistStepFinished(
-                            true,
-                            $run,
-                            $step,
-                            $sequence,
-                            $context,
-                            $failedResult,
-                            $stepStartedAt,
-                            $failedAt,
-                        );
-                    }
-
-                    if ($run->finishedAt === null) {
-                        $run->markFailed($step->name, $failedAt);
-                    }
-
-                    $this->persistRunFinished(true, $run);
-                });
-            } catch (Throwable) {
-                // Preserve and rethrow the original listener exception below.
-            }
 
             throw $e;
         }

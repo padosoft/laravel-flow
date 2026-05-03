@@ -102,7 +102,7 @@ Every transition (`FlowStepStarted`, `FlowStepCompleted`, `FlowStepFailed`, `Flo
 - **Reverse-order saga compensation** — `compensateWith(Compensator::class)` per step; failures unwind cleanly.
 - **Immutable audit trail** — four Laravel events per transition; subscribe once.
 - **Business-impact projection** — handlers return `businessImpact: [...]` alongside output, surfaced on every step result.
-- **Opt-in persisted execution** — `flow_runs`, `flow_steps`, and `flow_audit` migrations, Eloquent repositories, immutable run identity updates, transaction-scoped run/step/audit transitions, compensate-first persistence failure handling, sanitized listener/error storage, clock-aware audit timestamps, and redacted JSON payload storage.
+- **Opt-in persisted execution** — `flow_runs`, `flow_steps`, and `flow_audit` migrations, Eloquent repositories, immutable run identity updates, transaction-scoped run/step/audit transitions, compensate-first runtime-abort recovery, sanitized listener/error storage, clock-aware audit timestamps, and redacted JSON payload storage.
 - **Container-resolved handlers** — full DI, type hints, and stack traces.
 - **Strict input validation** — `withInput(['a','b'])` throws `FlowInputException` if a key is missing.
 - **Multi-strategy compensation knob** — `reverse-order` (default), `parallel` (v0.2).
@@ -116,7 +116,7 @@ Every transition (`FlowStepStarted`, `FlowStepCompleted`, `FlowStepFailed`, `Flo
 
 | Feature                          | `laravel-flow`               | Spatie Workflow             | Symfony Workflow            | Temporal                  | AWS Step Functions     |
 | -------------------------------- | ---------------------------- | --------------------------- | --------------------------- | ------------------------- | ---------------------- |
-| Native dry-run                   | ✅ first-class; no writes or compensator side effects | ❌                          | ❌                          | ❌                         | ❌                      |
+| Native dry-run                   | ✅ first-class; no persistence writes or compensator side effects | ❌                          | ❌                          | ❌                         | ❌                      |
 | Reverse-order saga compensation  | ✅ built-in                   | ⚠️ manual                   | ⚠️ manual                   | ✅ via SDK                 | ⚠️ via Catch + state    |
 | Approval gate as a step type     | ✅ via handler contract       | ⚠️ via guards               | ✅ via transition guard     | ⚠️ via `Workflow.await`   | ✅ via task token        |
 | Container-resolved handlers      | ✅                            | ⚠️ partial                  | ✅                          | ✅ (via worker DI)         | ❌ (Lambda fanout)      |

@@ -435,6 +435,14 @@ final class PersistenceRepositoryTest extends PersistenceTestCase
         PayloadRedactorResolution::current($first);
     }
 
+    public function test_fresh_current_payload_redactor_provider_cycles_fail_without_recursive_redaction(): void
+    {
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('Cyclic CurrentPayloadRedactorProvider chain detected.');
+
+        PayloadRedactorResolution::current($this->freshProviderCycle());
+    }
+
     public function test_execution_scoped_payload_redactor_fails_provider_cycles_without_recursive_redaction(): void
     {
         /** @var ExecutionScopedPayloadRedactor $scope */
@@ -471,6 +479,19 @@ final class PersistenceRepositoryTest extends PersistenceTestCase
         $second->next = $first;
 
         $this->app->instance(PayloadRedactor::class, $first);
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('Cyclic CurrentPayloadRedactorProvider chain detected.');
+
+        $scope->redact(['token' => 'plain-secret']);
+    }
+
+    public function test_execution_scoped_payload_redactor_fails_fresh_provider_cycles_without_recursive_redaction(): void
+    {
+        /** @var ExecutionScopedPayloadRedactor $scope */
+        $scope = $this->app->make(ExecutionScopedPayloadRedactor::class);
+
+        $this->app->instance(PayloadRedactor::class, $this->freshProviderCycle());
 
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('Cyclic CurrentPayloadRedactorProvider chain detected.');
@@ -765,6 +786,51 @@ final class PersistenceRepositoryTest extends PersistenceTestCase
                 return $payload;
             }
         };
+    }
+
+    private function freshProviderCycle(): CurrentPayloadRedactorProvider
+    {
+        $makeFirst = null;
+        $makeSecond = null;
+
+        $makeFirst = static function () use (&$makeSecond): CurrentPayloadRedactorProvider {
+            return new class($makeSecond) implements CurrentPayloadRedactorProvider
+            {
+                public function __construct(
+                    private readonly \Closure $next,
+                ) {}
+
+                public function currentRedactor(): PayloadRedactor
+                {
+                    return ($this->next)();
+                }
+
+                public function redact(array $payload): array
+                {
+                    return $payload;
+                }
+            };
+        };
+        $makeSecond = static function () use (&$makeFirst): CurrentPayloadRedactorProvider {
+            return new class($makeFirst) implements CurrentPayloadRedactorProvider
+            {
+                public function __construct(
+                    private readonly \Closure $next,
+                ) {}
+
+                public function currentRedactor(): PayloadRedactor
+                {
+                    return ($this->next)();
+                }
+
+                public function redact(array $payload): array
+                {
+                    return $payload;
+                }
+            };
+        };
+
+        return $makeFirst();
     }
 
     /**

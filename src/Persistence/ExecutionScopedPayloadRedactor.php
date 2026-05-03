@@ -49,8 +49,15 @@ final class ExecutionScopedPayloadRedactor implements CurrentPayloadRedactorProv
     private function unwrapCurrentRedactor(PayloadRedactor $redactor): PayloadRedactor
     {
         $seen = [];
+        $depth = 0;
 
         while ($redactor instanceof CurrentPayloadRedactorProvider) {
+            $depth++;
+
+            if ($depth > 32) {
+                throw new \RuntimeException('Cyclic CurrentPayloadRedactorProvider chain detected.');
+            }
+
             if ($redactor instanceof self) {
                 return $this->fallbackRedactor();
             }

@@ -309,6 +309,8 @@ return [
 
 When persistence is enabled, synchronous `FlowStep*` listener or persistence failures are rethrown after the engine records best-effort recovery state and compensates completed steps. `FlowCompensated` listener failures are swallowed after the compensation audit row is durable so rollback is not interrupted. Wrap `Flow::execute()` in application-level exception handling anywhere infrastructure outages must be surfaced separately from business step failures.
 
+Custom `FlowStore` implementations that need the same per-execution `PayloadRedactor` used by engine error-text sanitization should implement `Padosoft\LaravelFlow\Contracts\RedactorAwareFlowStore`. The engine calls `withPayloadRedactor()` once per persisted execution before writing run, step, and audit telemetry.
+
 ---
 
 ## Architecture

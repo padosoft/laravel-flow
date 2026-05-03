@@ -251,7 +251,7 @@ Flow::dispatch(
 );
 ```
 
-`Flow::dispatch()` validates the registered definition and required input before queuing `RunFlowJob`. The worker resolves the current `FlowEngine` and executes the same definition with the serialized input and execution options. Run locking, retry/backoff policy, database-queue integration tests, replay, and parallel compensation are still planned v0.2 follow-up slices.
+`Flow::dispatch()` validates the registered definition and required input before queuing `RunFlowJob`. The job dispatches after the current database transaction commits; whether it runs asynchronously or inline still depends on the application's configured Laravel queue driver. The worker resolves the current `FlowEngine` and executes the same definition with the serialized input and execution options. Run locking, retry/backoff policy, database-queue integration tests, replay, and parallel compensation are still planned v0.2 follow-up slices.
 
 ### Compensation chain (saga rollback)
 

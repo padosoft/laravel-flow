@@ -111,7 +111,7 @@ class FlowEngine
     }
 
     /**
-     * Queue a registered flow for asynchronous execution.
+     * Queue a registered flow for queued execution.
      *
      * @param  array<string, mixed>  $input
      */

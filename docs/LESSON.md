@@ -162,4 +162,5 @@
 - Laravel transaction callbacks should accept the connection argument even when unused, matching `EloquentFlowStore::transaction()` and avoiding arity drift across connection implementations.
 - When a transaction callback receives the connection instance, use that callback parameter for the enclosed queries instead of capturing the outer connection; it keeps all statements tied to the exact transactional connection.
 - Queue dispatch should validate flow definition/input before enqueuing and should serialize only the flow name, input, and execution options; worker processes must resolve the current `FlowEngine` so definitions and host bindings come from the running app.
+- Queue-dispatched flow jobs should use after-commit dispatch semantics so workers cannot observe uncommitted or rolled-back application state when `Flow::dispatch()` is called inside a database transaction.
 - In this lock-ignored package repo, a `composer.json` dependency change can make `composer validate --strict --no-check-publish` fail against the local ignored lock file; run `composer update --lock` locally to refresh the content hash, but do not stage `composer.lock`.

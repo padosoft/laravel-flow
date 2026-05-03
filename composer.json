@@ -34,7 +34,6 @@
         "phpunit/phpunit": "^11.5|^12.5"
     },
     "suggest": {
-        "illuminate/queue": "Required for Flow::dispatch() queued execution; configure your Laravel queue connection/worker for async processing.",
         "padosoft/laravel-patent-box-tracker": "Tracks R&D activity (Italian Patent Box) across repositories that depend on laravel-flow — useful when flow definitions are part of a tax-deductible R&D project."
     },
     "autoload": {

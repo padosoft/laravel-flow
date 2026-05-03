@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Padosoft\LaravelFlow\Tests\Unit;
 
+use Illuminate\Contracts\Queue\ShouldQueueAfterCommit;
 use Illuminate\Support\Facades\Bus;
 use Padosoft\LaravelFlow\Exceptions\FlowInputException;
 use Padosoft\LaravelFlow\Facades\Flow;
@@ -41,6 +42,7 @@ final class FlowDispatchTest extends TestCase
         Bus::assertDispatched(
             RunFlowJob::class,
             static fn (RunFlowJob $job): bool => $job->name === 'flow.dispatch'
+                && $job instanceof ShouldQueueAfterCommit
                 && $job->input === ['tenant' => 'acme']
                 && $job->options?->correlationId === 'corr-1'
                 && $job->options?->idempotencyKey === 'idem-1',

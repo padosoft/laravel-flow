@@ -432,6 +432,38 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         $this->assertPersistenceTablesEmpty();
     }
 
+    public function test_in_memory_execution_does_not_resolve_payload_redactor_when_persistence_is_disabled(): void
+    {
+        $counter = new class
+        {
+            public int $value = 0;
+        };
+
+        $this->app->bind(PayloadRedactor::class, static function () use ($counter): PayloadRedactor {
+            $counter->value++;
+
+            return new class implements PayloadRedactor
+            {
+                public function redact(array $payload): array
+                {
+                    return $payload;
+                }
+            };
+        });
+        $this->app->forgetInstance(FlowEngine::class);
+
+        /** @var FlowEngine $engine */
+        $engine = $this->app->make(FlowEngine::class);
+
+        $engine->define('flow.persist.disabled-redactor')
+            ->step('create', AlwaysSucceedsHandler::class)
+            ->register();
+
+        $engine->execute('flow.persist.disabled-redactor', []);
+
+        $this->assertSame(0, $counter->value);
+    }
+
     public function test_dry_run_does_not_write_even_when_persistence_is_enabled(): void
     {
         $this->migrateFlowTables();
@@ -756,6 +788,39 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         $this->assertStringNotContainsString('plain-secret', (string) $failedAudit->payload['error_message']);
         $this->assertCount(1, RecordingCompensator::$invocations);
         $this->assertSame(AlwaysSucceedsHandler::class, RecordingCompensator::$invocations[0]['originalOutput']['handler']);
+    }
+
+    public function test_runtime_abort_failed_step_business_impact_is_excluded_from_persisted_run_aggregate(): void
+    {
+        $this->migrateFlowTables();
+        $engine = $this->engineWithPersistence();
+
+        $this->app['events']->listen(
+            FlowStepCompleted::class,
+            static fn (): never => throw new RuntimeException('listener exploded after impact'),
+        );
+
+        $engine->define('flow.persist.completed-listener-impact')
+            ->step('project', DryRunAwareHandler::class)
+            ->compensateWith(RecordingCompensator::class)
+            ->register();
+
+        try {
+            $engine->execute('flow.persist.completed-listener-impact', []);
+            $this->fail('The throwing listener should abort execution.');
+        } catch (RuntimeException $exception) {
+            $this->assertSame('listener exploded after impact', $exception->getMessage());
+        }
+
+        $runRecord = FlowRunRecord::query()->first();
+        $stepRecord = FlowStepRecord::query()
+            ->where('step_name', 'project')
+            ->first();
+
+        $this->assertInstanceOf(FlowRunRecord::class, $runRecord);
+        $this->assertInstanceOf(FlowStepRecord::class, $stepRecord);
+        $this->assertSame('failed', $stepRecord->status);
+        $this->assertNull($runRecord->business_impact);
     }
 
     public function test_runtime_abort_step_fallback_still_retries_final_run_state(): void

@@ -113,8 +113,8 @@ class FlowEngine
         $definition = $this->definition($name);
         $this->validateInput($definition, $input);
         $store = $this->storeForExecution($dryRun);
-        $redactor = $this->redactorForExecution();
-        $redactorScope = $this->executionScopedPayloadRedactor();
+        $redactor = $store instanceof FlowStore ? $this->redactorForExecution() : null;
+        $redactorScope = $store instanceof FlowStore ? $this->executionScopedPayloadRedactor() : null;
         $redactorPushed = $redactor instanceof PayloadRedactor && $redactorScope instanceof ExecutionScopedPayloadRedactor;
 
         if ($redactorPushed) {
@@ -1187,7 +1187,7 @@ class FlowEngine
         $businessImpact = [];
 
         foreach ($run->stepResults as $stepName => $result) {
-            if ($result->businessImpact === null) {
+            if ($result->businessImpact === null || $stepName === $run->failedStep) {
                 continue;
             }
 

@@ -111,3 +111,6 @@
 - Execution-scoped mutable state in singleton services must be isolated by Fiber/request context or avoided; a plain singleton stack is unsafe under overlapping worker executions.
 - A runtime-scope wrapper must not bind to its own public contract without a safe fallback, otherwise self-resolution can silently bypass the underlying redaction policy.
 - Do not mark a run `compensated` until all compensators that should run have succeeded; partial rollback with aggregated compensation errors must remain visibly failed.
+- Keep the default in-memory engine path free of persistence-only service resolution; opt-in persistence should not add redactor/container work to successful non-persistent executions.
+- Persisted run aggregates should exclude any step that runtime-abort recovery reclassified as the failed step, including both output and business-impact summaries.
+- Terminal lifecycle methods should require the timestamp needed to complete their invariant; do not make `finishedAt` optional for terminal states such as `compensated`.

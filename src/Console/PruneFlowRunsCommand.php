@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 use Padosoft\LaravelFlow\Persistence\FlowPruner;
+use Throwable;
 
 final class PruneFlowRunsCommand extends Command
 {
@@ -63,7 +64,10 @@ final class PruneFlowRunsCommand extends Command
                 return self::FAILURE;
             }
         } catch (InvalidArgumentException|QueryException $e) {
-            $this->error('Laravel Flow could not access the selected persistence database connection: '.$e->getMessage());
+            $this->reportDatabaseFailure(
+                'Laravel Flow could not access the selected persistence database connection. Check --database and your database configuration.',
+                $e,
+            );
 
             return self::FAILURE;
         }
@@ -76,7 +80,10 @@ final class PruneFlowRunsCommand extends Command
             $cutoff = Date::now()->subDays($days)->toDateTimeImmutable();
             $result = (new FlowPruner($database))->prune($cutoff, $chunkSize, $dryRun);
         } catch (InvalidArgumentException|QueryException $e) {
-            $this->error('Laravel Flow could not prune persistence records: '.$e->getMessage());
+            $this->reportDatabaseFailure(
+                'Laravel Flow could not prune persistence records. Check the selected database connection and migration state.',
+                $e,
+            );
 
             return self::FAILURE;
         }
@@ -137,5 +144,14 @@ final class PruneFlowRunsCommand extends Command
         return $schema->hasTable('flow_runs')
             && $schema->hasTable('flow_steps')
             && $schema->hasTable('flow_audit');
+    }
+
+    private function reportDatabaseFailure(string $message, Throwable $exception): void
+    {
+        $this->error($message);
+
+        if ($this->getOutput()->isVerbose()) {
+            $this->line($exception->getMessage());
+        }
     }
 }

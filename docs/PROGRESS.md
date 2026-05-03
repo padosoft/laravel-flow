@@ -12,6 +12,7 @@ Known workstreams:
 | Macro Task 1 - baseline tooling and Laravel 13 policy | Completed after merge of the macro PR to `main`; Composer/CI/docs now narrow to Laravel 13, PHP 8.3/8.4, and Composer-script quality gates. |
 | Macro Task 2 - v0.2 persistence layer | Completed after merge of the macro PR to `main`; the package has opt-in DB persistence for runs, steps, audit rows, redaction, retention pruning, correlation IDs, and idempotency keys. |
 | Macro Task 2 macro review hardening | Centralizes execution-scoped redactor provider resolution, aligns prune transaction callback usage, explicitly deletes pruned child rows, and keeps persistence model PHPDoc aligned with stored timestamp columns so Macro Task 2 review feedback remains folded into the durable implementation. |
+| Macro Task 3 - v0.2 queues/replay | Started with a queue dispatch foundation: `Flow::dispatch()` validates and queues a `RunFlowJob` carrying flow name, input, and execution options; locking, retry/backoff, database-queue integration, replay, and parallel compensation remain follow-up slices. |
 
 Concurrent subtasks should add rows here instead of replacing existing workstreams.
 
@@ -48,11 +49,11 @@ Completed in Macro Task 2 (v0.2 persistence layer):
 - Added `FlowExecutionOptions` for normalized, length-validated correlation/idempotency metadata and idempotent persisted-run reuse with step-result rehydration and create-race fallback.
 - Added `flow:prune` retention cleanup for old terminal runs while keeping pending/running rows intact.
 
-Macro Task 2 current validation baseline:
+Current validation baseline:
 
 - `composer validate --strict --no-check-publish`
-- `composer quality` => Pint format test, PHPStan, Unit 107 tests / 466 assertions, Architecture 2 tests / 7 assertions
+- `composer quality` => Pint format test, PHPStan, Unit 110 tests / 473 assertions, Architecture 2 tests / 7 assertions
 
 Next active macro:
 
-- Continue Macro Task 3 from `docs/ENTERPRISE_PLAN.md`: v0.2 queues, replay, and compensation strategies. Preserve the shipped `reverse-order` config spelling when adding `parallel`.
+- Continue Macro Task 3 from `docs/ENTERPRISE_PLAN.md`: add run locking, retry/backoff, database-queue integration, replay, and compensation strategies. Preserve the shipped `reverse-order` config spelling when adding `parallel`.

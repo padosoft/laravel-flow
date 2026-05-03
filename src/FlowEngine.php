@@ -6,6 +6,7 @@ namespace Padosoft\LaravelFlow;
 
 use DateTimeImmutable;
 use DateTimeInterface;
+use Illuminate\Contracts\Bus\Dispatcher as BusDispatcher;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Contracts\Events\Dispatcher;
 use Padosoft\LaravelFlow\Contracts\FlowStore;
@@ -19,6 +20,7 @@ use Padosoft\LaravelFlow\Exceptions\FlowCompensationException;
 use Padosoft\LaravelFlow\Exceptions\FlowExecutionException;
 use Padosoft\LaravelFlow\Exceptions\FlowInputException;
 use Padosoft\LaravelFlow\Exceptions\FlowNotRegisteredException;
+use Padosoft\LaravelFlow\Jobs\RunFlowJob;
 use Padosoft\LaravelFlow\Models\FlowRunRecord;
 use Padosoft\LaravelFlow\Models\FlowStepRecord;
 use Padosoft\LaravelFlow\Persistence\PayloadRedactorResolution;
@@ -28,8 +30,8 @@ use Throwable;
  * Main entry point for laravel-flow.
  *
  * Holds the registry of {@see FlowDefinition}s and exposes execute /
- * dryRun. Definitions stay in-memory; v0.2 can optionally persist runtime
- * runs, steps, and audit records when configured.
+ * dryRun / dispatch. Definitions stay in-memory; v0.2 can optionally
+ * persist runtime runs, steps, and audit records when configured.
  */
 class FlowEngine
 {
@@ -106,6 +108,22 @@ class FlowEngine
     public function dryRun(string $name, array $input, ?FlowExecutionOptions $options = null): FlowRun
     {
         return $this->run($name, $input, true, $options);
+    }
+
+    /**
+     * Queue a registered flow for asynchronous execution.
+     *
+     * @param  array<string, mixed>  $input
+     */
+    public function dispatch(string $name, array $input, ?FlowExecutionOptions $options = null): mixed
+    {
+        $definition = $this->definition($name);
+        $this->validateInput($definition, $input);
+
+        /** @var BusDispatcher $bus */
+        $bus = $this->container->make(BusDispatcher::class);
+
+        return $bus->dispatch(new RunFlowJob($definition->name, $input, $options));
     }
 
     /**
@@ -832,7 +850,7 @@ class FlowEngine
         ?string &$listenerFailureEvent,
     ): void {
         try {
-            $this->dispatch($event);
+            $this->dispatchEvent($event);
         } catch (Throwable $e) {
             $listenerFailureEvent = $this->eventName($event);
 
@@ -847,7 +865,7 @@ class FlowEngine
         FlowStep $step,
     ): void {
         try {
-            $this->dispatch(new FlowCompensated($run->id, $definition->name, $step->name, $context->dryRun));
+            $this->dispatchEvent(new FlowCompensated($run->id, $definition->name, $step->name, $context->dryRun));
         } catch (Throwable) {
             // Compensation listener failures must not interrupt rollback.
         }
@@ -1330,7 +1348,7 @@ class FlowEngine
         }
     }
 
-    private function dispatch(object $event): void
+    private function dispatchEvent(object $event): void
     {
         if (! $this->auditEnabled()) {
             return;

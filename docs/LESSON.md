@@ -113,9 +113,10 @@
 - Do not mark a run `compensated` until all compensators that should run have succeeded; partial rollback with aggregated compensation errors must remain visibly failed.
 - Keep the default in-memory engine path free of persistence-only service resolution; opt-in persistence should not add redactor/container work to successful non-persistent executions.
 - Persisted run aggregates should exclude any step that runtime-abort recovery reclassified as the failed step, including both output and business-impact summaries.
-- Terminal lifecycle methods should require the timestamp needed to complete their invariant; do not make `finishedAt` optional for terminal states such as `compensated`.
+- Terminal lifecycle methods with legacy optional timestamp arguments must still populate `finishedAt`; keep public method compatibility while preserving terminal invariants.
 - Prefer per-execution store instances with a frozen redactor over shared mutable redactor stacks when engine persistence needs JSON/text redaction consistency.
 - Repository redaction should capture one current redactor instance for a record write while preserving each JSON field's original payload shape; synthetic wrappers can break valid top-level custom redactors.
 - Engine execution redactor freeze should be expressed through store/redactor capability contracts, not concrete class checks, so decorators can preserve JSON/text redaction and transaction consistency.
 - Compensation failure paths should advance `finishedAt` to the rollback failure time so persisted duration includes partial rollback work.
 - Current-redactor provider chains should be unwrapped recursively, and execution-scope redactor self-resolution guards should treat any scope wrapper instance as recursive.
+- Step input snapshots should not duplicate cumulative step outputs into every row; store bounded metadata such as output keys and reconstruct full history from ordered step rows.

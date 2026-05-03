@@ -897,10 +897,7 @@ class FlowEngine
         $store->steps()->createOrUpdate($run->id, $step->name, [
             'dry_run_skipped' => false,
             'handler' => $step->handlerFqcn,
-            'input' => [
-                'flow_input' => $context->input,
-                'step_outputs' => $context->stepOutputs,
-            ],
+            'input' => $this->stepInputSnapshot($context),
             'sequence' => $sequence,
             'started_at' => $startedAt,
             'status' => 'running',
@@ -932,15 +929,23 @@ class FlowEngine
             'error_message' => $this->safeErrorMessage($error, $redactor),
             'finished_at' => $finishedAt,
             'handler' => $step->handlerFqcn,
-            'input' => [
-                'flow_input' => $context->input,
-                'step_outputs' => $context->stepOutputs,
-            ],
+            'input' => $this->stepInputSnapshot($context),
             'output' => $result->success ? $result->output : null,
             'sequence' => $sequence,
             'started_at' => $startedAt,
             'status' => $result->success ? ($result->dryRunSkipped ? 'skipped' : 'succeeded') : 'failed',
         ]);
+    }
+
+    /**
+     * @return array{flow_input: array<string, mixed>, step_output_keys: list<string>}
+     */
+    private function stepInputSnapshot(FlowContext $context): array
+    {
+        return [
+            'flow_input' => $context->input,
+            'step_output_keys' => array_keys($context->stepOutputs),
+        ];
     }
 
     private function safeErrorMessage(?Throwable $error, ?PayloadRedactor $redactor = null): ?string

@@ -93,6 +93,8 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         $this->assertSame(['succeeded', 'succeeded'], $steps->pluck('status')->all());
         $this->assertSame($frozen->getTimestamp(), $steps[0]->started_at->getTimestamp());
         $this->assertSame('[redacted]', $steps[0]->input['flow_input']['token']);
+        $this->assertSame(['create'], $steps[1]->input['step_output_keys']);
+        $this->assertArrayNotHasKey('step_outputs', $steps[1]->input);
         $this->assertSame(['projected_writes' => 5], $steps[1]->business_impact);
 
         $auditEvents = FlowAuditRecord::query()
@@ -911,7 +913,8 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         $this->assertSame('failed', $stepRecord->status);
         $this->assertSame(RuntimeException::class, $stepRecord->error_class);
         $this->assertStringNotContainsString('plain-secret', (string) $stepRecord->error_message);
-        $this->assertArrayNotHasKey('create', $stepRecord->input['step_outputs']);
+        $this->assertSame([], $stepRecord->input['step_output_keys']);
+        $this->assertArrayNotHasKey('step_outputs', $stepRecord->input);
         $this->assertSame('FlowStepCompleted', $failedAudit->payload['listener_event']);
         $this->assertStringNotContainsString('plain-secret', (string) $failedAudit->payload['error_message']);
         $this->assertCount(1, RecordingCompensator::$invocations);

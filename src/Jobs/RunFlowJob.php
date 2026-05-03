@@ -14,23 +14,46 @@ use Padosoft\LaravelFlow\FlowEngine;
 use Padosoft\LaravelFlow\FlowExecutionOptions;
 use Padosoft\LaravelFlow\FlowRun;
 use RuntimeException;
+use Throwable;
 
 final class RunFlowJob implements ShouldQueueAfterCommit
 {
     use InteractsWithQueue;
 
     /**
+     * @var array<string, mixed>
+     */
+    public array $input = [];
+
+    public ?FlowExecutionOptions $options = null;
+
+    public ?string $dispatchId = null;
+
+    public ?string $lockStore = null;
+
+    public int $lockSeconds = 3600;
+
+    public int $lockRetrySeconds = 30;
+
+    /**
      * @param  array<string, mixed>  $input
      */
     public function __construct(
-        public readonly string $name,
-        public readonly array $input = [],
-        public readonly ?FlowExecutionOptions $options = null,
-        public readonly ?string $dispatchId = null,
-        public readonly ?string $lockStore = null,
-        public readonly int $lockSeconds = 3600,
-        public readonly int $lockRetrySeconds = 30,
-    ) {}
+        public string $name,
+        array $input = [],
+        ?FlowExecutionOptions $options = null,
+        ?string $dispatchId = null,
+        ?string $lockStore = null,
+        int $lockSeconds = 3600,
+        int $lockRetrySeconds = 30,
+    ) {
+        $this->input = $input;
+        $this->options = $options;
+        $this->dispatchId = $dispatchId;
+        $this->lockStore = $lockStore;
+        $this->lockSeconds = $lockSeconds;
+        $this->lockRetrySeconds = $lockRetrySeconds;
+    }
 
     public function handle(FlowEngine $flow, CacheFactory $cache, ConfigRepository $config): ?FlowRun
     {
@@ -64,9 +87,20 @@ final class RunFlowJob implements ShouldQueueAfterCommit
         try {
             $run = $flow->execute($this->name, $this->input, $this->options);
 
-            if ($repository->put($this->completionKey(), true, $this->lockSeconds()) !== true) {
-                $exception = new RuntimeException('Laravel Flow queued execution could not record the dispatch completion marker.');
-                $releaseLock = false;
+            $releaseLock = false;
+
+            try {
+                $completionRecorded = $repository->put($this->completionKey(), true, $this->lockSeconds());
+            } catch (Throwable $e) {
+                $completionRecorded = false;
+                $exception = new RuntimeException(
+                    'Laravel Flow queued execution could not record the dispatch completion marker.',
+                    previous: $e,
+                );
+            }
+
+            if ($completionRecorded !== true) {
+                $exception ??= new RuntimeException('Laravel Flow queued execution could not record the dispatch completion marker.');
 
                 if ($this->job !== null) {
                     $this->fail($exception);
@@ -74,6 +108,8 @@ final class RunFlowJob implements ShouldQueueAfterCommit
 
                 throw $exception;
             }
+
+            $releaseLock = true;
 
             return $run;
         } finally {

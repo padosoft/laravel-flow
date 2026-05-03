@@ -220,6 +220,62 @@ final class FlowDispatchTest extends TestCase
         $this->assertSame(1, AlwaysSucceedsHandler::$callCount);
     }
 
+    public function test_run_flow_job_retains_lock_when_completion_marker_write_throws(): void
+    {
+        /** @var FlowEngine $engine */
+        $engine = $this->app->make(FlowEngine::class);
+        $engine->define('flow.job.marker-exception')
+            ->step('one', AlwaysSucceedsHandler::class)
+            ->register();
+
+        $repository = $this->createMock(CacheRepository::class);
+        $repository->expects($this->once())->method('getStore')->willReturn(Cache::store('file')->getStore());
+        $repository->expects($this->once())->method('get')->willReturn(null);
+        $repository->expects($this->once())->method('put')->willThrowException(new RuntimeException('cache unavailable'));
+
+        $cache = $this->createMock(CacheFactory::class);
+        $cache->expects($this->once())->method('store')->willReturn($repository);
+
+        $job = new RunFlowJob('flow.job.marker-exception', dispatchId: 'marker-exception-dispatch', lockStore: 'file');
+
+        try {
+            $job->handle($engine, $cache, $this->app['config']);
+            $this->fail('Expected completion marker write exception to surface.');
+        } catch (RuntimeException $e) {
+            $this->assertStringContainsString('completion marker', $e->getMessage());
+            $this->assertSame('cache unavailable', $e->getPrevious()?->getMessage());
+        }
+
+        $lock = Cache::store('file')->getStore()->lock($job->lockKey(), 60);
+        $this->assertFalse($lock->get());
+        $lock->forceRelease();
+        $this->assertSame(1, AlwaysSucceedsHandler::$callCount);
+    }
+
+    public function test_run_flow_job_deserializes_legacy_payload_without_lock_metadata(): void
+    {
+        $class = RunFlowJob::class;
+        $name = 'flow.legacy';
+        $payload = sprintf(
+            'O:%d:"%s":3:{s:4:"name";s:%d:"%s";s:5:"input";a:0:{}s:7:"options";N;}',
+            strlen($class),
+            $class,
+            strlen($name),
+            $name,
+        );
+
+        $job = unserialize($payload, ['allowed_classes' => [RunFlowJob::class, FlowExecutionOptions::class]]);
+
+        $this->assertInstanceOf(RunFlowJob::class, $job);
+        $this->assertSame('flow.legacy', $job->name);
+        $this->assertSame([], $job->input);
+        $this->assertNull($job->options);
+        $this->assertNull($job->dispatchId);
+        $this->assertNull($job->lockStore);
+        $this->assertSame(3600, $job->lockSeconds);
+        $this->assertSame(30, $job->lockRetrySeconds);
+    }
+
     public function test_run_flow_job_fails_queue_job_when_completion_marker_write_fails(): void
     {
         /** @var FlowEngine $engine */

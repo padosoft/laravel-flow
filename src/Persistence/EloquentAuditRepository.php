@@ -27,13 +27,10 @@ final class EloquentAuditRepository implements AuditRepository
     ): FlowAuditRecord {
         $model = $this->newModel();
         $now = $model->freshTimestamp();
-        $redact = fn (): array => [
-            'business_impact' => $businessImpact === null ? null : $this->redactor->redact($businessImpact),
-            'payload' => $this->redactor->redact($payload),
-        ];
-        $redacted = $this->redactor instanceof ExecutionScopedPayloadRedactor
-            ? $this->redactor->usingCurrentRedactor($redact)
-            : $redact();
+        $redacted = $this->redactor->redact([
+            'business_impact' => $businessImpact,
+            'payload' => $payload,
+        ]);
 
         $model->forceFill([
             'business_impact' => $redacted['business_impact'],

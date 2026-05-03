@@ -114,3 +114,4 @@
 - Keep the default in-memory engine path free of persistence-only service resolution; opt-in persistence should not add redactor/container work to successful non-persistent executions.
 - Persisted run aggregates should exclude any step that runtime-abort recovery reclassified as the failed step, including both output and business-impact summaries.
 - Terminal lifecycle methods should require the timestamp needed to complete their invariant; do not make `finishedAt` optional for terminal states such as `compensated`.
+- Prefer per-execution store instances with a frozen redactor over shared mutable redactor stacks when engine persistence needs JSON/text redaction consistency.

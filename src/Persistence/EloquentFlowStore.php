@@ -33,6 +33,11 @@ final class EloquentFlowStore implements FlowStore
         return new EloquentAuditRepository($this->connection, $this->redactor);
     }
 
+    public function withRedactor(PayloadRedactor $redactor): self
+    {
+        return new self($this->connection, $redactor);
+    }
+
     public function transaction(callable $callback): mixed
     {
         return DB::connection($this->connection)->transaction(

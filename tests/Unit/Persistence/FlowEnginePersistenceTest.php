@@ -242,12 +242,25 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
             public function redact(array $payload): array
             {
                 foreach ($payload as $key => $value) {
-                    if (is_string($value)) {
-                        $payload[$key] = str_replace('custom-secret', '[custom-redacted]', $value);
-                    }
+                    $payload[$key] = $this->redactValue($value);
                 }
 
                 return $payload;
+            }
+
+            private function redactValue(mixed $value): mixed
+            {
+                if (is_array($value)) {
+                    foreach ($value as $key => $nested) {
+                        $value[$key] = $this->redactValue($nested);
+                    }
+
+                    return $value;
+                }
+
+                return is_string($value)
+                    ? str_replace('custom-secret', '[custom-redacted]', $value)
+                    : $value;
             }
         });
         $this->app->forgetInstance(FlowStore::class);
@@ -282,12 +295,25 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
             public function redact(array $payload): array
             {
                 foreach ($payload as $key => $value) {
-                    if (is_string($value)) {
-                        $payload[$key] = str_replace('custom-secret', '[late-redacted]', $value);
-                    }
+                    $payload[$key] = $this->redactValue($value);
                 }
 
                 return $payload;
+            }
+
+            private function redactValue(mixed $value): mixed
+            {
+                if (is_array($value)) {
+                    foreach ($value as $key => $nested) {
+                        $value[$key] = $this->redactValue($nested);
+                    }
+
+                    return $value;
+                }
+
+                return is_string($value)
+                    ? str_replace('custom-secret', '[late-redacted]', $value)
+                    : $value;
             }
         });
 

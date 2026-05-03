@@ -86,35 +86,11 @@ final class PersistenceRepositoryTest extends PersistenceTestCase
     public function test_flow_store_uses_current_payload_redactor_binding_even_when_resolved_once(): void
     {
         $this->migrateFlowTables();
-        $this->app->bind(PayloadRedactor::class, static fn (): PayloadRedactor => new class implements PayloadRedactor
-        {
-            public function redact(array $payload): array
-            {
-                foreach ($payload as $key => $value) {
-                    if (is_string($value)) {
-                        $payload[$key] = 'first-redactor';
-                    }
-                }
-
-                return $payload;
-            }
-        });
+        $this->app->bind(PayloadRedactor::class, fn (): PayloadRedactor => $this->labelRedactor('first-redactor'));
 
         $firstStore = $this->app->make(FlowStore::class);
 
-        $this->app->bind(PayloadRedactor::class, static fn (): PayloadRedactor => new class implements PayloadRedactor
-        {
-            public function redact(array $payload): array
-            {
-                foreach ($payload as $key => $value) {
-                    if (is_string($value)) {
-                        $payload[$key] = 'second-redactor';
-                    }
-                }
-
-                return $payload;
-            }
-        });
+        $this->app->bind(PayloadRedactor::class, fn (): PayloadRedactor => $this->labelRedactor('second-redactor'));
 
         $secondStore = $this->app->make(FlowStore::class);
         $run = $secondStore->runs()->create([
@@ -206,53 +182,13 @@ final class PersistenceRepositoryTest extends PersistenceTestCase
         $this->assertSame('redactor-1', $step->output['authorization']);
     }
 
-    public function test_execution_scoped_payload_redactor_is_isolated_per_fiber(): void
-    {
-        /** @var ExecutionScopedPayloadRedactor $scope */
-        $scope = $this->app->make(ExecutionScopedPayloadRedactor::class);
-        $first = $this->labelRedactor('first');
-        $second = $this->labelRedactor('second');
-
-        $fiberOne = new \Fiber(function () use ($scope, $first): void {
-            $scope->push($first);
-
-            try {
-                \Fiber::suspend($scope->redact(['value' => 'plain'])['value']);
-                \Fiber::suspend($scope->redact(['value' => 'plain'])['value']);
-            } finally {
-                $scope->pop();
-            }
-        });
-        $fiberTwo = new \Fiber(function () use ($scope, $second): void {
-            $scope->push($second);
-
-            try {
-                \Fiber::suspend($scope->redact(['value' => 'plain'])['value']);
-                \Fiber::suspend($scope->redact(['value' => 'plain'])['value']);
-            } finally {
-                $scope->pop();
-            }
-        });
-
-        $this->assertSame('first', $fiberOne->start());
-        $this->assertSame('second', $fiberTwo->start());
-        $this->assertSame('first', $fiberOne->resume());
-        $this->assertSame('second', $fiberTwo->resume());
-    }
-
     public function test_execution_scoped_payload_redactor_falls_back_when_bound_to_payload_redactor_contract(): void
     {
         /** @var ExecutionScopedPayloadRedactor $scope */
         $scope = $this->app->make(ExecutionScopedPayloadRedactor::class);
 
         $this->app->instance(PayloadRedactor::class, $scope);
-        $scope->push($scope);
-
-        try {
-            $redacted = $scope->redact(['token' => 'plain-secret']);
-        } finally {
-            $scope->pop();
-        }
+        $redacted = $scope->redact(['token' => 'plain-secret']);
 
         $this->assertSame('[redacted]', $redacted['token']);
     }
@@ -504,12 +440,23 @@ final class PersistenceRepositoryTest extends PersistenceTestCase
             public function redact(array $payload): array
             {
                 foreach ($payload as $key => $value) {
-                    if (is_string($value)) {
-                        $payload[$key] = $this->label;
-                    }
+                    $payload[$key] = $this->redactValue($value);
                 }
 
                 return $payload;
+            }
+
+            private function redactValue(mixed $value): mixed
+            {
+                if (is_array($value)) {
+                    foreach ($value as $key => $nested) {
+                        $value[$key] = $this->redactValue($nested);
+                    }
+
+                    return $value;
+                }
+
+                return is_string($value) ? $this->label : $value;
             }
         };
     }
@@ -536,10 +483,23 @@ final class PersistenceRepositoryTest extends PersistenceTestCase
                 public function redact(array $payload): array
                 {
                     foreach ($payload as $key => $value) {
-                        $payload[$key] = is_string($value) ? 'redactor-'.$this->instance : $value;
+                        $payload[$key] = $this->redactValue($value);
                     }
 
                     return $payload;
+                }
+
+                private function redactValue(mixed $value): mixed
+                {
+                    if (is_array($value)) {
+                        foreach ($value as $key => $nested) {
+                            $value[$key] = $this->redactValue($nested);
+                        }
+
+                        return $value;
+                    }
+
+                    return is_string($value) ? 'redactor-'.$this->instance : $value;
                 }
             };
         });

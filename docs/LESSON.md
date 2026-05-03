@@ -156,3 +156,4 @@
 - README tagline and positioning should not imply Temporal-class queue/replay guarantees until queue-backed workers and replay are actually shipped.
 - Composer `suggest` metadata must be updated when a roadmap version partially lands; avoid "when vX lands" wording after that version has shipped a slice.
 - README comparison atomicity claims must distinguish transaction-scoped step transitions and atomic step upserts from compensation audit/finalization writes, which can be separate best-effort operations.
+- Until Macro Task 3 implements strategy selection, `compensation_strategy` must be documented as reserved metadata only; the current engine ignores the value and always compensates reverse-order.

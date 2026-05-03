@@ -75,17 +75,12 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Compensation strategy
+    | Compensation strategy metadata
     |--------------------------------------------------------------------------
     |
-    | How the engine walks compensators after a step failure.
-    |
-    | - 'reverse-order' (default): walk previously-completed steps from last
-    |   to first; classic saga semantics.
-    | - 'parallel': reserved spelling for future concurrent compensation.
-    |   Currently unsupported and falls back to 'reverse-order'. Setting this
-    |   value before the implementation lands is harmless but does not change
-    |   behaviour.
+    | Reserved for future concurrent compensation work. The current engine
+    | does not read this setting: every compensation walk is reverse-order
+    | regardless of the configured value.
     |
     */
     'compensation_strategy' => env('LARAVEL_FLOW_COMPENSATION', 'reverse-order'),

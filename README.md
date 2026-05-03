@@ -104,7 +104,7 @@ When `audit_trail_enabled` is enabled, normal-case step and compensation transit
 - **Opt-in persisted execution** — `flow_runs`, `flow_steps`, and `flow_audit` migrations, Eloquent repositories, immutable run identity updates, correlation/idempotency keys, transaction-scoped step transitions, atomic step upserts, compensate-first runtime-abort recovery, sanitized listener/error storage, clock-aware audit timestamps, redacted JSON payload storage, and retention pruning.
 - **Container-resolved handlers** — full DI, type hints, and stack traces.
 - **Strict input validation** — `withInput(['a','b'])` throws `FlowInputException` if a key is missing.
-- **Compensation strategy config** — the shipped value is `reverse-order`; `parallel` is documented only as a reserved future value and currently executes reverse-order.
+- **Reserved compensation strategy metadata** — `compensation_strategy` is present for future Macro 3 work; the current engine ignores the value and always walks compensators in reverse order.
 - **Testbench-friendly** — TestCase + stubs ready to copy.
 - **🚀 AI vibe-coding pack included** — `.claude/` directory with skills, rules, agents, commands, and the Padosoft Copilot review loop pre-wired.
 - **PHP 8.3 / 8.4 × Laravel 13** matrix on every CI run.
@@ -343,7 +343,7 @@ return [
 | `audit_trail_enabled`     | `true`           | When `false`, suppresses every `FlowStep*` / `FlowCompensated` event and persisted audit row; persisted audit rows also require persistence and a non-dry-run execution. |
 | `dry_run_default`         | `false`          | When `true`, `Flow::execute()` behaves like `dryRun()` — guard rail for staging environments.     |
 | `step_timeout_seconds`    | `300`            | Reserved for v0.2 queued workers.                                                                 |
-| `compensation_strategy`   | `reverse-order`  | `parallel` reserved for v0.2 — currently falls back to reverse-order.                             |
+| `compensation_strategy`   | `reverse-order`  | Reserved for future compensation strategy work; the current engine ignores the value and always walks reverse-order. |
 
 When persistence is enabled, synchronous `FlowStep*` listener or persistence failures are rethrown after the engine records best-effort recovery state and compensates completed steps. `FlowCompensated` listener failures are swallowed after the compensation audit row is durable so rollback is not interrupted. Wrap `Flow::execute()` in application-level exception handling anywhere infrastructure outages must be surfaced separately from business step failures.
 

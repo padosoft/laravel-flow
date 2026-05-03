@@ -225,7 +225,7 @@ $run = Flow::execute(
 );
 ```
 
-When persistence is enabled, `correlationId` and `idempotencyKey` are stored on `flow_runs`. A later persisted execution with the same idempotency key returns the existing run state without executing handlers again. Dry-runs still avoid persistence writes.
+When persistence is enabled, `correlationId` and `idempotencyKey` are stored on `flow_runs`. Both values are trimmed, empty strings become `null`, and non-empty values are limited to 255 characters to match the published migrations. A later persisted execution with the same idempotency key returns the existing run state without executing handlers again. Dry-runs still avoid persistence writes.
 
 ### Compensation chain (saga rollback)
 

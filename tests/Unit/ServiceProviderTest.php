@@ -108,5 +108,9 @@ final class ServiceProviderTest extends TestCase
             realpath($packageRoot.'/database/migrations/2026_05_04_000003_create_laravel_flow_approval_and_webhook_tables.php'),
             $migrationSources,
         );
+        $this->assertContains(
+            realpath($packageRoot.'/database/migrations/2026_05_04_000004_add_previous_token_hash_to_flow_approvals.php'),
+            $migrationSources,
+        );
     }
 }

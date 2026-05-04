@@ -209,6 +209,43 @@ final class PersistenceRepositoryTest extends PersistenceTestCase
         ));
     }
 
+    public function test_approval_token_manager_does_not_reissue_expired_pending_token_for_step(): void
+    {
+        $this->migrateFlowTables();
+        $this->createAuditRun('00000000-0000-4000-8000-000000000139');
+
+        $clock = new class
+        {
+            public DateTimeImmutable $now;
+        };
+        $clock->now = new DateTimeImmutable('2026-05-04 10:00:00');
+        $manager = new ApprovalTokenManager(
+            approvals: $this->app->make(ApprovalRepository::class),
+            tokenTtlMinutes: 30,
+            clock: static fn (): DateTimeImmutable => $clock->now,
+        );
+
+        $issued = $manager->issue(
+            runId: '00000000-0000-4000-8000-000000000139',
+            stepName: 'director',
+        );
+        $clock->now = new DateTimeImmutable('2026-05-04 10:31:00');
+
+        $this->assertNull($manager->reissuePendingForStep(
+            runId: '00000000-0000-4000-8000-000000000139',
+            stepName: 'director',
+        ));
+
+        $approvalRecord = FlowApprovalRecord::query()
+            ->where('run_id', '00000000-0000-4000-8000-000000000139')
+            ->where('step_name', 'director')
+            ->firstOrFail();
+
+        $this->assertSame(ApprovalTokenManager::hashToken($issued->plainTextToken), $approvalRecord->token_hash);
+        $this->assertNull($approvalRecord->previous_token_hash);
+        $this->assertSame('2026-05-04 10:30:00', $approvalRecord->expires_at?->format('Y-m-d H:i:s'));
+    }
+
     public function test_approval_token_manager_uses_one_clock_read_when_consuming(): void
     {
         $this->migrateFlowTables();
@@ -353,6 +390,7 @@ final class PersistenceRepositoryTest extends PersistenceTestCase
                 string $stepName,
                 string $tokenHash,
                 DateTimeInterface $expiresAt,
+                DateTimeInterface $issuedAt,
             ): ?FlowApprovalRecord {
                 throw new RuntimeException('not used');
             }

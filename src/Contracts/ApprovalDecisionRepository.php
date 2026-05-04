@@ -27,10 +27,18 @@ interface ApprovalDecisionRepository
         ?DateTimeInterface $decidedAt = null,
     ): ?FlowApprovalRecord;
 
+    /**
+     * Reissue a downstream pending approval token exactly once.
+     *
+     * Implementations must only reissue while the current pending token is still unexpired at
+     * $issuedAt, preserve the previous hash as an accepted lookup/consume hash, and make the
+     * matching ApprovalRepository lookup/expire paths honor both the current and previous hashes.
+     */
     public function reissuePendingTokenForStep(
         string $runId,
         string $stepName,
         string $tokenHash,
         DateTimeInterface $expiresAt,
+        DateTimeInterface $issuedAt,
     ): ?FlowApprovalRecord;
 }

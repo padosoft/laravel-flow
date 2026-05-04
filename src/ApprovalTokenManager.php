@@ -64,10 +64,11 @@ final class ApprovalTokenManager
     {
         $plainTextToken = $this->generatePlainTextToken();
         $tokenHash = self::hashToken($plainTextToken);
-        $expiresAt = $this->now()->modify(sprintf('+%d minutes', $this->ttlMinutes()));
-        $record = $this->approvalDecisions()->reissuePendingTokenForStep($runId, $stepName, $tokenHash, $expiresAt);
+        $issuedAt = $this->now();
+        $expiresAt = $issuedAt->modify(sprintf('+%d minutes', $this->ttlMinutes()));
+        $record = $this->approvalDecisions()->reissuePendingTokenForStep($runId, $stepName, $tokenHash, $expiresAt, $issuedAt);
 
-        if (! $record instanceof FlowApprovalRecord) {
+        if (! ($record instanceof FlowApprovalRecord)) {
             return null;
         }
 
@@ -92,7 +93,7 @@ final class ApprovalTokenManager
         $tokenHash = self::hashToken($plainTextToken);
         $record = $this->approvalDecisions()->findByTokenHash($tokenHash);
 
-        if (! $record instanceof FlowApprovalRecord) {
+        if (! ($record instanceof FlowApprovalRecord)) {
             return null;
         }
 
@@ -110,7 +111,7 @@ final class ApprovalTokenManager
 
             $current = $this->approvalDecisions()->findByTokenHash($tokenHash);
 
-            if (! $current instanceof FlowApprovalRecord) {
+            if (! ($current instanceof FlowApprovalRecord)) {
                 return null;
             }
 
@@ -133,7 +134,7 @@ final class ApprovalTokenManager
     {
         $record = $this->approvals->findPendingByTokenHash($tokenHash);
 
-        if (! $record instanceof FlowApprovalRecord) {
+        if (! ($record instanceof FlowApprovalRecord)) {
             return null;
         }
 
@@ -277,13 +278,13 @@ final class ApprovalTokenManager
 
         $current = $this->approvals->findByTokenHash($tokenHash);
 
-        if (! $current instanceof FlowApprovalRecord || $current->status !== FlowApprovalRecord::STATUS_PENDING) {
+        if (! ($current instanceof FlowApprovalRecord) || $current->status !== FlowApprovalRecord::STATUS_PENDING) {
             return null;
         }
 
         $expiresAt = $this->immutableDate($current->expires_at);
 
-        if (! $expiresAt instanceof DateTimeImmutable || $expiresAt > $now) {
+        if (! ($expiresAt instanceof DateTimeImmutable) || $expiresAt > $now) {
             return null;
         }
 

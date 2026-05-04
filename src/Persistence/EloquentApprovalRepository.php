@@ -126,30 +126,35 @@ final class EloquentApprovalRepository implements ApprovalDecisionRepository, Ap
         string $stepName,
         string $tokenHash,
         DateTimeInterface $expiresAt,
+        DateTimeInterface $issuedAt,
     ): ?FlowApprovalRecord {
         $pending = $this->newModel()->newQuery()
             ->where('run_id', $runId)
             ->where('step_name', $stepName)
             ->where('status', FlowApprovalRecord::STATUS_PENDING)
+            ->whereNull('previous_token_hash')
+            ->where('expires_at', '>', $issuedAt)
             ->latest('created_at')
             ->first();
 
-        if (! $pending instanceof FlowApprovalRecord || $pending->previous_token_hash !== null) {
+        if (! ($pending instanceof FlowApprovalRecord)) {
             return null;
         }
 
         $model = $this->newModel();
-        $attributes = $this->redact([
+        $model->forceFill($this->redact([
             'expires_at' => $expiresAt,
             'previous_token_hash' => $pending->token_hash,
             'token_hash' => $tokenHash,
-            'updated_at' => $model->freshTimestamp(),
-        ]);
+            'updated_at' => $issuedAt,
+        ]));
 
         $updated = $this->newModel()->newQuery()
             ->whereKey($pending->id)
             ->where('status', FlowApprovalRecord::STATUS_PENDING)
-            ->update($attributes);
+            ->whereNull('previous_token_hash')
+            ->where('expires_at', '>', $issuedAt)
+            ->update($model->getAttributes());
 
         if ($updated !== 1) {
             return null;

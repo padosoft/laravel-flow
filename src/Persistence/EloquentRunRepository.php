@@ -43,7 +43,7 @@ final class EloquentRunRepository implements ConditionalRunRepository, RunReposi
     {
         $model = $this->find($runId);
 
-        if (! $model instanceof FlowRunRecord) {
+        if (! ($model instanceof FlowRunRecord)) {
             throw new RuntimeException(sprintf('Flow run [%s] was not found.', $runId));
         }
 

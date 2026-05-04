@@ -706,7 +706,7 @@ class FlowEngine
             throw new FlowExecutionException('Approval resume/reject requires a shared cache lock store; the array store is process-local.');
         }
 
-        if (! $cacheStore instanceof LockProvider) {
+        if (! ($cacheStore instanceof LockProvider)) {
             throw new FlowExecutionException('Approval resume/reject requires a cache store that supports atomic locks.');
         }
 
@@ -748,6 +748,10 @@ class FlowEngine
         if ($runRecord->status === FlowRun::STATUS_PAUSED
             && ! $this->hasPersistedApprovalDecisionStep($approval, $store, $runRecord)
         ) {
+            throw new FlowExecutionException('Approval token could not be consumed. Try again.');
+        }
+
+        if ($this->persistedDownstreamPausedApprovalGate($approval, $store, $runRecord) instanceof FlowStepRecord) {
             throw new FlowExecutionException('Approval token could not be consumed. Try again.');
         }
 
@@ -928,7 +932,7 @@ class FlowEngine
     {
         $store = $this->storeForExecution(false);
 
-        if (! $store instanceof FlowStore) {
+        if (! ($store instanceof FlowStore)) {
             throw new FlowExecutionException('Approval resume/reject requires persistence to be enabled.');
         }
 
@@ -969,7 +973,7 @@ class FlowEngine
             throw $this->approvalPersistenceUnavailableException($e);
         }
 
-        if (! $approval instanceof FlowApprovalRecord || $approval->status === FlowApprovalRecord::STATUS_EXPIRED) {
+        if (! ($approval instanceof FlowApprovalRecord) || $approval->status === FlowApprovalRecord::STATUS_EXPIRED) {
             throw new FlowExecutionException('Approval token is invalid or expired.');
         }
 
@@ -1064,7 +1068,7 @@ class FlowEngine
                 ]);
             });
 
-            if (! $claimedRunRecord instanceof FlowRunRecord) {
+            if (! ($claimedRunRecord instanceof FlowRunRecord)) {
                 $currentRunRecord = $store->runs()->find($run->id);
 
                 if ($currentRunRecord instanceof FlowRunRecord) {
@@ -1119,7 +1123,7 @@ class FlowEngine
                     'status' => FlowRun::STATUS_RUNNING,
                 ]);
 
-                if (! $claimedRunRecord instanceof FlowRunRecord) {
+                if (! ($claimedRunRecord instanceof FlowRunRecord)) {
                     return;
                 }
 
@@ -1148,7 +1152,7 @@ class FlowEngine
                 $this->persistRunFinished($store, $run);
             });
 
-            if (! $claimedRunRecord instanceof FlowRunRecord) {
+            if (! ($claimedRunRecord instanceof FlowRunRecord)) {
                 $currentRunRecord = $store->runs()->find($run->id);
 
                 if ($currentRunRecord instanceof FlowRunRecord) {
@@ -1258,7 +1262,7 @@ class FlowEngine
                     'status' => FlowRun::STATUS_RUNNING,
                 ]);
 
-                if (! $claimedRunRecord instanceof FlowRunRecord) {
+                if (! ($claimedRunRecord instanceof FlowRunRecord)) {
                     return;
                 }
 
@@ -1289,7 +1293,7 @@ class FlowEngine
                 $this->persistRunFinished($store, $run);
             });
 
-            if (! $claimedRunRecord instanceof FlowRunRecord) {
+            if (! ($claimedRunRecord instanceof FlowRunRecord)) {
                 $currentRunRecord = $store->runs()->find($run->id);
 
                 if ($currentRunRecord instanceof FlowRunRecord) {
@@ -1380,7 +1384,7 @@ class FlowEngine
     {
         $runs = $store->runs();
 
-        if (! $runs instanceof ConditionalRunRepository) {
+        if (! ($runs instanceof ConditionalRunRepository)) {
             throw new FlowExecutionException(sprintf(
                 'Approval resume/reject requires the run repository to implement %s.',
                 ConditionalRunRepository::class,
@@ -1482,7 +1486,7 @@ class FlowEngine
                 continue;
             }
 
-            if (! $approvalStepRecord instanceof FlowStepRecord || $approvalStepRecord->status !== 'succeeded') {
+            if (! ($approvalStepRecord instanceof FlowStepRecord) || $approvalStepRecord->status !== 'succeeded') {
                 throw new FlowExecutionException(sprintf(
                     'Cannot resume approval because downstream step [%s] was persisted before the approval gate succeeded.',
                     $stepRecord->step_name,
@@ -1522,7 +1526,7 @@ class FlowEngine
             $expectedIndex++;
         }
 
-        if (! $approvalStepRecord instanceof FlowStepRecord) {
+        if (! ($approvalStepRecord instanceof FlowStepRecord)) {
             throw new FlowExecutionException(sprintf(
                 'Cannot resume approval because step [%s] was not persisted for run [%s].',
                 $approval->step_name,
@@ -1555,7 +1559,7 @@ class FlowEngine
             throw $this->approvalPersistenceUnavailableException($e);
         }
 
-        if (! $runRecord instanceof FlowRunRecord) {
+        if (! ($runRecord instanceof FlowRunRecord)) {
             throw new FlowExecutionException(sprintf('Approval run [%s] was not found.', $approval->run_id));
         }
 
@@ -1641,7 +1645,7 @@ class FlowEngine
             ));
         }
 
-        if (! $handler instanceof FlowStepHandler) {
+        if (! ($handler instanceof FlowStepHandler)) {
             return FlowStepResult::failed(new FlowExecutionException(sprintf(
                 'Handler [%s] for step [%s] does not implement %s.',
                 $step->handlerFqcn,
@@ -1708,7 +1712,7 @@ class FlowEngine
                 continue;
             }
 
-            if (! $compensator instanceof FlowCompensator) {
+            if (! ($compensator instanceof FlowCompensator)) {
                 $compensationErrors[] = [
                     'step' => $step->name,
                     'error' => new FlowCompensationException(sprintf(
@@ -1898,7 +1902,7 @@ class FlowEngine
             ];
         }
 
-        if (! $compensator instanceof FlowCompensator) {
+        if (! ($compensator instanceof FlowCompensator)) {
             return [
                 'success' => false,
                 'error_class' => FlowCompensationException::class,
@@ -2383,13 +2387,13 @@ class FlowEngine
         FlowDefinition $definition,
         FlowExecutionOptions $options,
     ): ?FlowRun {
-        if (! $store instanceof FlowStore || $options->idempotencyKey === null) {
+        if (! ($store instanceof FlowStore) || $options->idempotencyKey === null) {
             return null;
         }
 
         $existingRun = $store->runs()->findByIdempotencyKey($options->idempotencyKey);
 
-        if (! $existingRun instanceof FlowRunRecord) {
+        if (! ($existingRun instanceof FlowRunRecord)) {
             return null;
         }
 
@@ -2575,7 +2579,7 @@ class FlowEngine
 
     private function safeErrorMessage(?Throwable $error, ?PayloadRedactor $redactor = null): ?string
     {
-        if (! $error instanceof Throwable) {
+        if (! ($error instanceof Throwable)) {
             return null;
         }
 
@@ -2751,7 +2755,7 @@ class FlowEngine
 
     private function expireApprovalTokenBestEffort(?IssuedApprovalToken $token, DateTimeInterface $decidedAt): void
     {
-        if (! $token instanceof IssuedApprovalToken) {
+        if (! ($token instanceof IssuedApprovalToken)) {
             return;
         }
 
@@ -2807,7 +2811,7 @@ class FlowEngine
 
     private function storeWithExecutionRedactor(?FlowStore $store, ?PayloadRedactor $redactor): ?FlowStore
     {
-        if (! $store instanceof RedactorAwareFlowStore || ! $redactor instanceof PayloadRedactor) {
+        if (! ($store instanceof RedactorAwareFlowStore) || ! ($redactor instanceof PayloadRedactor)) {
             return $store;
         }
 

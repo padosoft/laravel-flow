@@ -53,7 +53,7 @@ final class ReplayFlowRunCommand extends Command
             return self::FAILURE;
         }
 
-        if (! $original instanceof FlowRunRecord) {
+        if (! ($original instanceof FlowRunRecord)) {
             $this->error(sprintf('Flow run [%s] was not found.', $runId));
 
             return self::FAILURE;
@@ -159,7 +159,7 @@ final class ReplayFlowRunCommand extends Command
         foreach ($persistedSteps as $index => $persistedStep) {
             $currentStep = $definition->steps[$index] ?? null;
 
-            if (! $currentStep instanceof FlowStep) {
+            if (! ($currentStep instanceof FlowStep)) {
                 return true;
             }
 

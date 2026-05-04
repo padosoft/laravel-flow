@@ -53,14 +53,12 @@ Completed in Macro Task 2 (v0.2 persistence layer):
 Current validation baseline:
 
 - `composer validate --strict --no-check-publish`
-- `composer quality` => Pint format test, PHPStan, Unit 205 tests / 930 assertions, Architecture 2 tests / 7 assertions
+- `composer quality` => Pint format test, PHPStan, Unit 208 tests / 945 assertions, Architecture 2 tests / 7 assertions
 
-Active PR #29 (`task/approval-resume-api` -> `task/v03-approval-webhooks`):
+Current Macro Task 4 subtask:
 
-- Latest reviewed head before the current local fixes: `252b56f4095d456f0f2bfdaf4761738cde3e399d`, with GitHub CI green on PHP 8.3 / Laravel 13 and PHP 8.4 / Laravel 13.
-- Copilot review `2026-05-04T16:17:13Z` on that head generated three actionable comments: repeated downstream token reissue invalidating handed-out tokens, stale `approval_expires_at` metadata after reissue, and README overstatement of atomic token-consume plus run-claim guarantees.
-- Current local fix in progress keeps a previous token hash valid during one downstream reissue, refreshes the paused step expiry metadata, and narrows README/custom-backend wording to same-storage state observation instead of an all-or-nothing transaction guarantee.
-- Do not merge PR #29 until these local fixes are committed/pushed, CI is green, Copilot reviews the new head, and any actionable comments are addressed.
+- Approval resume/reject API hardening is in the PR loop. Verify the live PR, head SHA, CI, and Copilot review state with `gh`; keep detailed iteration history in the PR rather than this durable handoff file.
+- The remaining Macro Task 4 slices after approval resume/reject lands are CLI approval/reject commands and signed webhook outbox delivery.
 
 Next active macro:
 

@@ -530,6 +530,37 @@ final class PersistenceRepositoryTest extends PersistenceTestCase
         $this->assertSame($claimedAt->getTimestamp(), $claimed->updated_at->getTimestamp());
     }
 
+    public function test_conditional_run_update_serializes_json_and_dates_like_model_update(): void
+    {
+        $this->migrateFlowTables();
+
+        $runs = $this->app->make(RunRepository::class);
+        $this->assertInstanceOf(ConditionalRunRepository::class, $runs);
+        /** @var RunRepository&ConditionalRunRepository $runs */
+        $run = $runs->create([
+            'definition_name' => 'flow.conditional.casts',
+            'dry_run' => false,
+            'id' => '00000000-0000-4000-8000-000000000020',
+            'input' => [],
+            'started_at' => new DateTimeImmutable('2026-05-02 11:00:00'),
+            'status' => FlowRun::STATUS_RUNNING,
+        ]);
+        $finishedAt = Carbon::parse('2026-05-04 12:30:00');
+
+        $claimed = $runs->updateWhereStatus($run->id, FlowRun::STATUS_RUNNING, [
+            'business_impact' => ['secret' => 'impact-secret'],
+            'finished_at' => $finishedAt,
+            'output' => ['token' => 'output-secret'],
+            'status' => FlowRun::STATUS_SUCCEEDED,
+        ]);
+
+        $this->assertInstanceOf(FlowRunRecord::class, $claimed);
+        $this->assertSame(FlowRun::STATUS_SUCCEEDED, $claimed->status);
+        $this->assertSame('[redacted]', $claimed->business_impact['secret']);
+        $this->assertSame('[redacted]', $claimed->output['token']);
+        $this->assertSame($finishedAt->getTimestamp(), $claimed->finished_at->getTimestamp());
+    }
+
     public function test_public_step_repository_write_uses_one_payload_redactor_instance_for_multiple_json_fields(): void
     {
         $this->migrateFlowTables();

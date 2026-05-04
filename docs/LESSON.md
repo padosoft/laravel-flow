@@ -253,3 +253,5 @@
 - Approval decision payload/actor persistence must use the same execution-frozen redactor as the resumed step/run writes; default approval repositories should be redactor-aware so transient or request-scoped redactors cannot diverge mid-decision.
 - Redactor-aware approval repositories used by resume/reject must preserve the approval decision capability in their return type; otherwise a backend can opt into redactor injection and still fail the decision consume path.
 - The approval resume/reject pre-consume validation state can be reused after a successful consume while the per-run lock is held, avoiding an extra `flow_steps` scan without widening concurrency risk.
+- Public conditional run compare-and-set updates should hydrate a model before query-builder `update()` so JSON and date casts match normal repository writes.
+- Do not retry rejected-approval compensation without durable per-compensator progress; returning the current failed run is safer than duplicating undo side effects.

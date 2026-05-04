@@ -1132,25 +1132,6 @@ class FlowEngine
         $runRecord = $this->approvalRunRecord($approval, $store);
 
         if ($runRecord->status !== FlowRun::STATUS_PAUSED) {
-            if ($runRecord->status === FlowRun::STATUS_FAILED
-                && $runRecord->failed_step === $approval->step_name
-                && ! (bool) $runRecord->compensated
-            ) {
-                $state = $this->approvalExecutionState($approval, $store, $runRecord);
-
-                if ($state['approval_step_record']->status === 'failed') {
-                    return $this->retryRejectedApprovalCompensation($state, $state['run'], $store);
-                }
-            }
-
-            if ($runRecord->status === FlowRun::STATUS_RUNNING) {
-                $state = $this->approvalExecutionState($approval, $store, $runRecord);
-
-                if ($state['approval_step_record']->status === 'failed') {
-                    return $this->retryRejectedApprovalCompensation($state, $state['run'], $store);
-                }
-            }
-
             return $this->flowRunFromRecord($runRecord, $store);
         }
 
@@ -1279,55 +1260,6 @@ class FlowEngine
             );
 
             throw $e;
-        }
-
-        try {
-            $this->compensate($state['definition'], $state['context'], $state['completed_steps'], $run, $store);
-        } catch (Throwable $e) {
-            $this->persistRunFinishedBestEffort($store, $run, 'failed');
-
-            throw $e;
-        }
-
-        if ($run->compensated) {
-            try {
-                $this->persistAtomically($store, function () use ($store, $run): void {
-                    $this->persistRunFinished($store, $run, 'succeeded');
-                });
-            } catch (Throwable $e) {
-                $this->persistRunFinishedBestEffort($store, $run, 'succeeded');
-
-                throw $e;
-            }
-        }
-
-        return $run;
-    }
-
-    /**
-     * @param  array{
-     *     approval_index: int,
-     *     approval_step: FlowStep,
-     *     approval_step_record: FlowStepRecord,
-     *     completed_steps: list<FlowStep>,
-     *     context: FlowContext,
-     *     definition: FlowDefinition,
-     *     paused_downstream_step: string|null,
-     *     retry_completed_steps: list<FlowStep>,
-     *     retry_context: FlowContext,
-     *     retry_sequence: int,
-     *     retry_start_index: int,
-     *     run: FlowRun,
-     *     run_record: FlowRunRecord
-     * }  $state
-     */
-    private function retryRejectedApprovalCompensation(array $state, FlowRun $run, FlowStore $store): FlowRun
-    {
-        if ($run->status !== FlowRun::STATUS_FAILED) {
-            $run->markFailed(
-                $state['approval_step']->name,
-                $this->immutableDate($state['approval_step_record']->finished_at) ?? $this->now(),
-            );
         }
 
         try {

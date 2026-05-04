@@ -53,7 +53,7 @@ Completed in Macro Task 2 (v0.2 persistence layer):
 Current validation baseline:
 
 - `composer validate --strict --no-check-publish`
-- `composer quality` => Pint format test, PHPStan, Unit 202 tests / 901 assertions, Architecture 2 tests / 7 assertions
+- `composer quality` => Pint format test, PHPStan, Unit 203 tests / 908 assertions, Architecture 2 tests / 7 assertions
 
 Next active macro:
 

@@ -65,11 +65,12 @@ final class EloquentRunRepository implements ConditionalRunRepository, RunReposi
 
         $model = $this->newModel();
         $attributes['updated_at'] = $model->freshTimestamp();
+        $model->forceFill($attributes);
 
         $updated = $model->newQuery()
             ->where('id', $runId)
             ->where('status', $expectedStatus)
-            ->update($attributes);
+            ->update($model->getAttributes());
 
         if ($updated !== 1) {
             return null;

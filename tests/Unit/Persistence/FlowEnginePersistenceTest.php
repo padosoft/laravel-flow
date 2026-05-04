@@ -1394,7 +1394,7 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
             ->status);
     }
 
-    public function test_reject_can_retry_compensation_after_gate_failure_was_persisted(): void
+    public function test_reject_does_not_retry_compensation_after_gate_failure_was_persisted(): void
     {
         $this->migrateFlowTables();
         $engine = $this->engineWithPersistence();
@@ -1436,8 +1436,9 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
 
         $retriedRun = $engine->reject($token);
 
-        $this->assertSame(FlowRun::STATUS_COMPENSATED, $retriedRun->status);
-        $this->assertCount(1, RecordingCompensator::$invocations);
+        $this->assertSame(FlowRun::STATUS_FAILED, $retriedRun->status);
+        $this->assertFalse($retriedRun->compensated);
+        $this->assertCount(0, RecordingCompensator::$invocations);
         $this->assertSame(0, ApprovalPayloadCapturingHandler::$callCount);
     }
 

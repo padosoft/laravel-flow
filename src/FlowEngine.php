@@ -809,6 +809,62 @@ class FlowEngine
         return false;
     }
 
+    private function persistedDownstreamPausedApprovalGate(
+        FlowApprovalRecord $approval,
+        FlowStore $store,
+        FlowRunRecord $runRecord,
+    ): ?FlowStepRecord {
+        if ($runRecord->status !== FlowRun::STATUS_PAUSED
+            || $approval->status !== FlowApprovalRecord::STATUS_APPROVED
+        ) {
+            return null;
+        }
+
+        $approvalSequence = null;
+
+        foreach ($this->stepRecordsForRun($store, $runRecord->id) as $stepRecord) {
+            if ($stepRecord->step_name === $approval->step_name) {
+                if ($stepRecord->status !== 'succeeded') {
+                    return null;
+                }
+
+                $approvalSequence = $stepRecord->sequence;
+
+                continue;
+            }
+
+            if ($approvalSequence !== null
+                && $stepRecord->sequence > $approvalSequence
+                && $stepRecord->status === 'paused'
+                && $stepRecord->handler === ApprovalGate::class
+            ) {
+                return $stepRecord;
+            }
+        }
+
+        return null;
+    }
+
+    private function flowRunFromRecordWithReissuedApprovalToken(
+        FlowRunRecord $runRecord,
+        FlowStore $store,
+        FlowStepRecord $approvalStepRecord,
+    ): FlowRun {
+        $run = $this->flowRunFromRecord($runRecord, $store);
+
+        try {
+            $token = $this->approvalTokenManager()->reissuePendingForStep($runRecord->id, $approvalStepRecord->step_name);
+        } catch (QueryException $e) {
+            throw $this->approvalPersistenceUnavailableException($e);
+        }
+
+        if ($token instanceof IssuedApprovalToken) {
+            $run->recordApprovalToken($token);
+        }
+
+        return $run;
+    }
+
     private function hasPersistedDownstreamApprovalGate(
         FlowApprovalRecord $approval,
         FlowStore $store,
@@ -925,6 +981,14 @@ class FlowEngine
 
         if (! in_array($runRecord->status, [FlowRun::STATUS_PAUSED, FlowRun::STATUS_RUNNING], true)) {
             return $this->flowRunFromRecord($runRecord, $store);
+        }
+
+        if (! $consumedNow) {
+            $downstreamPausedApprovalGate = $this->persistedDownstreamPausedApprovalGate($approval, $store, $runRecord);
+
+            if ($downstreamPausedApprovalGate instanceof FlowStepRecord) {
+                return $this->flowRunFromRecordWithReissuedApprovalToken($runRecord, $store, $downstreamPausedApprovalGate);
+            }
         }
 
         if (! $consumedNow && $this->hasPersistedDownstreamApprovalGate($approval, $store, $runRecord)) {

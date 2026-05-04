@@ -680,13 +680,29 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         $managerToken = $managerPausedRun->approvalTokens['manager']->plainTextToken;
 
         $directorPausedRun = $engine->resume($managerToken, ['decision' => 'ship']);
+        $originalDirectorToken = $directorPausedRun->approvalTokens['director']->plainTextToken;
         $oldTokenRetry = $engine->resume($managerToken, ['decision' => 'ignored']);
 
         $this->assertSame($directorPausedRun->id, $oldTokenRetry->id);
         $this->assertSame(FlowRun::STATUS_PAUSED, $oldTokenRetry->status);
         $this->assertArrayHasKey('director', $directorPausedRun->approvalTokens);
+        $this->assertArrayHasKey('director', $oldTokenRetry->approvalTokens);
+        $this->assertNotSame($originalDirectorToken, $oldTokenRetry->approvalTokens['director']->plainTextToken);
         $this->assertSame(1, ApprovalPayloadCapturingHandler::$callCount);
         $this->assertSame(0, (int) FlowStepRecord::query()
+            ->where('run_id', $directorPausedRun->id)
+            ->where('step_name', 'finalize')
+            ->count());
+        $this->assertSame(ApprovalTokenManager::hashToken($oldTokenRetry->approvalTokens['director']->plainTextToken), FlowApprovalRecord::query()
+            ->where('run_id', $directorPausedRun->id)
+            ->where('step_name', 'director')
+            ->firstOrFail()
+            ->token_hash);
+
+        $completedRun = $engine->resume($oldTokenRetry->approvalTokens['director']->plainTextToken, ['decision' => 'release']);
+
+        $this->assertSame(FlowRun::STATUS_SUCCEEDED, $completedRun->status);
+        $this->assertSame(1, (int) FlowStepRecord::query()
             ->where('run_id', $directorPausedRun->id)
             ->where('step_name', 'finalize')
             ->count());
@@ -1665,6 +1681,15 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
                 ?DateTimeInterface $decidedAt = null,
             ): ?FlowApprovalRecord {
                 throw new QueryException('testing', 'update flow_approvals', [], new RuntimeException('table missing'));
+            }
+
+            public function reissuePendingTokenForStep(
+                string $runId,
+                string $stepName,
+                string $tokenHash,
+                DateTimeInterface $expiresAt,
+            ): ?FlowApprovalRecord {
+                throw new RuntimeException('not used');
             }
 
             public function expirePending(string $tokenHash, DateTimeInterface $decidedAt): ?FlowApprovalRecord

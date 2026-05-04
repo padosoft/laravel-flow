@@ -26,4 +26,11 @@ interface ApprovalDecisionRepository
         array $payload = [],
         ?DateTimeInterface $decidedAt = null,
     ): ?FlowApprovalRecord;
+
+    public function reissuePendingTokenForStep(
+        string $runId,
+        string $stepName,
+        string $tokenHash,
+        DateTimeInterface $expiresAt,
+    ): ?FlowApprovalRecord;
 }

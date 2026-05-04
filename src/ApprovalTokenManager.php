@@ -60,6 +60,27 @@ final class ApprovalTokenManager
         );
     }
 
+    public function reissuePendingForStep(string $runId, string $stepName): ?IssuedApprovalToken
+    {
+        $plainTextToken = $this->generatePlainTextToken();
+        $tokenHash = self::hashToken($plainTextToken);
+        $expiresAt = $this->now()->modify(sprintf('+%d minutes', $this->ttlMinutes()));
+        $record = $this->approvalDecisions()->reissuePendingTokenForStep($runId, $stepName, $tokenHash, $expiresAt);
+
+        if (! $record instanceof FlowApprovalRecord) {
+            return null;
+        }
+
+        return new IssuedApprovalToken(
+            approvalId: $record->id,
+            runId: $record->run_id,
+            stepName: $record->step_name,
+            plainTextToken: $plainTextToken,
+            tokenHash: $record->token_hash,
+            expiresAt: $this->immutableDate($record->expires_at) ?? $expiresAt,
+        );
+    }
+
     public function pending(string $plainTextToken): ?FlowApprovalRecord
     {
         return $this->pendingByHash(self::hashToken($plainTextToken), $this->now());

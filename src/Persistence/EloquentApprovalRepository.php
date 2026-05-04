@@ -115,6 +115,44 @@ final class EloquentApprovalRepository implements ApprovalDecisionRepository, Ap
         ]);
     }
 
+    public function reissuePendingTokenForStep(
+        string $runId,
+        string $stepName,
+        string $tokenHash,
+        DateTimeInterface $expiresAt,
+    ): ?FlowApprovalRecord {
+        $pending = $this->newModel()->newQuery()
+            ->where('run_id', $runId)
+            ->where('step_name', $stepName)
+            ->where('status', FlowApprovalRecord::STATUS_PENDING)
+            ->latest('created_at')
+            ->first();
+
+        if (! $pending instanceof FlowApprovalRecord) {
+            return null;
+        }
+
+        $model = $this->newModel();
+        $attributes = $this->redact([
+            'expires_at' => $expiresAt,
+            'token_hash' => $tokenHash,
+            'updated_at' => $model->freshTimestamp(),
+        ]);
+
+        $updated = $this->newModel()->newQuery()
+            ->whereKey($pending->id)
+            ->where('status', FlowApprovalRecord::STATUS_PENDING)
+            ->update($attributes);
+
+        if ($updated !== 1) {
+            return null;
+        }
+
+        return $this->newModel()->newQuery()
+            ->whereKey($pending->id)
+            ->first();
+    }
+
     /**
      * @param  array<string, mixed>  $attributes
      */

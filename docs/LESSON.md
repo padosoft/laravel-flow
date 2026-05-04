@@ -257,3 +257,4 @@
 - Do not retry rejected-approval compensation without durable per-compensator progress; returning the current failed run is safer than duplicating undo side effects.
 - Approval custom backends must keep the approval decision repository and run repository inside one durable storage/transaction boundary; separate stores can satisfy PHP interfaces while breaking atomic token-consume plus paused-run-claim guarantees.
 - Approval recovery state should be a typed value object instead of duplicated associative-array PHPDoc; recovery code is too concurrency-sensitive for shape drift between producer and consumer.
+- Retrying an older approved token after a later approval gate pauses should rotate that later gate's pending token hash and return a fresh plain token. Returning only persisted run state can strand operators when the original response carrying the later plain token was lost.

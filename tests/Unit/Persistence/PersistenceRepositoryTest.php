@@ -21,6 +21,7 @@ use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
 use Padosoft\LaravelFlow\Contracts\RunRepository;
 use Padosoft\LaravelFlow\Contracts\StepRunRepository;
 use Padosoft\LaravelFlow\FlowRun;
+use Padosoft\LaravelFlow\IssuedApprovalToken;
 use Padosoft\LaravelFlow\Models\FlowApprovalRecord;
 use Padosoft\LaravelFlow\Models\FlowAuditRecord;
 use Padosoft\LaravelFlow\Models\FlowRunRecord;
@@ -169,6 +170,41 @@ final class PersistenceRepositoryTest extends PersistenceTestCase
         $this->assertNotNull($approved->consumed_at);
     }
 
+    public function test_approval_token_manager_reissues_pending_token_for_step(): void
+    {
+        $this->migrateFlowTables();
+        $this->createAuditRun('00000000-0000-4000-8000-000000000138');
+
+        $clock = new class
+        {
+            public DateTimeImmutable $now;
+        };
+        $clock->now = new DateTimeImmutable('2026-05-04 10:00:00');
+        $manager = new ApprovalTokenManager(
+            approvals: $this->app->make(ApprovalRepository::class),
+            tokenTtlMinutes: 30,
+            clock: static fn (): DateTimeImmutable => $clock->now,
+        );
+
+        $issued = $manager->issue(
+            runId: '00000000-0000-4000-8000-000000000138',
+            stepName: 'director',
+        );
+        $clock->now = new DateTimeImmutable('2026-05-04 10:05:00');
+
+        $reissued = $manager->reissuePendingForStep(
+            runId: '00000000-0000-4000-8000-000000000138',
+            stepName: 'director',
+        );
+
+        $this->assertInstanceOf(IssuedApprovalToken::class, $reissued);
+        $this->assertSame($issued->approvalId, $reissued->approvalId);
+        $this->assertNotSame($issued->plainTextToken, $reissued->plainTextToken);
+        $this->assertNull($manager->pending($issued->plainTextToken));
+        $this->assertSame($issued->approvalId, $manager->pending($reissued->plainTextToken)?->id);
+        $this->assertSame('2026-05-04 10:35:00', $reissued->expiresAt->format('Y-m-d H:i:s'));
+    }
+
     public function test_approval_token_manager_uses_one_clock_read_when_consuming(): void
     {
         $this->migrateFlowTables();
@@ -304,6 +340,15 @@ final class PersistenceRepositoryTest extends PersistenceTestCase
                 array $actor = [],
                 array $payload = [],
                 ?DateTimeInterface $decidedAt = null,
+            ): ?FlowApprovalRecord {
+                throw new RuntimeException('not used');
+            }
+
+            public function reissuePendingTokenForStep(
+                string $runId,
+                string $stepName,
+                string $tokenHash,
+                DateTimeInterface $expiresAt,
             ): ?FlowApprovalRecord {
                 throw new RuntimeException('not used');
             }

@@ -66,9 +66,10 @@ final class ApprovalTokenManager
         }
 
         $expiresAt = $this->immutableDate($record->expires_at);
+        $now = $this->now();
 
-        if ($expiresAt instanceof DateTimeImmutable && $expiresAt <= $this->now()) {
-            $this->approvals->expirePending($tokenHash, $this->now());
+        if ($expiresAt instanceof DateTimeImmutable && $expiresAt <= $now) {
+            $this->approvals->expirePending($tokenHash, $now);
 
             return null;
         }

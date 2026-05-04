@@ -52,7 +52,7 @@ final class ServiceProviderTest extends TestCase
         );
     }
 
-    public function test_persistence_contracts_are_bound(): void
+    public function test_persistence_and_approval_services_are_bound(): void
     {
         $this->assertTrue($this->app->bound(FlowStore::class));
         $this->assertTrue($this->app->bound(RunRepository::class));

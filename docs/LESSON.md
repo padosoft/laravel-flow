@@ -215,3 +215,4 @@
 - Approval token expiry must be enforced in the same conditional consume update as the `pending` status check; checking expiry before the write leaves a race where a token can cross TTL and still be approved.
 - Approval persistence models should use the same `immutable_datetime` cast style as run/step records so operator-facing timestamps behave consistently across stored flow state.
 - Public clock hooks should accept common `DateTimeInterface` implementations such as Carbon and normalize to immutable internals instead of assuming callers return `DateTimeImmutable`.
+- Within one approval-token decision, capture the current clock value once and reuse it for comparisons and persisted decision timestamps; repeated clock reads can create flaky boundary behavior.

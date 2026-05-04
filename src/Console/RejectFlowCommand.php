@@ -15,7 +15,7 @@ final class RejectFlowCommand extends ApprovalDecisionCommand
     protected $signature = 'flow:reject
         {token : Approval token to reject a paused run}
         {--payload= : JSON rejection payload}
-        {--actor= : JSON approval actor metadata}';
+        {--actor= : JSON decision actor metadata}';
 
     /**
      * @var string

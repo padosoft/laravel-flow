@@ -15,7 +15,7 @@ final class ApproveFlowCommand extends ApprovalDecisionCommand
     protected $signature = 'flow:approve
         {token : Approval token to resume a paused run}
         {--payload= : JSON approval payload}
-        {--actor= : JSON approval actor metadata}';
+        {--actor= : JSON decision actor metadata}';
 
     /**
      * @var string

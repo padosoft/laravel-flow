@@ -57,7 +57,7 @@ abstract class ApprovalDecisionCommand extends Command
             $this->error($e->getMessage());
 
             if ($this->getOutput()->isVerbose()) {
-                $this->line($e->getMessage());
+                $this->line($this->verboseFailureDetails($e));
             }
 
             return self::FAILURE;
@@ -71,7 +71,7 @@ abstract class ApprovalDecisionCommand extends Command
             $this->error($e->getMessage());
 
             if ($this->getOutput()->isVerbose()) {
-                $this->line($e->getMessage());
+                $this->line($this->verboseFailureDetails($e));
             }
 
             return self::FAILURE;
@@ -79,7 +79,7 @@ abstract class ApprovalDecisionCommand extends Command
             $this->error(sprintf('Flow approval command [%s] failed unexpectedly.', $this->getName() ?? 'flow:approval'));
 
             if ($this->getOutput()->isVerbose()) {
-                $this->line($e->getMessage());
+                $this->line($this->verboseFailureDetails($e));
             }
 
             return self::FAILURE;
@@ -96,4 +96,15 @@ abstract class ApprovalDecisionCommand extends Command
     }
 
     abstract protected function resultVerb(): string;
+
+    private function verboseFailureDetails(Throwable $exception): string
+    {
+        $previous = $exception->getPrevious();
+
+        if ($previous instanceof Throwable) {
+            return sprintf('%s: %s', $previous::class, $previous->getMessage());
+        }
+
+        return sprintf('%s: %s', $exception::class, $exception->getMessage());
+    }
 }

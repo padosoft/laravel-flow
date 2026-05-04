@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\Event;
+use Padosoft\LaravelFlow\ApprovalTokenManager;
 use Padosoft\LaravelFlow\Contracts\AuditRepository;
 use Padosoft\LaravelFlow\Contracts\CurrentPayloadRedactorProvider;
 use Padosoft\LaravelFlow\Contracts\FlowStore;
@@ -17,6 +18,7 @@ use Padosoft\LaravelFlow\Contracts\RedactorAwareFlowStore;
 use Padosoft\LaravelFlow\Contracts\RunRepository;
 use Padosoft\LaravelFlow\Contracts\StepRunRepository;
 use Padosoft\LaravelFlow\Events\FlowCompensated;
+use Padosoft\LaravelFlow\Events\FlowPaused;
 use Padosoft\LaravelFlow\Events\FlowStepCompleted;
 use Padosoft\LaravelFlow\Events\FlowStepFailed;
 use Padosoft\LaravelFlow\Events\FlowStepStarted;
@@ -25,6 +27,7 @@ use Padosoft\LaravelFlow\Exceptions\FlowExecutionException;
 use Padosoft\LaravelFlow\FlowEngine;
 use Padosoft\LaravelFlow\FlowExecutionOptions;
 use Padosoft\LaravelFlow\FlowRun;
+use Padosoft\LaravelFlow\Models\FlowApprovalRecord;
 use Padosoft\LaravelFlow\Models\FlowAuditRecord;
 use Padosoft\LaravelFlow\Models\FlowRunRecord;
 use Padosoft\LaravelFlow\Models\FlowStepRecord;
@@ -348,6 +351,7 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
     public function test_approval_gate_persists_paused_run_and_step_state(): void
     {
         $this->migrateFlowTables();
+        Event::fake([FlowPaused::class]);
         $engine = $this->engineWithPersistence();
 
         $engine->define('flow.persist.approval-paused')
@@ -357,6 +361,9 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
             ->register();
 
         $run = $engine->execute('flow.persist.approval-paused', []);
+
+        $this->assertArrayHasKey('manager', $run->approvalTokens);
+        $issuedToken = $run->approvalTokens['manager'];
 
         $runRecord = FlowRunRecord::query()->find($run->id);
         $this->assertInstanceOf(FlowRunRecord::class, $runRecord);
@@ -373,7 +380,23 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
 
         $this->assertInstanceOf(FlowStepRecord::class, $approvalStep);
         $this->assertSame('paused', $approvalStep->status);
-        $this->assertSame(['approval_required' => true], $approvalStep->output);
+        $this->assertSame(true, $approvalStep->output['approval_required']);
+        $this->assertSame($issuedToken->approvalId, $approvalStep->output['approval_id']);
+        $this->assertSame($issuedToken->expiresAt->format(DateTimeInterface::ATOM), $approvalStep->output['approval_expires_at']);
+        $this->assertArrayNotHasKey('token', $approvalStep->output);
+
+        $approvalRecord = FlowApprovalRecord::query()
+            ->where('run_id', $run->id)
+            ->where('step_name', 'manager')
+            ->first();
+
+        $this->assertInstanceOf(FlowApprovalRecord::class, $approvalRecord);
+        $this->assertSame($issuedToken->approvalId, $approvalRecord->id);
+        $this->assertSame(FlowApprovalRecord::STATUS_PENDING, $approvalRecord->status);
+        $this->assertSame(ApprovalTokenManager::hashToken($issuedToken->plainTextToken), $approvalRecord->token_hash);
+        $this->assertNotSame($issuedToken->plainTextToken, $approvalRecord->token_hash);
+
+        Event::assertDispatched(FlowPaused::class, fn (FlowPaused $event): bool => $event->approvalToken?->approvalId === $issuedToken->approvalId);
 
         $this->assertSame([
             'FlowStepStarted',
@@ -1463,6 +1486,40 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         $this->assertInstanceOf(FlowStepRecord::class, $approvalStep);
         $this->assertSame('failed', $approvalStep->status);
         $this->assertSame(RuntimeException::class, $approvalStep->error_class);
+        $this->assertCount(1, RecordingCompensator::$invocations);
+    }
+
+    public function test_paused_listener_failure_expires_issued_approval_token(): void
+    {
+        $this->migrateFlowTables();
+        $engine = $this->engineWithPersistence();
+
+        $this->app['events']->listen(
+            FlowPaused::class,
+            static fn (): never => throw new RuntimeException('paused listener exploded'),
+        );
+
+        $engine->define('flow.persist.paused-listener-down')
+            ->step('create', AlwaysSucceedsHandler::class)
+            ->compensateWith(RecordingCompensator::class)
+            ->approvalGate('manager')
+            ->register();
+
+        try {
+            $engine->execute('flow.persist.paused-listener-down', []);
+            $this->fail('The failing paused listener should abort execution.');
+        } catch (RuntimeException $exception) {
+            $this->assertSame('paused listener exploded', $exception->getMessage());
+        }
+
+        $approvalRecord = FlowApprovalRecord::query()
+            ->where('step_name', 'manager')
+            ->first();
+
+        $this->assertInstanceOf(FlowApprovalRecord::class, $approvalRecord);
+        $this->assertSame(FlowApprovalRecord::STATUS_EXPIRED, $approvalRecord->status);
+        $this->assertNotNull($approvalRecord->decided_at);
+        $this->assertNull($approvalRecord->consumed_at);
         $this->assertCount(1, RecordingCompensator::$invocations);
     }
 

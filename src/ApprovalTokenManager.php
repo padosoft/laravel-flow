@@ -98,6 +98,11 @@ final class ApprovalTokenManager
         return $this->consume($plainTextToken, FlowApprovalRecord::STATUS_REJECTED, $actor, $payload);
     }
 
+    public function expireIssued(IssuedApprovalToken $token, ?DateTimeInterface $decidedAt = null): ?FlowApprovalRecord
+    {
+        return $this->approvals->expirePending($token->tokenHash, $this->immutableDate($decidedAt) ?? $this->now());
+    }
+
     public static function hashToken(string $plainTextToken): string
     {
         return hash('sha256', $plainTextToken);

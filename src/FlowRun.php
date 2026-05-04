@@ -43,6 +43,13 @@ final class FlowRun
      */
     public array $stepResults = [];
 
+    /**
+     * Plain approval tokens are available only immediately after issuance.
+     *
+     * @var array<string, IssuedApprovalToken>
+     */
+    public array $approvalTokens = [];
+
     public ?DateTimeImmutable $finishedAt = null;
 
     public function __construct(
@@ -58,6 +65,11 @@ final class FlowRun
     public function recordStepResult(string $stepName, FlowStepResult $result): void
     {
         $this->stepResults[$stepName] = $result;
+    }
+
+    public function recordApprovalToken(IssuedApprovalToken $token): void
+    {
+        $this->approvalTokens[$token->stepName] = $token;
     }
 
     public function markRunning(): void

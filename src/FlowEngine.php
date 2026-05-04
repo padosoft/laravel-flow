@@ -75,6 +75,7 @@ class FlowEngine
         private readonly ?PayloadRedactor $redactor = null,
         private readonly mixed $clock = null,
         private readonly ?ConcurrencyDriver $compensationConcurrencyDriver = null,
+        private readonly ?ApprovalTokenManager $approvalTokenManager = null,
     ) {}
 
     public function define(string $name): FlowDefinitionBuilder
@@ -271,6 +272,7 @@ class FlowEngine
             if ($result->paused) {
                 $run->markPaused();
                 $listenerFailureEvent = null;
+                $issuedApprovalToken = null;
 
                 try {
                     $this->persistAtomically($store, function () use (
@@ -279,13 +281,21 @@ class FlowEngine
                         $step,
                         $sequence,
                         $context,
-                        $result,
+                        &$result,
+                        &$issuedApprovalToken,
                         $stepStartedAt,
                         $stepFinishedAt,
                         $definition,
                         $dryRun,
                         $redactor,
                     ): void {
+                        $issuedApprovalToken = $this->issueApprovalTokenForPausedStep($store, $run, $step);
+
+                        if ($issuedApprovalToken instanceof IssuedApprovalToken) {
+                            $result = $this->pausedResultWithApprovalToken($result, $issuedApprovalToken);
+                            $run->recordStepResult($step->name, $result);
+                        }
+
                         $this->persistStepFinished(
                             $store,
                             $run,
@@ -305,11 +315,17 @@ class FlowEngine
                         ], $result->businessImpact, $stepFinishedAt);
                         $this->persistRunFinished($store, $run);
                     });
+
+                    if ($issuedApprovalToken instanceof IssuedApprovalToken) {
+                        $run->recordApprovalToken($issuedApprovalToken);
+                    }
+
                     $this->dispatchOrCaptureListenerFailure(
-                        new FlowPaused($run->id, $definition->name, $step->name, $result, $dryRun),
+                        new FlowPaused($run->id, $definition->name, $step->name, $result, $dryRun, $issuedApprovalToken),
                         $listenerFailureEvent,
                     );
                 } catch (Throwable $e) {
+                    $this->expireApprovalTokenBestEffort($issuedApprovalToken, $stepFinishedAt);
                     $this->compensateAfterRuntimeAbort(
                         $definition,
                         $context,
@@ -1601,6 +1617,53 @@ class FlowEngine
             businessImpact: $businessImpact,
             occurredAt: $occurredAt,
         );
+    }
+
+    private function issueApprovalTokenForPausedStep(?FlowStore $store, FlowRun $run, FlowStep $step): ?IssuedApprovalToken
+    {
+        if (! $store instanceof FlowStore || $step->handlerFqcn !== ApprovalGate::class) {
+            return null;
+        }
+
+        return $this->approvalTokenManager()->issue($run->id, $step->name, [
+            'definition_name' => $run->definitionName,
+            'step_name' => $step->name,
+        ]);
+    }
+
+    private function pausedResultWithApprovalToken(
+        FlowStepResult $result,
+        IssuedApprovalToken $token,
+    ): FlowStepResult {
+        return FlowStepResult::paused(array_merge($result->output, [
+            'approval_expires_at' => $token->expiresAt->format(DateTimeInterface::ATOM),
+            'approval_id' => $token->approvalId,
+        ]), $result->businessImpact);
+    }
+
+    private function expireApprovalTokenBestEffort(?IssuedApprovalToken $token, DateTimeInterface $decidedAt): void
+    {
+        if (! $token instanceof IssuedApprovalToken) {
+            return;
+        }
+
+        try {
+            $this->approvalTokenManager()->expireIssued($token, $decidedAt);
+        } catch (Throwable) {
+            // Preserve the pause transition exception while preventing stale pending tokens when possible.
+        }
+    }
+
+    private function approvalTokenManager(): ApprovalTokenManager
+    {
+        if ($this->approvalTokenManager instanceof ApprovalTokenManager) {
+            return $this->approvalTokenManager;
+        }
+
+        /** @var ApprovalTokenManager $manager */
+        $manager = $this->container->make(ApprovalTokenManager::class);
+
+        return $manager;
     }
 
     private function storeForExecution(bool $dryRun): ?FlowStore

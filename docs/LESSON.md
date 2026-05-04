@@ -219,3 +219,4 @@
 - Approval `updated_at` should reuse the same decision timestamp as `consumed_at` / `decided_at` during approve, reject, and expiry writes; mixed clocks make operational timelines harder to reason about.
 - Approval-gate token issuance should enrich persisted step/audit/event output only with non-secret metadata such as approval id and expiry; the plain token belongs only on the immediate returned run path and must not be persisted or carried by queued/serialized events.
 - If a paused transition later aborts because a `FlowPaused` listener throws, expire the newly issued approval token best-effort before compensation so a failed/compensated run cannot retain a pending usable token.
+- Negated `instanceof` guards should use explicit parentheses, e.g. `! ($value instanceof Type)`, so null-store checks remain clear to reviewers and future refactors.

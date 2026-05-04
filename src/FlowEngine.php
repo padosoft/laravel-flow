@@ -1621,7 +1621,7 @@ class FlowEngine
 
     private function issueApprovalTokenForPausedStep(?FlowStore $store, FlowRun $run, FlowStep $step): ?IssuedApprovalToken
     {
-        if (! $store instanceof FlowStore || $step->handlerFqcn !== ApprovalGate::class) {
+        if (! ($store instanceof FlowStore) || $step->handlerFqcn !== ApprovalGate::class) {
             return null;
         }
 

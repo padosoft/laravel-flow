@@ -629,17 +629,17 @@ class FlowEngine
     ): FlowRun {
         $preDecisionApproval = $this->approvalTokenManager()->find($token);
 
-        if (! $preDecisionApproval instanceof FlowApprovalRecord
+        if (! ($preDecisionApproval instanceof FlowApprovalRecord)
             || $preDecisionApproval->status === FlowApprovalRecord::STATUS_EXPIRED
         ) {
             throw new FlowExecutionException('Approval token is invalid or expired.');
         }
 
         if ($preDecisionApproval->status === FlowApprovalRecord::STATUS_PENDING) {
-            $preDecisionState = $this->approvalExecutionState($preDecisionApproval, $store);
+            $preDecisionRunRecord = $this->approvalRunRecord($preDecisionApproval, $store);
 
-            if ($preDecisionState['run_record']->status !== FlowRun::STATUS_PAUSED) {
-                return $this->flowRunFromRecord($preDecisionState['run_record'], $store);
+            if ($preDecisionRunRecord->status !== FlowRun::STATUS_PAUSED) {
+                return $this->flowRunFromRecord($preDecisionRunRecord, $store);
             }
         }
 
@@ -768,13 +768,16 @@ class FlowEngine
         FlowStore $store,
         PayloadRedactor $redactor,
     ): FlowRun {
-        $state = $this->approvalExecutionState($approval, $store);
-        $runRecord = $state['run_record'];
+        $runRecord = $this->approvalRunRecord($approval, $store);
+
+        if (! in_array($runRecord->status, [FlowRun::STATUS_PAUSED, FlowRun::STATUS_RUNNING], true)) {
+            return $this->flowRunFromRecord($runRecord, $store);
+        }
+
+        $state = $this->approvalExecutionState($approval, $store, $runRecord);
 
         if ($runRecord->status !== FlowRun::STATUS_PAUSED) {
-            if ($runRecord->status === FlowRun::STATUS_RUNNING
-                && $state['approval_step_record']->status === 'succeeded'
-            ) {
+            if ($state['approval_step_record']->status === 'succeeded') {
                 $run = $state['run'];
                 $run->markRunning();
 
@@ -928,20 +931,24 @@ class FlowEngine
         FlowStore $store,
         PayloadRedactor $redactor,
     ): FlowRun {
-        $state = $this->approvalExecutionState($approval, $store);
-        $runRecord = $state['run_record'];
+        $runRecord = $this->approvalRunRecord($approval, $store);
 
         if ($runRecord->status !== FlowRun::STATUS_PAUSED) {
             if ($runRecord->status === FlowRun::STATUS_FAILED
                 && $runRecord->failed_step === $approval->step_name
-                && $state['approval_step_record']->status === 'failed'
                 && ! (bool) $runRecord->compensated
             ) {
-                return $this->retryRejectedApprovalCompensation($state, $state['run'], $store);
+                $state = $this->approvalExecutionState($approval, $store, $runRecord);
+
+                if ($state['approval_step_record']->status === 'failed') {
+                    return $this->retryRejectedApprovalCompensation($state, $state['run'], $store);
+                }
             }
 
             return $this->flowRunFromRecord($runRecord, $store);
         }
+
+        $state = $this->approvalExecutionState($approval, $store, $runRecord);
 
         if ($state['approval_step_record']->status !== 'paused') {
             return $this->flowRunFromRecord($runRecord, $store);
@@ -1171,11 +1178,7 @@ class FlowEngine
         FlowStore $store,
         ?FlowRunRecord $runRecord = null,
     ): array {
-        $runRecord ??= $store->runs()->find($approval->run_id);
-
-        if (! $runRecord instanceof FlowRunRecord) {
-            throw new FlowExecutionException(sprintf('Approval run [%s] was not found.', $approval->run_id));
-        }
+        $runRecord ??= $this->approvalRunRecord($approval, $store);
 
         $definition = $this->definition($runRecord->definition_name);
         $approvalIndex = $this->approvalStepIndex($definition, $approval->step_name);
@@ -1235,6 +1238,17 @@ class FlowEngine
             'run' => $run,
             'run_record' => $runRecord,
         ];
+    }
+
+    private function approvalRunRecord(FlowApprovalRecord $approval, FlowStore $store): FlowRunRecord
+    {
+        $runRecord = $store->runs()->find($approval->run_id);
+
+        if (! $runRecord instanceof FlowRunRecord) {
+            throw new FlowExecutionException(sprintf('Approval run [%s] was not found.', $approval->run_id));
+        }
+
+        return $runRecord;
     }
 
     private function approvalStepIndex(FlowDefinition $definition, string $stepName): int

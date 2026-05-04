@@ -195,10 +195,6 @@ final class ApprovalTokenManager
                 decidedAt: $now,
             );
 
-        if (! $record instanceof FlowApprovalRecord) {
-            $this->approvals->expirePending($tokenHash, $now);
-        }
-
         return $record;
     }
 

@@ -18,6 +18,8 @@ use Padosoft\LaravelFlow\FlowRun;
  * @method static FlowRun execute(string $name, array<string, mixed> $input, ?\Padosoft\LaravelFlow\FlowExecutionOptions $options = null)
  * @method static FlowRun dryRun(string $name, array<string, mixed> $input, ?\Padosoft\LaravelFlow\FlowExecutionOptions $options = null)
  * @method static mixed dispatch(string $name, array<string, mixed> $input, ?\Padosoft\LaravelFlow\FlowExecutionOptions $options = null)
+ * @method static FlowRun resume(string $token, array<string, mixed> $payload = [], array<string, mixed> $actor = [])
+ * @method static FlowRun reject(string $token, array<string, mixed> $payload = [], array<string, mixed> $actor = [])
  * @method static array<string, FlowDefinition> definitions()
  * @method static FlowDefinition definition(string $name)
  * @method static void registerDefinition(FlowDefinition $definition)

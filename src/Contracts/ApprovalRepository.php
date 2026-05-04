@@ -23,6 +23,8 @@ interface ApprovalRepository
 
     public function findPendingByTokenHash(string $tokenHash): ?FlowApprovalRecord;
 
+    public function findByTokenHash(string $tokenHash): ?FlowApprovalRecord;
+
     /**
      * @param  array<string, mixed>  $actor
      * @param  array<string, mixed>  $payload

@@ -33,6 +33,7 @@ use Padosoft\LaravelFlow\Models\FlowRunRecord;
 use Padosoft\LaravelFlow\Models\FlowStepRecord;
 use Padosoft\LaravelFlow\Tests\Unit\Stubs\AlwaysFailsHandler;
 use Padosoft\LaravelFlow\Tests\Unit\Stubs\AlwaysSucceedsHandler;
+use Padosoft\LaravelFlow\Tests\Unit\Stubs\ApprovalPayloadCapturingHandler;
 use Padosoft\LaravelFlow\Tests\Unit\Stubs\ClockAdvancingCompensator;
 use Padosoft\LaravelFlow\Tests\Unit\Stubs\ClockAdvancingThrowingCompensator;
 use Padosoft\LaravelFlow\Tests\Unit\Stubs\CustomSecretFailsHandler;
@@ -53,6 +54,7 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         parent::setUp();
 
         AlwaysSucceedsHandler::$callCount = 0;
+        ApprovalPayloadCapturingHandler::reset();
         RecordingCompensator::reset();
     }
 
@@ -214,6 +216,11 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
                     public function update(string $runId, array $attributes): FlowRunRecord
                     {
                         return $this->inner->update($runId, $attributes);
+                    }
+
+                    public function updateWhereStatus(string $runId, string $expectedStatus, array $attributes): ?FlowRunRecord
+                    {
+                        return $this->inner->updateWhereStatus($runId, $expectedStatus, $attributes);
                     }
 
                     public function find(string $runId): ?FlowRunRecord
@@ -405,6 +412,164 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
             'FlowStepStarted',
             'FlowPaused',
         ], FlowAuditRecord::query()->where('run_id', $run->id)->orderBy('id')->pluck('event')->all());
+    }
+
+    public function test_resume_approval_token_continues_persisted_flow_without_rerunning_prior_steps(): void
+    {
+        $this->migrateFlowTables();
+        $engine = $this->engineWithPersistence();
+
+        $engine->define('flow.persist.approval-resume')
+            ->step('create', AlwaysSucceedsHandler::class)
+            ->approvalGate('manager')
+            ->step('publish', ApprovalPayloadCapturingHandler::class)
+            ->register();
+
+        $pausedRun = $engine->execute('flow.persist.approval-resume', ['api_key' => 'plain-secret']);
+        $token = $pausedRun->approvalTokens['manager']->plainTextToken;
+
+        $resumedRun = $engine->resume(
+            $token,
+            ['decision' => 'ship', 'api_key' => 'payload-secret'],
+            ['user_id' => 123, 'token' => 'actor-secret'],
+        );
+
+        $this->assertSame($pausedRun->id, $resumedRun->id);
+        $this->assertSame(FlowRun::STATUS_SUCCEEDED, $resumedRun->status);
+        $this->assertSame(1, AlwaysSucceedsHandler::$callCount);
+        $this->assertSame(1, ApprovalPayloadCapturingHandler::$callCount);
+        $this->assertSame('ship', ApprovalPayloadCapturingHandler::$lastStepOutputs['manager']['approval_payload']['decision']);
+        $this->assertSame('payload-secret', ApprovalPayloadCapturingHandler::$lastStepOutputs['manager']['approval_payload']['api_key']);
+
+        $runRecord = FlowRunRecord::query()->find($pausedRun->id);
+        $this->assertInstanceOf(FlowRunRecord::class, $runRecord);
+        $this->assertSame(FlowRun::STATUS_SUCCEEDED, $runRecord->status);
+        $this->assertArrayHasKey('manager', $runRecord->output);
+        $this->assertSame('[redacted]', $runRecord->output['manager']['approval_payload']['api_key']);
+
+        $approvalStep = FlowStepRecord::query()
+            ->where('run_id', $pausedRun->id)
+            ->where('step_name', 'manager')
+            ->first();
+        $this->assertInstanceOf(FlowStepRecord::class, $approvalStep);
+        $this->assertSame('succeeded', $approvalStep->status);
+        $this->assertSame(FlowApprovalRecord::STATUS_APPROVED, $approvalStep->output['approval_status']);
+        $this->assertSame('[redacted]', $approvalStep->output['approval_payload']['api_key']);
+
+        $approvalRecord = FlowApprovalRecord::query()
+            ->where('run_id', $pausedRun->id)
+            ->where('step_name', 'manager')
+            ->first();
+        $this->assertInstanceOf(FlowApprovalRecord::class, $approvalRecord);
+        $this->assertSame(FlowApprovalRecord::STATUS_APPROVED, $approvalRecord->status);
+        $this->assertSame('[redacted]', $approvalRecord->payload['api_key']);
+        $this->assertSame('[redacted]', $approvalRecord->actor['token']);
+
+        $this->assertSame([
+            'FlowStepStarted',
+            'FlowStepCompleted',
+            'FlowStepStarted',
+            'FlowPaused',
+            'FlowStepCompleted',
+            'FlowStepStarted',
+            'FlowStepCompleted',
+        ], FlowAuditRecord::query()->where('run_id', $pausedRun->id)->orderBy('id')->pluck('event')->all());
+    }
+
+    public function test_resume_approval_token_is_idempotent_after_success(): void
+    {
+        $this->migrateFlowTables();
+        $engine = $this->engineWithPersistence();
+
+        $engine->define('flow.persist.approval-resume-idempotent')
+            ->step('create', AlwaysSucceedsHandler::class)
+            ->approvalGate('manager')
+            ->step('publish', ApprovalPayloadCapturingHandler::class)
+            ->register();
+
+        $pausedRun = $engine->execute('flow.persist.approval-resume-idempotent', []);
+        $token = $pausedRun->approvalTokens['manager']->plainTextToken;
+
+        $firstResume = $engine->resume($token, ['decision' => 'ship']);
+        $secondResume = $engine->resume($token, ['decision' => 'ignored']);
+
+        $this->assertSame($firstResume->id, $secondResume->id);
+        $this->assertSame(FlowRun::STATUS_SUCCEEDED, $secondResume->status);
+        $this->assertSame(1, AlwaysSucceedsHandler::$callCount);
+        $this->assertSame(1, ApprovalPayloadCapturingHandler::$callCount);
+        $this->assertSame(1, (int) FlowApprovalRecord::query()
+            ->where('run_id', $pausedRun->id)
+            ->where('status', FlowApprovalRecord::STATUS_APPROVED)
+            ->count());
+        $this->assertSame(1, (int) FlowStepRecord::query()
+            ->where('run_id', $pausedRun->id)
+            ->where('step_name', 'publish')
+            ->count());
+    }
+
+    public function test_reject_approval_token_fails_run_and_compensates_prior_steps(): void
+    {
+        $this->migrateFlowTables();
+        $engine = $this->engineWithPersistence();
+
+        $engine->define('flow.persist.approval-reject')
+            ->step('create', AlwaysSucceedsHandler::class)
+            ->compensateWith(RecordingCompensator::class)
+            ->approvalGate('manager')
+            ->step('publish', ApprovalPayloadCapturingHandler::class)
+            ->register();
+
+        $pausedRun = $engine->execute('flow.persist.approval-reject', []);
+        $token = $pausedRun->approvalTokens['manager']->plainTextToken;
+        $rejectedRun = $engine->reject($token, ['reason' => 'duplicate'], ['user_id' => 456]);
+
+        $this->assertSame($pausedRun->id, $rejectedRun->id);
+        $this->assertSame(FlowRun::STATUS_COMPENSATED, $rejectedRun->status);
+        $this->assertSame('manager', $rejectedRun->failedStep);
+        $this->assertSame(0, ApprovalPayloadCapturingHandler::$callCount);
+        $this->assertCount(1, RecordingCompensator::$invocations);
+
+        $runRecord = FlowRunRecord::query()->find($pausedRun->id);
+        $this->assertInstanceOf(FlowRunRecord::class, $runRecord);
+        $this->assertSame(FlowRun::STATUS_COMPENSATED, $runRecord->status);
+        $this->assertSame('manager', $runRecord->failed_step);
+
+        $approvalStep = FlowStepRecord::query()
+            ->where('run_id', $pausedRun->id)
+            ->where('step_name', 'manager')
+            ->first();
+        $this->assertInstanceOf(FlowStepRecord::class, $approvalStep);
+        $this->assertSame('failed', $approvalStep->status);
+        $this->assertSame('Approval step [manager] was rejected.', $approvalStep->error_message);
+
+        $approvalRecord = FlowApprovalRecord::query()
+            ->where('run_id', $pausedRun->id)
+            ->where('step_name', 'manager')
+            ->first();
+        $this->assertInstanceOf(FlowApprovalRecord::class, $approvalRecord);
+        $this->assertSame(FlowApprovalRecord::STATUS_REJECTED, $approvalRecord->status);
+        $this->assertSame('duplicate', $approvalRecord->payload['reason']);
+        $this->assertSame(456, $approvalRecord->actor['user_id']);
+
+        $this->assertSame([
+            'FlowStepStarted',
+            'FlowStepCompleted',
+            'FlowStepStarted',
+            'FlowPaused',
+            'FlowStepFailed',
+            'FlowCompensated',
+        ], FlowAuditRecord::query()->where('run_id', $pausedRun->id)->orderBy('id')->pluck('event')->all());
+    }
+
+    public function test_resume_rejects_unknown_approval_token(): void
+    {
+        $this->migrateFlowTables();
+        $engine = $this->engineWithPersistence();
+
+        $this->expectException(FlowExecutionException::class);
+        $this->expectExceptionMessage('Approval token is invalid or expired.');
+
+        $engine->resume('missing-token');
     }
 
     public function test_parallel_compensation_strategy_persists_each_successful_compensation(): void
@@ -1071,6 +1236,13 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
                             $this->recordWrite();
 
                             return $this->inner->update($runId, $attributes);
+                        }
+
+                        public function updateWhereStatus(string $runId, string $expectedStatus, array $attributes): ?FlowRunRecord
+                        {
+                            $this->recordWrite();
+
+                            return $this->inner->updateWhereStatus($runId, $expectedStatus, $attributes);
                         }
 
                         public function find(string $runId): ?FlowRunRecord
@@ -1854,6 +2026,15 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
                         return $this->inner->update($runId, $attributes);
                     }
 
+                    public function updateWhereStatus(string $runId, string $expectedStatus, array $attributes): ?FlowRunRecord
+                    {
+                        if (($attributes['status'] ?? null) === $this->status) {
+                            throw new RuntimeException('run update down for '.$this->status);
+                        }
+
+                        return $this->inner->updateWhereStatus($runId, $expectedStatus, $attributes);
+                    }
+
                     public function find(string $runId): ?FlowRunRecord
                     {
                         return $this->inner->find($runId);
@@ -1920,6 +2101,19 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
                 }
 
                 return $this->inner->update($runId, $attributes);
+            }
+
+            public function updateWhereStatus(string $runId, string $expectedStatus, array $attributes): ?FlowRunRecord
+            {
+                if (($attributes['status'] ?? null) === $this->status) {
+                    $this->seen++;
+
+                    if ($this->seen === $this->attempt) {
+                        throw new RuntimeException('run update down for '.$this->status.' on attempt '.$this->attempt);
+                    }
+                }
+
+                return $this->inner->updateWhereStatus($runId, $expectedStatus, $attributes);
             }
 
             public function find(string $runId): ?FlowRunRecord

@@ -61,6 +61,28 @@ final class ApprovalTokenManager
         return $this->pendingByHash(self::hashToken($plainTextToken), $this->now());
     }
 
+    public function find(string $plainTextToken): ?FlowApprovalRecord
+    {
+        $now = $this->now();
+        $tokenHash = self::hashToken($plainTextToken);
+        $record = $this->approvals->findByTokenHash($tokenHash);
+
+        if (! $record instanceof FlowApprovalRecord) {
+            return null;
+        }
+
+        $expiresAt = $this->immutableDate($record->expires_at);
+
+        if ($record->status === FlowApprovalRecord::STATUS_PENDING
+            && $expiresAt instanceof DateTimeImmutable
+            && $expiresAt <= $now
+        ) {
+            return $this->approvals->expirePending($tokenHash, $now);
+        }
+
+        return $record;
+    }
+
     private function pendingByHash(string $tokenHash, DateTimeImmutable $now): ?FlowApprovalRecord
     {
         $record = $this->approvals->findPendingByTokenHash($tokenHash);

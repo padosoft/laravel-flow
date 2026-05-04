@@ -51,6 +51,26 @@ final class EloquentRunRepository implements RunRepository
         return $model->refresh();
     }
 
+    public function updateWhereStatus(string $runId, string $expectedStatus, array $attributes): ?FlowRunRecord
+    {
+        $attributes = $this->redact($this->onlyUpdatable($attributes));
+
+        if ($attributes === []) {
+            return $this->find($runId);
+        }
+
+        $updated = $this->newModel()->newQuery()
+            ->where('id', $runId)
+            ->where('status', $expectedStatus)
+            ->update($attributes);
+
+        if ($updated !== 1) {
+            return null;
+        }
+
+        return $this->find($runId);
+    }
+
     public function find(string $runId): ?FlowRunRecord
     {
         return $this->newModel()->newQuery()->find($runId);

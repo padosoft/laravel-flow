@@ -47,6 +47,13 @@ final class EloquentApprovalRepository implements ApprovalRepository
             ->first();
     }
 
+    public function findByTokenHash(string $tokenHash): ?FlowApprovalRecord
+    {
+        return $this->newModel()->newQuery()
+            ->where('token_hash', $tokenHash)
+            ->first();
+    }
+
     public function consumePending(
         string $tokenHash,
         string $status,

@@ -7,7 +7,11 @@ namespace Padosoft\LaravelFlow;
 use DateTimeImmutable;
 use DateTimeInterface;
 use InvalidArgumentException;
+use Padosoft\LaravelFlow\Contracts\ApprovalDecisionRepository;
 use Padosoft\LaravelFlow\Contracts\ApprovalRepository;
+use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
+use Padosoft\LaravelFlow\Contracts\RedactorAwareApprovalRepository;
+use Padosoft\LaravelFlow\Exceptions\FlowExecutionException;
 use Padosoft\LaravelFlow\Models\FlowApprovalRecord;
 
 final class ApprovalTokenManager
@@ -56,16 +60,81 @@ final class ApprovalTokenManager
         );
     }
 
+    public function reissuePendingForStep(string $runId, string $stepName): ?IssuedApprovalToken
+    {
+        $plainTextToken = $this->generatePlainTextToken();
+        $tokenHash = self::hashToken($plainTextToken);
+        $issuedAt = $this->now();
+        $expiresAt = $issuedAt->modify(sprintf('+%d minutes', $this->ttlMinutes()));
+        $record = $this->approvalDecisions()->reissuePendingTokenForStep($runId, $stepName, $tokenHash, $expiresAt, $issuedAt);
+
+        if (! ($record instanceof FlowApprovalRecord)) {
+            return null;
+        }
+
+        return new IssuedApprovalToken(
+            approvalId: $record->id,
+            runId: $record->run_id,
+            stepName: $record->step_name,
+            plainTextToken: $plainTextToken,
+            tokenHash: $record->token_hash,
+            expiresAt: $this->immutableDate($record->expires_at) ?? $expiresAt,
+        );
+    }
+
     public function pending(string $plainTextToken): ?FlowApprovalRecord
     {
         return $this->pendingByHash(self::hashToken($plainTextToken), $this->now());
+    }
+
+    public function find(string $plainTextToken): ?FlowApprovalRecord
+    {
+        $now = $this->now();
+        $tokenHash = self::hashToken($plainTextToken);
+        $record = $this->approvalDecisions()->findByTokenHash($tokenHash);
+
+        if (! ($record instanceof FlowApprovalRecord)) {
+            return null;
+        }
+
+        $expiresAt = $this->immutableDate($record->expires_at);
+
+        if ($record->status === FlowApprovalRecord::STATUS_PENDING
+            && $expiresAt instanceof DateTimeImmutable
+            && $expiresAt <= $now
+        ) {
+            $expired = $this->approvals->expirePending($tokenHash, $now);
+
+            if ($expired instanceof FlowApprovalRecord) {
+                return $expired;
+            }
+
+            $current = $this->approvalDecisions()->findByTokenHash($tokenHash);
+
+            if (! ($current instanceof FlowApprovalRecord)) {
+                return null;
+            }
+
+            $currentExpiresAt = $this->immutableDate($current->expires_at);
+
+            if ($current->status === FlowApprovalRecord::STATUS_PENDING
+                && $currentExpiresAt instanceof DateTimeImmutable
+                && $currentExpiresAt <= $now
+            ) {
+                return null;
+            }
+
+            return $current;
+        }
+
+        return $record;
     }
 
     private function pendingByHash(string $tokenHash, DateTimeImmutable $now): ?FlowApprovalRecord
     {
         $record = $this->approvals->findPendingByTokenHash($tokenHash);
 
-        if (! $record instanceof FlowApprovalRecord) {
+        if (! ($record instanceof FlowApprovalRecord)) {
             return null;
         }
 
@@ -93,14 +162,49 @@ final class ApprovalTokenManager
      * @param  array<string, mixed>  $actor
      * @param  array<string, mixed>  $payload
      */
+    public function approveForRunStatus(
+        string $plainTextToken,
+        string $runStatus,
+        array $actor = [],
+        array $payload = [],
+    ): ?FlowApprovalRecord {
+        return $this->consume($plainTextToken, FlowApprovalRecord::STATUS_APPROVED, $actor, $payload, $runStatus);
+    }
+
+    /**
+     * @param  array<string, mixed>  $actor
+     * @param  array<string, mixed>  $payload
+     */
     public function reject(string $plainTextToken, array $actor = [], array $payload = []): ?FlowApprovalRecord
     {
         return $this->consume($plainTextToken, FlowApprovalRecord::STATUS_REJECTED, $actor, $payload);
     }
 
+    /**
+     * @param  array<string, mixed>  $actor
+     * @param  array<string, mixed>  $payload
+     */
+    public function rejectForRunStatus(
+        string $plainTextToken,
+        string $runStatus,
+        array $actor = [],
+        array $payload = [],
+    ): ?FlowApprovalRecord {
+        return $this->consume($plainTextToken, FlowApprovalRecord::STATUS_REJECTED, $actor, $payload, $runStatus);
+    }
+
     public function expireIssued(IssuedApprovalToken $token, ?DateTimeInterface $decidedAt = null): ?FlowApprovalRecord
     {
         return $this->approvals->expirePending($token->tokenHash, $this->immutableDate($decidedAt) ?? $this->now());
+    }
+
+    public function withPayloadRedactor(PayloadRedactor $redactor): self
+    {
+        if (! ($this->approvals instanceof RedactorAwareApprovalRepository)) {
+            return $this;
+        }
+
+        return new self($this->approvals->withPayloadRedactor($redactor), $this->tokenTtlMinutes, $this->clock);
     }
 
     public static function hashToken(string $plainTextToken): string
@@ -117,6 +221,7 @@ final class ApprovalTokenManager
         string $status,
         array $actor,
         array $payload,
+        ?string $runStatus = null,
     ): ?FlowApprovalRecord {
         if (! in_array($status, [FlowApprovalRecord::STATUS_APPROVED, FlowApprovalRecord::STATUS_REJECTED], true)) {
             throw new InvalidArgumentException(sprintf('Unsupported approval decision status [%s].', $status));
@@ -129,19 +234,61 @@ final class ApprovalTokenManager
             return null;
         }
 
-        $record = $this->approvals->consumePending(
-            tokenHash: $tokenHash,
-            status: $status,
-            actor: $actor,
-            payload: $payload,
-            decidedAt: $now,
-        );
+        $record = $runStatus === null
+            ? $this->approvals->consumePending(
+                tokenHash: $tokenHash,
+                status: $status,
+                actor: $actor,
+                payload: $payload,
+                decidedAt: $now,
+            )
+            : $this->approvalDecisions()->consumePendingForRunStatus(
+                tokenHash: $tokenHash,
+                status: $status,
+                runStatus: $runStatus,
+                actor: $actor,
+                payload: $payload,
+                decidedAt: $now,
+            );
 
-        if (! $record instanceof FlowApprovalRecord) {
-            $this->approvals->expirePending($tokenHash, $now);
+        if ($record instanceof FlowApprovalRecord) {
+            return $record;
         }
 
-        return $record;
+        return $this->expirePendingIfExpired($tokenHash, $now);
+    }
+
+    private function approvalDecisions(): ApprovalDecisionRepository
+    {
+        if (! ($this->approvals instanceof ApprovalDecisionRepository)) {
+            throw new FlowExecutionException(sprintf(
+                'Approval resume/reject requires the approval repository to implement %s.',
+                ApprovalDecisionRepository::class,
+            ));
+        }
+
+        return $this->approvals;
+    }
+
+    private function expirePendingIfExpired(string $tokenHash, DateTimeImmutable $now): ?FlowApprovalRecord
+    {
+        if (! ($this->approvals instanceof ApprovalDecisionRepository)) {
+            return $this->approvals->expirePending($tokenHash, $now);
+        }
+
+        $current = $this->approvals->findByTokenHash($tokenHash);
+
+        if (! ($current instanceof FlowApprovalRecord) || $current->status !== FlowApprovalRecord::STATUS_PENDING) {
+            return null;
+        }
+
+        $expiresAt = $this->immutableDate($current->expires_at);
+
+        if (! ($expiresAt instanceof DateTimeImmutable) || $expiresAt > $now) {
+            return null;
+        }
+
+        return $this->approvals->expirePending($tokenHash, $now);
     }
 
     private function ttlMinutes(): int

@@ -115,6 +115,7 @@ final class LaravelFlowServiceProvider extends ServiceProvider
             __DIR__.'/../database/migrations/2026_05_02_000001_create_laravel_flow_tables.php' => $this->app->databasePath('migrations/2026_05_02_000001_create_laravel_flow_tables.php'),
             __DIR__.'/../database/migrations/2026_05_04_000002_add_replay_lineage_to_laravel_flow_runs.php' => $this->app->databasePath('migrations/2026_05_04_000002_add_replay_lineage_to_laravel_flow_runs.php'),
             __DIR__.'/../database/migrations/2026_05_04_000003_create_laravel_flow_approval_and_webhook_tables.php' => $this->app->databasePath('migrations/2026_05_04_000003_create_laravel_flow_approval_and_webhook_tables.php'),
+            __DIR__.'/../database/migrations/2026_05_04_000004_add_previous_token_hash_to_flow_approvals.php' => $this->app->databasePath('migrations/2026_05_04_000004_add_previous_token_hash_to_flow_approvals.php'),
         ], 'laravel-flow-migrations');
 
         $this->commands([

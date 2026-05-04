@@ -59,6 +59,7 @@ final class PersistenceMigrationTest extends PersistenceTestCase
             'step_name',
             'status',
             'token_hash',
+            'previous_token_hash',
             'payload',
             'actor',
             'expires_at',

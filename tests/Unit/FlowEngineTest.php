@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Padosoft\LaravelFlow\Tests\Unit;
 
+use Padosoft\LaravelFlow\Exceptions\FlowExecutionException;
 use Padosoft\LaravelFlow\Exceptions\FlowInputException;
 use Padosoft\LaravelFlow\Exceptions\FlowNotRegisteredException;
 use Padosoft\LaravelFlow\FlowEngine;
@@ -120,6 +121,46 @@ final class FlowEngineTest extends TestCase
         $this->assertTrue($run->stepResults['manager']->paused);
         $this->assertSame(['approval_required' => true], $run->stepResults['manager']->output);
         $this->assertSame(1, AlwaysSucceedsHandler::$callCount);
+    }
+
+    public function test_resume_and_reject_require_non_blank_tokens(): void
+    {
+        /** @var FlowEngine $engine */
+        $engine = $this->app->make(FlowEngine::class);
+
+        try {
+            $engine->resume('   ');
+            $this->fail('Blank resume tokens should be rejected.');
+        } catch (FlowInputException $exception) {
+            $this->assertSame('Approval token must not be blank.', $exception->getMessage());
+        }
+
+        try {
+            $engine->reject('');
+            $this->fail('Blank reject tokens should be rejected.');
+        } catch (FlowInputException $exception) {
+            $this->assertSame('Approval token must not be blank.', $exception->getMessage());
+        }
+    }
+
+    public function test_resume_and_reject_require_persistence(): void
+    {
+        /** @var FlowEngine $engine */
+        $engine = $this->app->make(FlowEngine::class);
+
+        try {
+            $engine->resume('approval-token');
+            $this->fail('Resume should require persistence.');
+        } catch (FlowExecutionException $exception) {
+            $this->assertSame('Approval resume/reject requires persistence to be enabled.', $exception->getMessage());
+        }
+
+        try {
+            $engine->reject('approval-token');
+            $this->fail('Reject should require persistence.');
+        } catch (FlowExecutionException $exception) {
+            $this->assertSame('Approval resume/reject requires persistence to be enabled.', $exception->getMessage());
+        }
     }
 
     public function test_approval_gate_pauses_dry_run_and_skips_downstream_steps(): void

@@ -37,6 +37,25 @@ checklist before pushing.
 Read the diff with `git diff HEAD~1..HEAD` (or `git diff --staged` if
 not yet committed) and walk through every item below.
 
+### 0 — Pre-code enterprise review
+
+Before writing code for a behavioral change or Copilot review fix, run this
+mini-review and keep the patch plan aligned with it:
+
+- [ ] Public contract / BC: identify new methods, bindings, optional
+      extension points, default behavior changes, and upgrade hazards.
+- [ ] Edge cases: enumerate invalid input, stale persisted state, repeated
+      idempotent calls, drift, missing migrations, and failure paths.
+- [ ] Diagnostics / CLI: ensure user-facing command/API failures are
+      actionable and do not expose raw framework internals when package-level
+      guidance is possible.
+- [ ] Docs / README: decide whether shipped capability wording, config
+      examples, `Comparison vs alternatives`, or test-count claims must change.
+- [ ] Retention / concurrency: check locks, transactions, pruning/deletion
+      behavior, retry races, duplicate deliveries, and duplicate decisions.
+- [ ] Tests: add explicit tests for every meaningful behavior branch touched
+      by the change.
+
 ### A — Type safety on user input
 
 - [ ] **No bare `(int)` cast on env-var / config / request input.** Use

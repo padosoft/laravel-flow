@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Padosoft\LaravelFlow;
 
+use Illuminate\Concurrency\ConcurrencyManager;
+use Illuminate\Contracts\Concurrency\Driver as ConcurrencyDriver;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Support\Facades\Date;
@@ -18,6 +20,7 @@ use Padosoft\LaravelFlow\Contracts\StepRunRepository;
 use Padosoft\LaravelFlow\Persistence\EloquentFlowStore;
 use Padosoft\LaravelFlow\Persistence\ExecutionScopedPayloadRedactor;
 use Padosoft\LaravelFlow\Persistence\KeyBasedPayloadRedactor;
+use Throwable;
 
 /**
  * Service provider for padosoft/laravel-flow.
@@ -45,6 +48,7 @@ final class LaravelFlowServiceProvider extends ServiceProvider
                 $events,
                 $config,
                 clock: static fn (): \DateTimeImmutable => Date::now()->toDateTimeImmutable(),
+                compensationConcurrencyDriver: $this->compensationConcurrencyDriver($app, $config),
             );
         });
 
@@ -103,5 +107,29 @@ final class LaravelFlowServiceProvider extends ServiceProvider
         return function_exists('config_path')
             ? config_path($file)
             : $this->app->basePath('config/'.$file);
+    }
+
+    /**
+     * @param  array<string, mixed>  $config
+     */
+    private function compensationConcurrencyDriver(Container $app, array $config): ?ConcurrencyDriver
+    {
+        if (($config['compensation_strategy'] ?? 'reverse-order') !== 'parallel') {
+            return null;
+        }
+
+        if (! class_exists(ConcurrencyManager::class)) {
+            return null;
+        }
+
+        $driverName = (string) ($config['compensation_parallel_driver'] ?? 'process');
+
+        try {
+            $driver = $app->make(ConcurrencyManager::class)->driver($driverName);
+        } catch (Throwable) {
+            return null;
+        }
+
+        return $driver instanceof ConcurrencyDriver ? $driver : null;
     }
 }

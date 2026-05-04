@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace Padosoft\LaravelFlow;
 
+use Closure;
 use DateTimeImmutable;
 use DateTimeInterface;
 use Illuminate\Contracts\Bus\Dispatcher as BusDispatcher;
+use Illuminate\Contracts\Concurrency\Driver as ConcurrencyDriver;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Contracts\Events\Dispatcher;
 use Padosoft\LaravelFlow\Contracts\FlowStore;
@@ -36,6 +38,10 @@ use Throwable;
  */
 class FlowEngine
 {
+    private const COMPENSATION_STRATEGY_REVERSE_ORDER = 'reverse-order';
+
+    private const COMPENSATION_STRATEGY_PARALLEL = 'parallel';
+
     /**
      * @var array<string, FlowDefinition>
      */
@@ -47,6 +53,7 @@ class FlowEngine
         /**
          * @var array{
          *     compensation_strategy?: string,
+         *     compensation_parallel_driver?: string,
          *     audit_trail_enabled?: bool,
          *     dry_run_default?: bool,
          *     persistence?: array{
@@ -66,6 +73,7 @@ class FlowEngine
         private readonly ?FlowStore $store = null,
         private readonly ?PayloadRedactor $redactor = null,
         private readonly mixed $clock = null,
+        private readonly ?ConcurrencyDriver $compensationConcurrencyDriver = null,
     ) {}
 
     public function define(string $name): FlowDefinitionBuilder
@@ -155,6 +163,7 @@ class FlowEngine
         $options ??= new FlowExecutionOptions;
         $definition = $this->definition($name);
         $this->validateInput($definition, $input);
+        $this->compensationStrategy();
         $store = $this->storeForExecution($dryRun);
         $redactor = $store instanceof FlowStore ? $this->redactorForExecution() : null;
         $store = $this->storeWithExecutionRedactor($store, $redactor);
@@ -483,7 +492,12 @@ class FlowEngine
             return;
         }
 
-        // 'parallel' compensation strategy is reserved for v0.2; always reverse-order for now.
+        if ($this->compensationStrategy() === self::COMPENSATION_STRATEGY_PARALLEL) {
+            $this->compensateParallel($definition, $context, $completedSteps, $run, $store);
+
+            return;
+        }
+
         $reversed = array_reverse($completedSteps);
 
         $compensatedAtLeastOne = false;
@@ -535,32 +549,260 @@ class FlowEngine
                 continue;
             }
 
-            $payload = [
-                'definition_name' => $definition->name,
-                'dry_run' => $context->dryRun,
-                'status' => 'compensated',
-            ];
-            $compensatedAt = $this->now();
-            $compensationAuditDurable = true;
-
-            try {
-                $this->recordAudit($store, 'FlowCompensated', $run, $step->name, $payload, occurredAt: $compensatedAt);
-            } catch (Throwable) {
-                // Persistence/audit outages must not interrupt rollback.
-                $compensationAuditDurable = false;
-            }
-
-            if ($compensationAuditDurable) {
-                $this->dispatchCompensatedAndIgnoreListenerFailure(
-                    $definition,
-                    $context,
-                    $run,
-                    $step,
-                );
-            }
+            $this->recordSuccessfulCompensation($definition, $context, $run, $store, $step);
             $compensatedAtLeastOne = true;
         }
 
+        $this->finalizeCompensation($definition, $run, $compensationErrors, $compensatedAtLeastOne);
+    }
+
+    /**
+     * @param  list<FlowStep>  $completedSteps
+     */
+    private function compensateParallel(
+        FlowDefinition $definition,
+        FlowContext $context,
+        array $completedSteps,
+        FlowRun $run,
+        ?FlowStore $store,
+    ): void {
+        /** @var list<array{step:FlowStep,result:FlowStepResult,compensator:string}> $attempts */
+        $attempts = [];
+
+        foreach ($completedSteps as $step) {
+            $compensatorFqcn = $step->compensatorFqcn;
+
+            if ($compensatorFqcn === null) {
+                continue;
+            }
+
+            $stepResult = $run->stepResults[$step->name] ?? null;
+
+            if ($stepResult === null) {
+                continue;
+            }
+
+            $attempts[] = [
+                'step' => $step,
+                'result' => $stepResult,
+                'compensator' => $compensatorFqcn,
+            ];
+        }
+
+        if ($attempts === []) {
+            return;
+        }
+
+        /** @var array<int, Closure(): array{success:bool,error_class?:string,error_message?:string}> $driverTasks */
+        $driverTasks = [];
+        /** @var array<int, Closure(): array{success:bool,error_class?:string,error_message?:string}> $localTasks */
+        $localTasks = [];
+
+        foreach ($attempts as $index => $attempt) {
+            $driverTasks[$index] = $this->globalParallelCompensationTask(
+                $attempt['compensator'],
+                $context,
+                $attempt['result'],
+            );
+            $localTasks[$index] = $this->localParallelCompensationTask(
+                $attempt['compensator'],
+                $context,
+                $attempt['result'],
+            );
+        }
+
+        $results = $this->runParallelCompensationTasks($driverTasks, $localTasks);
+        $compensatedAtLeastOne = false;
+
+        /** @var list<array{step:string,error:Throwable}> $compensationErrors */
+        $compensationErrors = [];
+
+        foreach ($attempts as $index => $attempt) {
+            $result = $results[$index] ?? null;
+            $step = $attempt['step'];
+
+            if (! is_array($result) || ($result['success'] ?? false) !== true) {
+                $compensationErrors[] = [
+                    'step' => $step->name,
+                    'error' => $this->parallelCompensationError($result),
+                ];
+
+                continue;
+            }
+
+            $this->recordSuccessfulCompensation($definition, $context, $run, $store, $step);
+            $compensatedAtLeastOne = true;
+        }
+
+        $this->finalizeCompensation($definition, $run, $compensationErrors, $compensatedAtLeastOne);
+    }
+
+    /**
+     * @return Closure(): array{success:bool,error_class?:string,error_message?:string}
+     */
+    private function globalParallelCompensationTask(
+        string $compensatorFqcn,
+        FlowContext $context,
+        FlowStepResult $stepResult,
+    ): Closure {
+        return static function () use ($compensatorFqcn, $context, $stepResult): array {
+            return self::executeCompensationTask(
+                \Illuminate\Container\Container::getInstance(),
+                $compensatorFqcn,
+                $context,
+                $stepResult,
+            );
+        };
+    }
+
+    /**
+     * @return Closure(): array{success:bool,error_class?:string,error_message?:string}
+     */
+    private function localParallelCompensationTask(
+        string $compensatorFqcn,
+        FlowContext $context,
+        FlowStepResult $stepResult,
+    ): Closure {
+        $container = $this->container;
+
+        return static function () use ($container, $compensatorFqcn, $context, $stepResult): array {
+            return self::executeCompensationTask($container, $compensatorFqcn, $context, $stepResult);
+        };
+    }
+
+    /**
+     * @param  array<int, Closure(): array{success:bool,error_class?:string,error_message?:string}>  $driverTasks
+     * @param  array<int, Closure(): array{success:bool,error_class?:string,error_message?:string}>  $localTasks
+     * @return array<int, array{success:bool,error_class?:string,error_message?:string}>
+     */
+    private function runParallelCompensationTasks(array $driverTasks, array $localTasks): array
+    {
+        if ($this->compensationConcurrencyDriver instanceof ConcurrencyDriver && $this->containerIsGlobalInstance()) {
+            try {
+                /** @var array<int, array{success:bool,error_class?:string,error_message?:string}> $results */
+                $results = $this->compensationConcurrencyDriver->run($driverTasks);
+
+                return $results;
+            } catch (Throwable) {
+                // If the concurrency driver cannot run the batch, fall back to
+                // local rollback rather than leaving side effects unapplied.
+            }
+        }
+
+        $results = [];
+
+        foreach ($localTasks as $index => $task) {
+            $results[$index] = $task();
+        }
+
+        return $results;
+    }
+
+    /**
+     * @return array{success:bool,error_class?:string,error_message?:string}
+     */
+    private static function executeCompensationTask(
+        Container $container,
+        string $compensatorFqcn,
+        FlowContext $context,
+        FlowStepResult $stepResult,
+    ): array {
+        try {
+            $compensator = $container->make($compensatorFqcn);
+        } catch (Throwable $e) {
+            return [
+                'success' => false,
+                'error_class' => $e::class,
+                'error_message' => $e->getMessage(),
+            ];
+        }
+
+        if (! $compensator instanceof FlowCompensator) {
+            return [
+                'success' => false,
+                'error_class' => FlowCompensationException::class,
+                'error_message' => sprintf(
+                    'Compensator [%s] does not implement %s.',
+                    $compensatorFqcn,
+                    FlowCompensator::class,
+                ),
+            ];
+        }
+
+        try {
+            $compensator->compensate($context, $stepResult);
+        } catch (Throwable $e) {
+            return [
+                'success' => false,
+                'error_class' => $e::class,
+                'error_message' => $e->getMessage(),
+            ];
+        }
+
+        return ['success' => true];
+    }
+
+    private function containerIsGlobalInstance(): bool
+    {
+        return \Illuminate\Container\Container::getInstance() === $this->container;
+    }
+
+    /**
+     * @param  array{success?:bool,error_class?:string,error_message?:string}|null  $result
+     */
+    private function parallelCompensationError(?array $result): Throwable
+    {
+        if ($result === null) {
+            return new FlowCompensationException('Parallel compensation task did not return a result.');
+        }
+
+        $errorClass = $result['error_class'] ?? FlowCompensationException::class;
+        $errorMessage = $result['error_message'] ?? 'Parallel compensation task failed.';
+
+        return new FlowCompensationException(sprintf('%s: %s', $errorClass, $errorMessage));
+    }
+
+    private function recordSuccessfulCompensation(
+        FlowDefinition $definition,
+        FlowContext $context,
+        FlowRun $run,
+        ?FlowStore $store,
+        FlowStep $step,
+    ): void {
+        $payload = [
+            'definition_name' => $definition->name,
+            'dry_run' => $context->dryRun,
+            'status' => 'compensated',
+        ];
+        $compensatedAt = $this->now();
+        $compensationAuditDurable = true;
+
+        try {
+            $this->recordAudit($store, 'FlowCompensated', $run, $step->name, $payload, occurredAt: $compensatedAt);
+        } catch (Throwable) {
+            // Persistence/audit outages must not interrupt rollback.
+            $compensationAuditDurable = false;
+        }
+
+        if ($compensationAuditDurable) {
+            $this->dispatchCompensatedAndIgnoreListenerFailure(
+                $definition,
+                $context,
+                $run,
+                $step,
+            );
+        }
+    }
+
+    /**
+     * @param  list<array{step:string,error:Throwable}>  $compensationErrors
+     */
+    private function finalizeCompensation(
+        FlowDefinition $definition,
+        FlowRun $run,
+        array $compensationErrors,
+        bool $compensatedAtLeastOne,
+    ): void {
         if ($compensationErrors !== []) {
             $run->finishedAt = $this->now();
             $summary = implode('; ', array_map(
@@ -586,6 +828,21 @@ class FlowEngine
         } elseif ($compensatedAtLeastOne) {
             $run->markCompensated($this->now());
         }
+    }
+
+    private function compensationStrategy(): string
+    {
+        $strategy = trim((string) ($this->config['compensation_strategy'] ?? self::COMPENSATION_STRATEGY_REVERSE_ORDER));
+
+        return match ($strategy) {
+            self::COMPENSATION_STRATEGY_REVERSE_ORDER, self::COMPENSATION_STRATEGY_PARALLEL => $strategy,
+            default => throw new FlowInputException(sprintf(
+                'Unsupported compensation strategy [%s]. Supported strategies: %s, %s.',
+                $strategy,
+                self::COMPENSATION_STRATEGY_REVERSE_ORDER,
+                self::COMPENSATION_STRATEGY_PARALLEL,
+            )),
+        };
     }
 
     /**

@@ -115,11 +115,26 @@ return [
     | Compensation strategy metadata
     |--------------------------------------------------------------------------
     |
-    | Reserved for future concurrent compensation work. The current engine
-    | does not read this setting: every compensation walk is in reverse order
-    | regardless of the configured value.
+    | Supported values:
+    | - reverse-order: default saga rollback, newest completed step first.
+    | - parallel: batch independent compensators through Laravel Concurrency.
+    |
+    | Only use parallel when compensators are independent, idempotent, and safe
+    | to run without reverse-order dependencies.
     |
     */
     'compensation_strategy' => env('LARAVEL_FLOW_COMPENSATION', 'reverse-order'),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Parallel compensation driver
+    |--------------------------------------------------------------------------
+    |
+    | Used only when compensation_strategy is "parallel". Laravel's process
+    | driver gives actual process-level parallelism; set "sync" in local tests
+    | or when compensators must stay in the current PHP process.
+    |
+    */
+    'compensation_parallel_driver' => env('LARAVEL_FLOW_COMPENSATION_PARALLEL_DRIVER', 'process'),
 
 ];

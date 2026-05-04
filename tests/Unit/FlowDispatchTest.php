@@ -9,6 +9,7 @@ use Illuminate\Contracts\Cache\Repository as CacheRepository;
 use Illuminate\Contracts\Queue\ShouldQueueAfterCommit;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Cache;
+use Padosoft\LaravelFlow\Exceptions\FlowExecutionException;
 use Padosoft\LaravelFlow\Exceptions\FlowInputException;
 use Padosoft\LaravelFlow\Facades\Flow;
 use Padosoft\LaravelFlow\FlowEngine;
@@ -53,6 +54,8 @@ final class FlowDispatchTest extends TestCase
                 && $job->lockStore === 'array'
                 && $job->lockSeconds === 3600
                 && $job->lockRetrySeconds === 30
+                && $job->tries() === null
+                && $job->backoff() === null
                 && str_starts_with($job->lockKey(), 'laravel-flow:run:')
                 && $job->input === ['tenant' => 'acme']
                 && $job->options?->correlationId === 'corr-1'
@@ -67,6 +70,9 @@ final class FlowDispatchTest extends TestCase
         $this->app['config']->set('laravel-flow.queue.lock_store', 'file');
         $this->app['config']->set('laravel-flow.queue.lock_seconds', 120);
         $this->app['config']->set('laravel-flow.queue.lock_retry_seconds', 15);
+        $this->app['config']->set('laravel-flow.queue.tries', '1');
+        $this->app['config']->set('laravel-flow.queue.backoff_seconds', '5,30,120');
+        $this->app['config']->set('laravel-flow.persistence.enabled', true);
         $this->app->forgetInstance(FlowEngine::class);
 
         /** @var FlowEngine $engine */
@@ -75,15 +81,171 @@ final class FlowDispatchTest extends TestCase
             ->step('one', AlwaysSucceedsHandler::class)
             ->register();
 
-        $engine->dispatch('flow.dispatch.configured', ['tenant' => 'acme']);
+        $engine->dispatch(
+            'flow.dispatch.configured',
+            ['tenant' => 'acme'],
+            FlowExecutionOptions::make(idempotencyKey: 'idem-configured'),
+        );
 
         Bus::assertDispatched(
             RunFlowJob::class,
             static fn (RunFlowJob $job): bool => $job->lockStore === 'file'
                 && $job->lockSeconds === 120
                 && $job->lockRetrySeconds === 15
+                && $job->tries === 1
+                && $job->tries() === 1
+                && $job->backoff() === [5, 30, 120]
+                && $job->options?->idempotencyKey === 'idem-configured'
                 && $job->input === ['tenant' => 'acme'],
         );
+    }
+
+    public function test_dispatch_sanitizes_configured_queue_retry_policy(): void
+    {
+        Bus::fake();
+        $this->app['config']->set('laravel-flow.queue.tries', '0.5');
+        $this->app['config']->set('laravel-flow.queue.backoff_seconds', [-1, 0, 10, 'invalid', '1.5', '1e3']);
+        $this->app['config']->set('laravel-flow.persistence.enabled', true);
+        $this->app->forgetInstance(FlowEngine::class);
+
+        /** @var FlowEngine $engine */
+        $engine = $this->app->make(FlowEngine::class);
+        $engine->define('flow.dispatch.retry-sanitized')
+            ->step('one', AlwaysSucceedsHandler::class)
+            ->register();
+
+        $engine->dispatch(
+            'flow.dispatch.retry-sanitized',
+            [],
+            FlowExecutionOptions::make(idempotencyKey: 'idem-sanitized'),
+        );
+
+        Bus::assertDispatched(
+            RunFlowJob::class,
+            static fn (RunFlowJob $job): bool => $job->tries === null
+                && $job->tries() === null
+                && $job->backoff() === [0, 10],
+        );
+    }
+
+    public function test_dispatch_allows_retry_policy_on_sync_queue_driver_without_persisted_idempotency(): void
+    {
+        Bus::fake();
+        $this->app['config']->set('queue.default', 'inline');
+        $this->app['config']->set('queue.connections.inline.driver', 'sync');
+        $this->app['config']->set('laravel-flow.queue.tries', 2);
+        $this->app->forgetInstance(FlowEngine::class);
+
+        /** @var FlowEngine $engine */
+        $engine = $this->app->make(FlowEngine::class);
+        $engine->define('flow.dispatch.retry-sync')
+            ->step('one', AlwaysSucceedsHandler::class)
+            ->register();
+
+        $engine->dispatch('flow.dispatch.retry-sync', []);
+
+        Bus::assertDispatched(
+            RunFlowJob::class,
+            static fn (RunFlowJob $job): bool => $job->tries === 2
+                && $job->tries() === 2,
+        );
+    }
+
+    public function test_dispatch_preserves_zero_tries_as_laravel_unlimited_retries(): void
+    {
+        Bus::fake();
+        $this->app['config']->set('laravel-flow.queue.tries', 0);
+        $this->app['config']->set('laravel-flow.persistence.enabled', true);
+        $this->app->forgetInstance(FlowEngine::class);
+
+        /** @var FlowEngine $engine */
+        $engine = $this->app->make(FlowEngine::class);
+        $engine->define('flow.dispatch.retry-unlimited')
+            ->step('one', AlwaysSucceedsHandler::class)
+            ->register();
+
+        $engine->dispatch(
+            'flow.dispatch.retry-unlimited',
+            [],
+            FlowExecutionOptions::make(idempotencyKey: 'idem-unlimited'),
+        );
+
+        Bus::assertDispatched(
+            RunFlowJob::class,
+            static fn (RunFlowJob $job): bool => $job->tries === 0
+                && $job->tries() === 0,
+        );
+    }
+
+    public function test_dispatch_accepts_scalar_queue_backoff_policy(): void
+    {
+        Bus::fake();
+        $this->app['config']->set('laravel-flow.queue.tries', 1);
+        $this->app['config']->set('laravel-flow.queue.backoff_seconds', 45);
+        $this->app->forgetInstance(FlowEngine::class);
+
+        /** @var FlowEngine $engine */
+        $engine = $this->app->make(FlowEngine::class);
+        $engine->define('flow.dispatch.retry-scalar')
+            ->step('one', AlwaysSucceedsHandler::class)
+            ->register();
+
+        $engine->dispatch('flow.dispatch.retry-scalar', []);
+
+        Bus::assertDispatched(
+            RunFlowJob::class,
+            static fn (RunFlowJob $job): bool => $job->tries === 1
+                && $job->tries() === 1
+                && $job->backoff() === 45,
+        );
+    }
+
+    public function test_dispatch_rejects_whole_run_retries_without_persisted_idempotency(): void
+    {
+        Bus::fake();
+        $this->app['config']->set('queue.default', 'database');
+        $this->app['config']->set('queue.connections.database.driver', 'database');
+        $this->app['config']->set('laravel-flow.queue.tries', 2);
+        $this->app->forgetInstance(FlowEngine::class);
+
+        /** @var FlowEngine $engine */
+        $engine = $this->app->make(FlowEngine::class);
+        $engine->define('flow.dispatch.retry-unsafe')
+            ->step('one', AlwaysSucceedsHandler::class)
+            ->register();
+
+        $this->expectException(FlowExecutionException::class);
+        $this->expectExceptionMessage('Async queued run retries can re-run the whole flow');
+
+        try {
+            $engine->dispatch('flow.dispatch.retry-unsafe', []);
+        } finally {
+            Bus::assertNotDispatched(RunFlowJob::class);
+        }
+    }
+
+    public function test_dispatch_rejects_backoff_only_retry_policy_on_async_queue_driver(): void
+    {
+        Bus::fake();
+        $this->app['config']->set('queue.default', 'database');
+        $this->app['config']->set('queue.connections.database.driver', 'database');
+        $this->app['config']->set('laravel-flow.queue.backoff_seconds', 5);
+        $this->app->forgetInstance(FlowEngine::class);
+
+        /** @var FlowEngine $engine */
+        $engine = $this->app->make(FlowEngine::class);
+        $engine->define('flow.dispatch.backoff-unsafe')
+            ->step('one', AlwaysSucceedsHandler::class)
+            ->register();
+
+        $this->expectException(FlowExecutionException::class);
+        $this->expectExceptionMessage('Async queued run retries can re-run the whole flow');
+
+        try {
+            $engine->dispatch('flow.dispatch.backoff-unsafe', []);
+        } finally {
+            Bus::assertNotDispatched(RunFlowJob::class);
+        }
     }
 
     public function test_dispatch_captures_default_cache_store_when_lock_store_is_null(): void
@@ -322,12 +484,42 @@ final class FlowDispatchTest extends TestCase
         $this->assertNull($job->lockStore);
         $this->assertSame(3600, $job->lockSeconds);
         $this->assertSame(30, $job->lockRetrySeconds);
+        $this->assertNull($job->tries);
+        $this->assertNull($job->tries());
+        $this->assertNull($job->backoffSeconds);
+        $this->assertNull($job->backoff());
 
         $secondJob = unserialize($payload, ['allowed_classes' => [RunFlowJob::class, FlowExecutionOptions::class]]);
 
         $this->assertInstanceOf(RunFlowJob::class, $secondJob);
         $this->assertNotSame($job->lockKey(), $secondJob->lockKey());
         $this->assertStringStartsWith('laravel-flow:run:legacy-', $job->lockKey());
+    }
+
+    public function test_run_flow_job_exposes_laravel_retry_policy(): void
+    {
+        $job = new RunFlowJob(
+            'flow.job.retry-policy',
+            dispatchId: 'retry-policy-dispatch',
+            tries: 3,
+            backoffSeconds: 45,
+        );
+
+        $this->assertSame(3, $job->tries);
+        $this->assertSame(3, $job->tries());
+        $this->assertSame(45, $job->backoff());
+    }
+
+    public function test_run_flow_job_ignores_negative_scalar_backoff_policy(): void
+    {
+        $job = new RunFlowJob(
+            'flow.job.retry-policy-negative',
+            dispatchId: 'retry-policy-negative-dispatch',
+            backoffSeconds: -1,
+        );
+
+        $this->assertNull($job->backoffSeconds);
+        $this->assertNull($job->backoff());
     }
 
     public function test_run_flow_job_fails_queue_job_when_completion_marker_write_fails(): void

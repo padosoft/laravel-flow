@@ -14,6 +14,7 @@ use Illuminate\Queue\InteractsWithQueue;
 use Padosoft\LaravelFlow\FlowEngine;
 use Padosoft\LaravelFlow\FlowExecutionOptions;
 use Padosoft\LaravelFlow\FlowRun;
+use Padosoft\LaravelFlow\Queue\QueueRetryPolicy;
 use RuntimeException;
 use Throwable;
 
@@ -36,8 +37,16 @@ final class RunFlowJob implements ShouldQueueAfterCommit
 
     public int $lockRetrySeconds = 30;
 
+    public ?int $tries = null;
+
+    /**
+     * @var int|list<int>|null
+     */
+    public int|array|null $backoffSeconds = null;
+
     /**
      * @param  array<string, mixed>  $input
+     * @param  int|list<int>|null  $backoffSeconds
      */
     public function __construct(
         public string $name,
@@ -47,6 +56,8 @@ final class RunFlowJob implements ShouldQueueAfterCommit
         ?string $lockStore = null,
         int $lockSeconds = 3600,
         int $lockRetrySeconds = 30,
+        ?int $tries = null,
+        int|array|null $backoffSeconds = null,
     ) {
         $this->input = $input;
         $this->options = $options;
@@ -54,6 +65,8 @@ final class RunFlowJob implements ShouldQueueAfterCommit
         $this->lockStore = $lockStore;
         $this->lockSeconds = $lockSeconds;
         $this->lockRetrySeconds = $lockRetrySeconds;
+        $this->tries = QueueRetryPolicy::normalizeTries($tries);
+        $this->backoffSeconds = QueueRetryPolicy::normalizeBackoffSeconds($backoffSeconds);
     }
 
     public function handle(FlowEngine $flow, CacheFactory $cache, ConfigRepository $config): ?FlowRun
@@ -122,6 +135,19 @@ final class RunFlowJob implements ShouldQueueAfterCommit
                 $lock->release();
             }
         }
+    }
+
+    public function tries(): ?int
+    {
+        return $this->tries;
+    }
+
+    /**
+     * @return int|list<int>|null
+     */
+    public function backoff(): int|array|null
+    {
+        return QueueRetryPolicy::normalizeBackoffSeconds($this->backoffSeconds);
     }
 
     public function lockKey(): string

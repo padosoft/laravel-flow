@@ -115,9 +115,35 @@ final class ApprovalTokenManager
      * @param  array<string, mixed>  $actor
      * @param  array<string, mixed>  $payload
      */
+    public function approveForRunStatus(
+        string $plainTextToken,
+        string $runStatus,
+        array $actor = [],
+        array $payload = [],
+    ): ?FlowApprovalRecord {
+        return $this->consume($plainTextToken, FlowApprovalRecord::STATUS_APPROVED, $actor, $payload, $runStatus);
+    }
+
+    /**
+     * @param  array<string, mixed>  $actor
+     * @param  array<string, mixed>  $payload
+     */
     public function reject(string $plainTextToken, array $actor = [], array $payload = []): ?FlowApprovalRecord
     {
         return $this->consume($plainTextToken, FlowApprovalRecord::STATUS_REJECTED, $actor, $payload);
+    }
+
+    /**
+     * @param  array<string, mixed>  $actor
+     * @param  array<string, mixed>  $payload
+     */
+    public function rejectForRunStatus(
+        string $plainTextToken,
+        string $runStatus,
+        array $actor = [],
+        array $payload = [],
+    ): ?FlowApprovalRecord {
+        return $this->consume($plainTextToken, FlowApprovalRecord::STATUS_REJECTED, $actor, $payload, $runStatus);
     }
 
     public function expireIssued(IssuedApprovalToken $token, ?DateTimeInterface $decidedAt = null): ?FlowApprovalRecord
@@ -139,6 +165,7 @@ final class ApprovalTokenManager
         string $status,
         array $actor,
         array $payload,
+        ?string $runStatus = null,
     ): ?FlowApprovalRecord {
         if (! in_array($status, [FlowApprovalRecord::STATUS_APPROVED, FlowApprovalRecord::STATUS_REJECTED], true)) {
             throw new InvalidArgumentException(sprintf('Unsupported approval decision status [%s].', $status));
@@ -151,13 +178,22 @@ final class ApprovalTokenManager
             return null;
         }
 
-        $record = $this->approvals->consumePending(
-            tokenHash: $tokenHash,
-            status: $status,
-            actor: $actor,
-            payload: $payload,
-            decidedAt: $now,
-        );
+        $record = $runStatus === null
+            ? $this->approvals->consumePending(
+                tokenHash: $tokenHash,
+                status: $status,
+                actor: $actor,
+                payload: $payload,
+                decidedAt: $now,
+            )
+            : $this->approvals->consumePendingForRunStatus(
+                tokenHash: $tokenHash,
+                status: $status,
+                runStatus: $runStatus,
+                actor: $actor,
+                payload: $payload,
+                decidedAt: $now,
+            );
 
         if (! $record instanceof FlowApprovalRecord) {
             $this->approvals->expirePending($tokenHash, $now);

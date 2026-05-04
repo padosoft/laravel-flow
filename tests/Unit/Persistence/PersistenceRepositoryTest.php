@@ -124,6 +124,45 @@ final class PersistenceRepositoryTest extends PersistenceTestCase
         $this->assertNull($record->consumed_at);
     }
 
+    public function test_approval_repository_consumes_only_when_run_has_required_status(): void
+    {
+        $this->migrateFlowTables();
+        $this->createAuditRun('00000000-0000-4000-8000-000000000136');
+
+        $approvals = $this->app->make(ApprovalRepository::class);
+        $tokenHash = str_repeat('f', 64);
+        $approvals->createPending(
+            id: '00000000-0000-4000-8000-000000000137',
+            runId: '00000000-0000-4000-8000-000000000136',
+            stepName: 'manager',
+            tokenHash: $tokenHash,
+            expiresAt: new DateTimeImmutable('2026-05-04 10:30:00'),
+        );
+
+        $this->assertNull($approvals->consumePendingForRunStatus(
+            tokenHash: $tokenHash,
+            status: FlowApprovalRecord::STATUS_APPROVED,
+            runStatus: FlowRun::STATUS_PAUSED,
+            decidedAt: new DateTimeImmutable('2026-05-04 10:00:00'),
+        ));
+        $this->assertSame(FlowApprovalRecord::STATUS_PENDING, $approvals->findPendingByTokenHash($tokenHash)?->status);
+
+        DB::table('flow_runs')
+            ->where('id', '00000000-0000-4000-8000-000000000136')
+            ->update(['status' => FlowRun::STATUS_PAUSED]);
+
+        $approved = $approvals->consumePendingForRunStatus(
+            tokenHash: $tokenHash,
+            status: FlowApprovalRecord::STATUS_APPROVED,
+            runStatus: FlowRun::STATUS_PAUSED,
+            decidedAt: new DateTimeImmutable('2026-05-04 10:00:01'),
+        );
+
+        $this->assertInstanceOf(FlowApprovalRecord::class, $approved);
+        $this->assertSame(FlowApprovalRecord::STATUS_APPROVED, $approved->status);
+        $this->assertNotNull($approved->consumed_at);
+    }
+
     public function test_approval_token_manager_uses_one_clock_read_when_consuming(): void
     {
         $this->migrateFlowTables();

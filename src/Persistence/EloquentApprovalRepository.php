@@ -9,6 +9,7 @@ use InvalidArgumentException;
 use Padosoft\LaravelFlow\Contracts\ApprovalRepository;
 use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
 use Padosoft\LaravelFlow\Models\FlowApprovalRecord;
+use Padosoft\LaravelFlow\Models\FlowRunRecord;
 
 final class EloquentApprovalRepository implements ApprovalRepository
 {
@@ -76,6 +77,29 @@ final class EloquentApprovalRepository implements ApprovalRepository
         ]);
     }
 
+    public function consumePendingForRunStatus(
+        string $tokenHash,
+        string $status,
+        string $runStatus,
+        array $actor = [],
+        array $payload = [],
+        ?DateTimeInterface $decidedAt = null,
+    ): ?FlowApprovalRecord {
+        if (! in_array($status, [FlowApprovalRecord::STATUS_APPROVED, FlowApprovalRecord::STATUS_REJECTED], true)) {
+            throw new InvalidArgumentException(sprintf('Unsupported approval decision status [%s].', $status));
+        }
+
+        $now = $decidedAt ?? $this->newModel()->freshTimestamp();
+
+        return $this->updatePending($tokenHash, [
+            'actor' => $actor === [] ? null : $actor,
+            'consumed_at' => $now,
+            'decided_at' => $now,
+            'payload' => $payload === [] ? null : $payload,
+            'status' => $status,
+        ], $runStatus);
+    }
+
     public function expirePending(string $tokenHash, DateTimeInterface $decidedAt): ?FlowApprovalRecord
     {
         return $this->updatePending($tokenHash, [
@@ -87,7 +111,7 @@ final class EloquentApprovalRepository implements ApprovalRepository
     /**
      * @param  array<string, mixed>  $attributes
      */
-    private function updatePending(string $tokenHash, array $attributes): ?FlowApprovalRecord
+    private function updatePending(string $tokenHash, array $attributes, ?string $requiredRunStatus = null): ?FlowApprovalRecord
     {
         $model = $this->newModel();
         $attributes['updated_at'] = $attributes['decided_at'] ?? $model->freshTimestamp();
@@ -99,6 +123,18 @@ final class EloquentApprovalRepository implements ApprovalRepository
 
         if (in_array($attributes['status'] ?? null, [FlowApprovalRecord::STATUS_APPROVED, FlowApprovalRecord::STATUS_REJECTED], true)) {
             $query->where('expires_at', '>', $attributes['decided_at']);
+        }
+
+        if ($requiredRunStatus !== null) {
+            $approvalTable = $model->getTable();
+            $runTable = (new FlowRunRecord)->getTable();
+
+            $query->whereExists(function ($query) use ($approvalTable, $runTable, $requiredRunStatus): void {
+                $query->selectRaw('1')
+                    ->from($runTable)
+                    ->whereColumn($runTable.'.id', $approvalTable.'.run_id')
+                    ->where($runTable.'.status', $requiredRunStatus);
+            });
         }
 
         $updated = $query->update($model->getAttributes());

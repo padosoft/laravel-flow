@@ -37,5 +37,18 @@ interface ApprovalRepository
         ?DateTimeInterface $decidedAt = null,
     ): ?FlowApprovalRecord;
 
+    /**
+     * @param  array<string, mixed>  $actor
+     * @param  array<string, mixed>  $payload
+     */
+    public function consumePendingForRunStatus(
+        string $tokenHash,
+        string $status,
+        string $runStatus,
+        array $actor = [],
+        array $payload = [],
+        ?DateTimeInterface $decidedAt = null,
+    ): ?FlowApprovalRecord;
+
     public function expirePending(string $tokenHash, DateTimeInterface $decidedAt): ?FlowApprovalRecord;
 }

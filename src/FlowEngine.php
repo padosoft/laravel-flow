@@ -663,8 +663,8 @@ class FlowEngine
     ): array {
         $manager = $this->approvalTokenManager();
         $approval = $decision === FlowApprovalRecord::STATUS_APPROVED
-            ? $manager->approve($token, $actor, $payload)
-            : $manager->reject($token, $actor, $payload);
+            ? $manager->approveForRunStatus($token, FlowRun::STATUS_PAUSED, $actor, $payload)
+            : $manager->rejectForRunStatus($token, FlowRun::STATUS_PAUSED, $actor, $payload);
 
         if ($approval instanceof FlowApprovalRecord) {
             return [$approval, true];

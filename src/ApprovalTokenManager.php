@@ -197,12 +197,16 @@ final class ApprovalTokenManager
                 decidedAt: $now,
             );
 
-        return $record;
+        if ($record instanceof FlowApprovalRecord) {
+            return $record;
+        }
+
+        return $this->expirePendingIfExpired($tokenHash, $now);
     }
 
     private function approvalDecisions(): ApprovalDecisionRepository
     {
-        if (! $this->approvals instanceof ApprovalDecisionRepository) {
+        if (! ($this->approvals instanceof ApprovalDecisionRepository)) {
             throw new FlowExecutionException(sprintf(
                 'Approval resume/reject requires the approval repository to implement %s.',
                 ApprovalDecisionRepository::class,
@@ -210,6 +214,27 @@ final class ApprovalTokenManager
         }
 
         return $this->approvals;
+    }
+
+    private function expirePendingIfExpired(string $tokenHash, DateTimeImmutable $now): ?FlowApprovalRecord
+    {
+        if (! ($this->approvals instanceof ApprovalDecisionRepository)) {
+            return null;
+        }
+
+        $current = $this->approvals->findByTokenHash($tokenHash);
+
+        if (! $current instanceof FlowApprovalRecord || $current->status !== FlowApprovalRecord::STATUS_PENDING) {
+            return null;
+        }
+
+        $expiresAt = $this->immutableDate($current->expires_at);
+
+        if (! $expiresAt instanceof DateTimeImmutable || $expiresAt > $now) {
+            return null;
+        }
+
+        return $this->approvals->expirePending($tokenHash, $now);
     }
 
     private function ttlMinutes(): int

@@ -57,7 +57,10 @@ final class EloquentRunRepository implements ConditionalRunRepository, RunReposi
         $attributes = $this->redact($this->onlyUpdatable($attributes));
 
         if ($attributes === []) {
-            return $this->find($runId);
+            return $this->newModel()->newQuery()
+                ->where('id', $runId)
+                ->where('status', $expectedStatus)
+                ->first();
         }
 
         $updated = $this->newModel()->newQuery()

@@ -13,6 +13,7 @@ use Padosoft\LaravelFlow\ApprovalTokenManager;
 use Padosoft\LaravelFlow\Contracts\ApprovalDecisionRepository;
 use Padosoft\LaravelFlow\Contracts\ApprovalRepository;
 use Padosoft\LaravelFlow\Contracts\AuditRepository;
+use Padosoft\LaravelFlow\Contracts\ConditionalRunRepository;
 use Padosoft\LaravelFlow\Contracts\CurrentPayloadRedactorProvider;
 use Padosoft\LaravelFlow\Contracts\FlowStore;
 use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
@@ -21,6 +22,7 @@ use Padosoft\LaravelFlow\Contracts\StepRunRepository;
 use Padosoft\LaravelFlow\FlowRun;
 use Padosoft\LaravelFlow\Models\FlowApprovalRecord;
 use Padosoft\LaravelFlow\Models\FlowAuditRecord;
+use Padosoft\LaravelFlow\Models\FlowRunRecord;
 use Padosoft\LaravelFlow\Persistence\EloquentAuditRepository;
 use Padosoft\LaravelFlow\Persistence\EloquentRunRepository;
 use Padosoft\LaravelFlow\Persistence\ExecutionScopedPayloadRedactor;
@@ -396,6 +398,31 @@ final class PersistenceRepositoryTest extends PersistenceTestCase
         $this->assertSame(1, $counter->value);
         $this->assertSame('redactor-1', $updated->business_impact['secret']);
         $this->assertSame('redactor-1', $updated->output['token']);
+    }
+
+    public function test_conditional_run_update_with_empty_attributes_checks_expected_status(): void
+    {
+        $this->migrateFlowTables();
+
+        $runs = $this->app->make(RunRepository::class);
+        $this->assertInstanceOf(ConditionalRunRepository::class, $runs);
+        /** @var RunRepository&ConditionalRunRepository $runs */
+        $run = $runs->create([
+            'definition_name' => 'flow.conditional.empty',
+            'dry_run' => false,
+            'id' => '00000000-0000-4000-8000-000000000019',
+            'input' => [],
+            'started_at' => new DateTimeImmutable('2026-05-02 11:00:00'),
+            'status' => FlowRun::STATUS_RUNNING,
+        ]);
+
+        $this->assertNull($runs->updateWhereStatus($run->id, FlowRun::STATUS_PAUSED, []));
+
+        $matched = $runs->updateWhereStatus($run->id, FlowRun::STATUS_RUNNING, []);
+
+        $this->assertInstanceOf(FlowRunRecord::class, $matched);
+        $this->assertSame($run->id, $matched->id);
+        $this->assertSame(FlowRun::STATUS_RUNNING, $matched->status);
     }
 
     public function test_public_step_repository_write_uses_one_payload_redactor_instance_for_multiple_json_fields(): void

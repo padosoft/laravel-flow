@@ -53,8 +53,8 @@ Completed in Macro Task 2 (v0.2 persistence layer):
 Current validation baseline:
 
 - `composer validate --strict --no-check-publish`
-- `composer quality` => Pint format test, PHPStan, Unit 177 tests / 804 assertions, Architecture 2 tests / 7 assertions
+- `composer quality` => Pint format test, PHPStan, Unit 178 tests / 813 assertions, Architecture 2 tests / 7 assertions
 
 Next active macro:
 
-- Continue Macro Task 4 from `docs/ENTERPRISE_PLAN.md`: finish the active `task/approval-resume-api` subtask, then add CLI approval/reject commands and signed webhook outbox delivery in follow-up subtasks.
+- Continue Macro Task 4 from `docs/ENTERPRISE_PLAN.md`: after the approval resume API slice lands, add CLI approval/reject commands and signed webhook outbox delivery in follow-up subtasks.

@@ -7,8 +7,10 @@ namespace Padosoft\LaravelFlow\Tests\Unit;
 use Illuminate\Support\ServiceProvider;
 use Orchestra\Testbench\TestCase;
 use Padosoft\LaravelFlow\ApprovalTokenManager;
+use Padosoft\LaravelFlow\Contracts\ApprovalDecisionRepository;
 use Padosoft\LaravelFlow\Contracts\ApprovalRepository;
 use Padosoft\LaravelFlow\Contracts\AuditRepository;
+use Padosoft\LaravelFlow\Contracts\ConditionalRunRepository;
 use Padosoft\LaravelFlow\Contracts\FlowStore;
 use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
 use Padosoft\LaravelFlow\Contracts\RunRepository;
@@ -56,11 +58,15 @@ final class ServiceProviderTest extends TestCase
     {
         $this->assertTrue($this->app->bound(FlowStore::class));
         $this->assertTrue($this->app->bound(RunRepository::class));
+        $this->assertTrue($this->app->bound(ConditionalRunRepository::class));
         $this->assertTrue($this->app->bound(StepRunRepository::class));
         $this->assertTrue($this->app->bound(AuditRepository::class));
         $this->assertTrue($this->app->bound(ApprovalRepository::class));
+        $this->assertTrue($this->app->bound(ApprovalDecisionRepository::class));
         $this->assertTrue($this->app->bound(PayloadRedactor::class));
         $this->assertTrue($this->app->bound(ApprovalTokenManager::class));
+        $this->assertInstanceOf(ConditionalRunRepository::class, $this->app->make(ConditionalRunRepository::class));
+        $this->assertInstanceOf(ApprovalDecisionRepository::class, $this->app->make(ApprovalDecisionRepository::class));
     }
 
     public function test_parallel_compensation_unknown_driver_falls_back_to_engine_resolution(): void

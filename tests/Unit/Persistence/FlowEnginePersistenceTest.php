@@ -512,6 +512,35 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
             ->count());
     }
 
+    public function test_resume_old_approval_token_returns_current_downstream_pause(): void
+    {
+        $this->migrateFlowTables();
+        $engine = $this->engineWithPersistence();
+
+        $engine->define('flow.persist.approval-resume-old-token-downstream-pause')
+            ->step('create', AlwaysSucceedsHandler::class)
+            ->approvalGate('manager')
+            ->step('publish', ApprovalPayloadCapturingHandler::class)
+            ->approvalGate('director')
+            ->step('finalize', AlwaysSucceedsHandler::class)
+            ->register();
+
+        $managerPausedRun = $engine->execute('flow.persist.approval-resume-old-token-downstream-pause', []);
+        $managerToken = $managerPausedRun->approvalTokens['manager']->plainTextToken;
+
+        $directorPausedRun = $engine->resume($managerToken, ['decision' => 'ship']);
+        $oldTokenRetry = $engine->resume($managerToken, ['decision' => 'ignored']);
+
+        $this->assertSame($directorPausedRun->id, $oldTokenRetry->id);
+        $this->assertSame(FlowRun::STATUS_PAUSED, $oldTokenRetry->status);
+        $this->assertArrayHasKey('director', $directorPausedRun->approvalTokens);
+        $this->assertSame(1, ApprovalPayloadCapturingHandler::$callCount);
+        $this->assertSame(0, (int) FlowStepRecord::query()
+            ->where('run_id', $directorPausedRun->id)
+            ->where('step_name', 'finalize')
+            ->count());
+    }
+
     public function test_resume_does_not_continue_when_paused_run_claim_was_lost(): void
     {
         $this->migrateFlowTables();

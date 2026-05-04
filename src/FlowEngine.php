@@ -806,6 +806,10 @@ class FlowEngine
 
         $approvalStepRecord = $state['approval_step_record'];
 
+        if ($state['paused_downstream_step'] !== null) {
+            return $this->flowRunFromRecord($runRecord, $store);
+        }
+
         if ($approvalStepRecord->status === 'succeeded') {
             $run = $state['run'];
             $run->markRunning();
@@ -988,6 +992,7 @@ class FlowEngine
      *     completed_steps: list<FlowStep>,
      *     context: FlowContext,
      *     definition: FlowDefinition,
+     *     paused_downstream_step: string|null,
      *     retry_completed_steps: list<FlowStep>,
      *     retry_context: FlowContext,
      *     retry_sequence: int,
@@ -1121,6 +1126,7 @@ class FlowEngine
      *     completed_steps: list<FlowStep>,
      *     context: FlowContext,
      *     definition: FlowDefinition,
+     *     paused_downstream_step: string|null,
      *     retry_completed_steps: list<FlowStep>,
      *     retry_context: FlowContext,
      *     retry_sequence: int,
@@ -1214,6 +1220,7 @@ class FlowEngine
      *     completed_steps: list<FlowStep>,
      *     context: FlowContext,
      *     definition: FlowDefinition,
+     *     paused_downstream_step: string|null,
      *     retry_completed_steps: list<FlowStep>,
      *     retry_context: FlowContext,
      *     retry_sequence: int,
@@ -1242,6 +1249,7 @@ class FlowEngine
         $retryContext = $context;
         $retrySequence = max(0, $approvalIndex);
         $retryStartIndex = $approvalIndex;
+        $pausedDownstreamStep = null;
 
         foreach ($store->steps()->forRun($runRecord->id) as $stepRecord) {
             $stepIndex = $this->stepIndex($definition, $stepRecord->step_name);
@@ -1307,6 +1315,13 @@ class FlowEngine
                 ));
             }
 
+            if ($stepRecord->status === 'paused' && $runRecord->status === FlowRun::STATUS_PAUSED) {
+                $pausedDownstreamStep = $stepRecord->step_name;
+                $expectedIndex++;
+
+                continue;
+            }
+
             if (! in_array($stepRecord->status, ['succeeded', 'skipped'], true)) {
                 throw new FlowExecutionException(sprintf(
                     'Cannot resume approval because downstream step [%s] is [%s].',
@@ -1340,6 +1355,7 @@ class FlowEngine
             'completed_steps' => $completedSteps,
             'context' => $context,
             'definition' => $definition,
+            'paused_downstream_step' => $pausedDownstreamStep,
             'retry_completed_steps' => $retryCompletedSteps,
             'retry_context' => $retryContext,
             'retry_sequence' => $retrySequence,

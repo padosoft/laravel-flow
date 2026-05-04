@@ -285,7 +285,7 @@ $resumedRun = Flow::resume($token, ['decision' => 'approved'], ['user_id' => 123
 // $rejectedRun = Flow::reject($token, ['reason' => 'duplicate'], ['user_id' => 123]);
 ```
 
-Approval resume/reject requires persistence. The plain token is returned only on the immediate paused run, while `flow_approvals` stores the hash, expiry, redacted decision payload, and redacted actor metadata. `Flow::resume()` marks the approval gate succeeded and continues from the next step without rerunning prior side effects. `Flow::reject()` records the gate as failed and runs compensators for prior completed steps. Resume reconstructs context from persisted input and step outputs, so values redacted before storage remain redacted after resume.
+Approval resume/reject requires persistence. The plain token is returned only on the immediate paused run, while `flow_approvals` stores the hash, expiry, redacted decision payload, and redacted actor metadata. `Flow::resume()` marks the approval gate succeeded and continues from the next step without rerunning prior side effects. Later steps receive the stored approval payload, so configured secret keys are redacted before handler context is reconstructed. `Flow::reject()` records the gate as failed and runs compensators for prior completed steps. Resume reconstructs context from persisted input and step outputs, so values redacted before storage remain redacted after resume.
 
 ### Compensation chain (saga rollback)
 

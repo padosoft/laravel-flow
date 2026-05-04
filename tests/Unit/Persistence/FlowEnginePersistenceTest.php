@@ -439,7 +439,7 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         $this->assertSame(1, AlwaysSucceedsHandler::$callCount);
         $this->assertSame(1, ApprovalPayloadCapturingHandler::$callCount);
         $this->assertSame('ship', ApprovalPayloadCapturingHandler::$lastStepOutputs['manager']['approval_payload']['decision']);
-        $this->assertSame('payload-secret', ApprovalPayloadCapturingHandler::$lastStepOutputs['manager']['approval_payload']['api_key']);
+        $this->assertSame('[redacted]', ApprovalPayloadCapturingHandler::$lastStepOutputs['manager']['approval_payload']['api_key']);
 
         $runRecord = FlowRunRecord::query()->find($pausedRun->id);
         $this->assertInstanceOf(FlowRunRecord::class, $runRecord);
@@ -577,6 +577,45 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
             ->status);
     }
 
+    public function test_resume_can_continue_after_approval_step_was_persisted_before_crash(): void
+    {
+        $this->migrateFlowTables();
+        $engine = $this->engineWithPersistence();
+
+        $engine->define('flow.persist.approval-resume-after-claim')
+            ->step('create', AlwaysSucceedsHandler::class)
+            ->approvalGate('manager')
+            ->step('publish', ApprovalPayloadCapturingHandler::class)
+            ->register();
+
+        $pausedRun = $engine->execute('flow.persist.approval-resume-after-claim', []);
+        $token = $pausedRun->approvalTokens['manager']->plainTextToken;
+        $approval = $this->app->make(ApprovalTokenManager::class)
+            ->approveForRunStatus($token, FlowRun::STATUS_PAUSED, payload: ['decision' => 'ship']);
+        $this->assertInstanceOf(FlowApprovalRecord::class, $approval);
+
+        FlowRunRecord::query()
+            ->whereKey($pausedRun->id)
+            ->update(['status' => FlowRun::STATUS_RUNNING]);
+
+        $approvalStep = FlowStepRecord::query()
+            ->where('run_id', $pausedRun->id)
+            ->where('step_name', 'manager')
+            ->firstOrFail();
+        $approvalStep->forceFill([
+            'duration_ms' => 0,
+            'finished_at' => now(),
+            'output' => ['approval_id' => $approval->id, 'approval_payload' => $approval->payload, 'approval_status' => FlowApprovalRecord::STATUS_APPROVED],
+            'status' => 'succeeded',
+        ])->save();
+
+        $resumedRun = $engine->resume($token);
+
+        $this->assertSame(FlowRun::STATUS_SUCCEEDED, $resumedRun->status);
+        $this->assertSame(1, ApprovalPayloadCapturingHandler::$callCount);
+        $this->assertSame('ship', ApprovalPayloadCapturingHandler::$lastStepOutputs['manager']['approval_payload']['decision']);
+    }
+
     public function test_reject_approval_token_fails_run_and_compensates_prior_steps(): void
     {
         $this->migrateFlowTables();
@@ -629,6 +668,86 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
             'FlowStepFailed',
             'FlowCompensated',
         ], FlowAuditRecord::query()->where('run_id', $pausedRun->id)->orderBy('id')->pluck('event')->all());
+    }
+
+    public function test_reject_does_not_consume_pending_token_for_non_paused_run(): void
+    {
+        $this->migrateFlowTables();
+        $engine = $this->engineWithPersistence();
+
+        $engine->define('flow.persist.approval-reject-stale-token')
+            ->step('create', AlwaysSucceedsHandler::class)
+            ->approvalGate('manager')
+            ->step('publish', ApprovalPayloadCapturingHandler::class)
+            ->register();
+
+        $pausedRun = $engine->execute('flow.persist.approval-reject-stale-token', []);
+        $token = $pausedRun->approvalTokens['manager']->plainTextToken;
+        FlowRunRecord::query()
+            ->whereKey($pausedRun->id)
+            ->update([
+                'failed_step' => 'manager',
+                'finished_at' => now(),
+                'status' => FlowRun::STATUS_FAILED,
+            ]);
+
+        $returnedRun = $engine->reject($token, ['reason' => 'stale']);
+
+        $this->assertSame($pausedRun->id, $returnedRun->id);
+        $this->assertSame(FlowRun::STATUS_FAILED, $returnedRun->status);
+        $this->assertSame(0, ApprovalPayloadCapturingHandler::$callCount);
+        $this->assertSame(FlowApprovalRecord::STATUS_PENDING, FlowApprovalRecord::query()
+            ->where('run_id', $pausedRun->id)
+            ->where('step_name', 'manager')
+            ->firstOrFail()
+            ->status);
+    }
+
+    public function test_reject_can_retry_compensation_after_gate_failure_was_persisted(): void
+    {
+        $this->migrateFlowTables();
+        $engine = $this->engineWithPersistence();
+
+        $engine->define('flow.persist.approval-reject-compensation-retry')
+            ->step('create', AlwaysSucceedsHandler::class)
+            ->compensateWith(RecordingCompensator::class)
+            ->approvalGate('manager')
+            ->step('publish', ApprovalPayloadCapturingHandler::class)
+            ->register();
+
+        $pausedRun = $engine->execute('flow.persist.approval-reject-compensation-retry', []);
+        $token = $pausedRun->approvalTokens['manager']->plainTextToken;
+        $approval = $this->app->make(ApprovalTokenManager::class)
+            ->rejectForRunStatus($token, FlowRun::STATUS_PAUSED, payload: ['reason' => 'duplicate']);
+        $this->assertInstanceOf(FlowApprovalRecord::class, $approval);
+
+        FlowRunRecord::query()
+            ->whereKey($pausedRun->id)
+            ->update([
+                'compensated' => false,
+                'failed_step' => 'manager',
+                'finished_at' => now(),
+                'status' => FlowRun::STATUS_FAILED,
+            ]);
+
+        $approvalStep = FlowStepRecord::query()
+            ->where('run_id', $pausedRun->id)
+            ->where('step_name', 'manager')
+            ->firstOrFail();
+        $approvalStep->forceFill([
+            'duration_ms' => 0,
+            'error_class' => FlowExecutionException::class,
+            'error_message' => 'Approval step [manager] was rejected.',
+            'finished_at' => now(),
+            'output' => null,
+            'status' => 'failed',
+        ])->save();
+
+        $retriedRun = $engine->reject($token);
+
+        $this->assertSame(FlowRun::STATUS_COMPENSATED, $retriedRun->status);
+        $this->assertCount(1, RecordingCompensator::$invocations);
+        $this->assertSame(0, ApprovalPayloadCapturingHandler::$callCount);
     }
 
     public function test_resume_rejects_unknown_approval_token(): void

@@ -15,6 +15,7 @@ use Padosoft\LaravelFlow\Contracts\FlowStore;
 use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
 use Padosoft\LaravelFlow\Contracts\RedactorAwareFlowStore;
 use Padosoft\LaravelFlow\Events\FlowCompensated;
+use Padosoft\LaravelFlow\Events\FlowPaused;
 use Padosoft\LaravelFlow\Events\FlowStepCompleted;
 use Padosoft\LaravelFlow\Events\FlowStepFailed;
 use Padosoft\LaravelFlow\Events\FlowStepStarted;
@@ -266,6 +267,69 @@ class FlowEngine
             $result = $this->executeStep($step, $context);
             $stepFinishedAt = $this->now();
             $run->recordStepResult($step->name, $result);
+
+            if ($result->paused) {
+                $run->markPaused();
+                $listenerFailureEvent = null;
+
+                try {
+                    $this->persistAtomically($store, function () use (
+                        $store,
+                        $run,
+                        $step,
+                        $sequence,
+                        $context,
+                        $result,
+                        $stepStartedAt,
+                        $stepFinishedAt,
+                        $definition,
+                        $dryRun,
+                        $redactor,
+                    ): void {
+                        $this->persistStepFinished(
+                            $store,
+                            $run,
+                            $step,
+                            $sequence,
+                            $context,
+                            $result,
+                            $stepStartedAt,
+                            $stepFinishedAt,
+                            $redactor,
+                        );
+                        $this->recordAudit($store, 'FlowPaused', $run, $step->name, [
+                            'definition_name' => $definition->name,
+                            'dry_run' => $dryRun,
+                            'output' => $result->output,
+                            'status' => 'paused',
+                        ], $result->businessImpact, $stepFinishedAt);
+                        $this->persistRunFinished($store, $run);
+                    });
+                    $this->dispatchOrCaptureListenerFailure(
+                        new FlowPaused($run->id, $definition->name, $step->name, $result, $dryRun),
+                        $listenerFailureEvent,
+                    );
+                } catch (Throwable $e) {
+                    $this->compensateAfterRuntimeAbort(
+                        $definition,
+                        $context,
+                        $completedSteps,
+                        $run,
+                        $store,
+                        $step,
+                        $sequence,
+                        FlowStepResult::failed($e),
+                        $stepStartedAt,
+                        $stepFinishedAt,
+                        $redactor,
+                        listenerEvent: $listenerFailureEvent,
+                    );
+
+                    throw $e;
+                }
+
+                return $run;
+            }
 
             if (! $result->success) {
                 $error = $result->error;
@@ -1256,6 +1320,10 @@ class FlowEngine
             ));
         }
 
+        if ($record->status === 'paused') {
+            return FlowStepResult::paused($record->output ?? [], $record->business_impact);
+        }
+
         if ($record->status === 'skipped' || $record->dry_run_skipped) {
             return FlowStepResult::dryRunSkipped();
         }
@@ -1353,8 +1421,21 @@ class FlowEngine
             'output' => $result->success ? $result->output : null,
             'sequence' => $sequence,
             'started_at' => $startedAt,
-            'status' => $result->success ? ($result->dryRunSkipped ? 'skipped' : 'succeeded') : 'failed',
+            'status' => $this->persistedStepStatus($result),
         ]);
+    }
+
+    private function persistedStepStatus(FlowStepResult $result): string
+    {
+        if ($result->paused) {
+            return 'paused';
+        }
+
+        if (! $result->success) {
+            return 'failed';
+        }
+
+        return $result->dryRunSkipped ? 'skipped' : 'succeeded';
     }
 
     /**
@@ -1572,7 +1653,7 @@ class FlowEngine
         $output = [];
 
         foreach ($run->stepResults as $stepName => $result) {
-            if (! $result->success || $result->dryRunSkipped || $stepName === $run->failedStep) {
+            if (! $result->success || $result->dryRunSkipped || $result->paused || $stepName === $run->failedStep) {
                 continue;
             }
 
@@ -1590,7 +1671,7 @@ class FlowEngine
         $businessImpact = [];
 
         foreach ($run->stepResults as $stepName => $result) {
-            if ($result->businessImpact === null || $stepName === $run->failedStep) {
+            if ($result->businessImpact === null || $result->paused || $stepName === $run->failedStep) {
                 continue;
             }
 

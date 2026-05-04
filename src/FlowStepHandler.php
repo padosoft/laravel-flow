@@ -17,6 +17,9 @@ namespace Padosoft\LaravelFlow;
  * - The handler returns a {@see FlowStepResult}. To signal failure,
  *   either return `FlowStepResult::failed(...)` or throw — the engine
  *   catches both and routes to compensation.
+ * - `FlowStepResult::paused(...)` is reserved for side-effect-free
+ *   control steps. A paused step is not considered completed and its own
+ *   compensator will not run during rollback.
  */
 interface FlowStepHandler
 {

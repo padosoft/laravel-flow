@@ -99,6 +99,49 @@ final class FlowEngineTest extends TestCase
         $this->assertSame(0, AlwaysSucceedsHandler::$callCount);
     }
 
+    public function test_approval_gate_pauses_run_and_skips_downstream_steps(): void
+    {
+        /** @var FlowEngine $engine */
+        $engine = $this->app->make(FlowEngine::class);
+
+        $engine->define('flow.approval.pause')
+            ->step('first', AlwaysSucceedsHandler::class)
+            ->approvalGate('manager')
+            ->step('after', ThirdHandler::class)
+            ->register();
+
+        $run = $engine->execute('flow.approval.pause', []);
+
+        $this->assertSame(FlowRun::STATUS_PAUSED, $run->status);
+        $this->assertNull($run->finishedAt);
+        $this->assertArrayHasKey('first', $run->stepResults);
+        $this->assertArrayHasKey('manager', $run->stepResults);
+        $this->assertArrayNotHasKey('after', $run->stepResults);
+        $this->assertTrue($run->stepResults['manager']->paused);
+        $this->assertSame(['approval_required' => true], $run->stepResults['manager']->output);
+        $this->assertSame(1, AlwaysSucceedsHandler::$callCount);
+    }
+
+    public function test_approval_gate_pauses_dry_run_and_skips_downstream_steps(): void
+    {
+        /** @var FlowEngine $engine */
+        $engine = $this->app->make(FlowEngine::class);
+
+        $engine->define('flow.approval.dry-run')
+            ->approvalGate('manager')
+            ->step('after', AlwaysSucceedsHandler::class)
+            ->register();
+
+        $run = $engine->dryRun('flow.approval.dry-run', []);
+
+        $this->assertTrue($run->dryRun);
+        $this->assertSame(FlowRun::STATUS_PAUSED, $run->status);
+        $this->assertArrayHasKey('manager', $run->stepResults);
+        $this->assertArrayNotHasKey('after', $run->stepResults);
+        $this->assertTrue($run->stepResults['manager']->paused);
+        $this->assertSame(0, AlwaysSucceedsHandler::$callCount);
+    }
+
     public function test_thrown_exception_in_handler_becomes_failed_step_result(): void
     {
         /** @var FlowEngine $engine */

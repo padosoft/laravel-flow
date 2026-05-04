@@ -14,6 +14,11 @@ use Throwable;
 final class FlowStepResult
 {
     /**
+     * Pause results are for side-effect-free control steps such as
+     * {@see ApprovalGate}. The paused step itself is not added to the
+     * completed-step compensation list; handlers that already performed
+     * compensator-relevant work should return success/failure instead.
+     *
      * @param  array<string, mixed>  $output
      * @param  array<string, mixed>|null  $businessImpact
      */
@@ -23,6 +28,7 @@ final class FlowStepResult
         public readonly ?Throwable $error = null,
         public readonly ?array $businessImpact = null,
         public readonly bool $dryRunSkipped = false,
+        public readonly bool $paused = false,
     ) {}
 
     /**
@@ -31,16 +37,25 @@ final class FlowStepResult
      */
     public static function success(array $output = [], ?array $businessImpact = null): self
     {
-        return new self(true, $output, null, $businessImpact, false);
+        return new self(true, $output, null, $businessImpact, false, false);
     }
 
     public static function failed(Throwable $error): self
     {
-        return new self(false, [], $error, null, false);
+        return new self(false, [], $error, null, false, false);
     }
 
     public static function dryRunSkipped(): self
     {
-        return new self(true, [], null, null, true);
+        return new self(true, [], null, null, true, false);
+    }
+
+    /**
+     * @param  array<string, mixed>  $output
+     * @param  array<string, mixed>|null  $businessImpact
+     */
+    public static function paused(array $output = [], ?array $businessImpact = null): self
+    {
+        return new self(true, $output, null, $businessImpact, false, true);
     }
 }

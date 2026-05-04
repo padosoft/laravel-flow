@@ -209,3 +209,11 @@
 - A paused approval step needs a matching Laravel event after `FlowStepStarted`; otherwise event subscribers observe a permanently running step.
 - Approval gates should opt into dry-run execution by default so dry-runs stop at the same control-plane boundary as real executions.
 - `FlowStepResult::paused()` is a control-plane result, not a business success result; document that custom handlers returning it must be side-effect-free because the paused step is not added to the compensation list.
+- Approval token issuance should return the plain token only at issuance time and persist only its fixed-width hash; repository lookup/consume paths must operate on hashes so clear tokens are not recoverable from storage.
+- Approval approve/reject consumption should update by `token_hash` plus `pending` status in a single write, so repeated submissions cannot consume the same token twice.
+- Approval actor and decision payloads are operator-provided data and must pass through the same payload redaction path as run, step, and audit JSON before persistence.
+- Approval token expiry must be enforced in the same conditional consume update as the `pending` status check; checking expiry before the write leaves a race where a token can cross TTL and still be approved.
+- Approval persistence models should use the same `immutable_datetime` cast style as run/step records so operator-facing timestamps behave consistently across stored flow state.
+- Public clock hooks should accept common `DateTimeInterface` implementations such as Carbon and normalize to immutable internals instead of assuming callers return `DateTimeImmutable`.
+- Within one approval-token decision, capture the current clock value once and reuse it for comparisons and persisted decision timestamps; repeated clock reads can create flaky boundary behavior.
+- Approval `updated_at` should reuse the same decision timestamp as `consumed_at` / `decided_at` during approve, reject, and expiry writes; mixed clocks make operational timelines harder to reason about.

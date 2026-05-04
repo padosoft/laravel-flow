@@ -64,7 +64,7 @@ The Laravel ecosystem has plenty of tools for *some* of these — `Bus::chain()`
 
 `laravel-flow` is that surface.
 
-It is **deliberately small**. v0.1 is in-memory, synchronous, container-resolved. The current v0.2 foundation adds opt-in DB persistence for runs, steps, and audit rows plus queued dispatch, guarded retry metadata, database queue coverage, terminal-run replay, and opt-in parallel compensation for independent compensators; v0.3 human checkpoint/webhook support and the companion dashboard remain later macros.
+It is **deliberately small**. v0.1 is in-memory, synchronous, container-resolved. The current v0.2 foundation adds opt-in DB persistence for runs, steps, and audit rows plus queued dispatch, guarded retry metadata, database queue coverage, terminal-run replay, and opt-in parallel compensation for independent compensators. v0.3 now has the approval pause primitive and hashed one-time approval-token foundation; full `Flow::resume()` / CLI approvals, webhook delivery, and the companion dashboard remain later macros.
 
 ---
 
@@ -107,6 +107,7 @@ When `audit_trail_enabled` is enabled, normal-case step and compensation transit
 - **Queued dispatch foundation** — `Flow::dispatch($name, $input, $options)` validates the flow and queues an after-commit `RunFlowJob` with a per-dispatch cache lock plus guarded Laravel-native tries/backoff metadata; sync and database queue paths have package coverage.
 - **Terminal-run replay** — `php artisan flow:replay {runId}` creates a new persisted run linked to the original via `replayed_from_run_id` and warns when the current registered definition drifted from stored step metadata.
 - **Approval gate pause state** — `approvalGate($name)` adds a built-in dry-run-aware step that marks the run `paused`, emits/persists `FlowPaused`, and waits for future resume/reject APIs; webhook delivery is a remaining v0.3 slice.
+- **Hashed approval-token foundation** — `ApprovalTokenManager` issues expiring one-time approval records, persists only SHA-256 token hashes, and consumes approve/reject decisions with redacted actor metadata; flow resume wiring is the next v0.3 slice.
 - **Container-resolved handlers** — full DI, type hints, and stack traces.
 - **Strict input validation** — `withInput(['a','b'])` throws `FlowInputException` if a key is missing.
 - **Parallel compensation strategy** — `compensation_strategy=parallel` batches completed compensators through Laravel Concurrency when compensators are safe to run without reverse-order dependencies.
@@ -124,7 +125,7 @@ Legend: `✅ YES` means the capability is first-class in the current product, `�
 | --- | --- | --- | --- | --- | --- |
 | Native dry-run with no persistence writes | ✅ YES - first-class `Flow::dryRun()`; no run, step, audit, or compensator writes | ❌ NO - not documented as a first-class mode | ❌ NO - app must model preview behavior | ❌ NO - app must model simulation separately | ❌ NO - app must model simulation separately |
 | Reverse-order saga compensation | ✅ YES - built-in per-step `compensateWith()` with default reverse-order rollback and opt-in `parallel` batching for independent compensators | ⚠️ PARTIAL - sagas/error handling are possible, but compensation policy is workflow-defined | ⚠️ PARTIAL - manual transition/state design | ⚠️ PARTIAL - compensation pattern via workflow code/SDKs | ⚠️ PARTIAL - manual cleanup states via `Catch` |
-| Approval gate as a step type | ⚠️ PARTIAL - `approvalGate($name)` pauses and audits runs; resume/reject APIs and webhook delivery are still in the v0.3 macro | ⚠️ PARTIAL - model manually as a long-running workflow/activity | ⚠️ PARTIAL - guards can block transitions but are not resumable approval steps | ⚠️ PARTIAL - signals/await patterns, not Laravel step gates | ✅ YES - callback/task-token pattern |
+| Approval gate as a step type | ⚠️ PARTIAL - `approvalGate($name)` pauses and audits runs, and `ApprovalTokenManager` provides hashed expiring token records; flow resume/reject APIs and webhook delivery are still in the v0.3 macro | ⚠️ PARTIAL - model manually as a long-running workflow/activity | ⚠️ PARTIAL - guards can block transitions but are not resumable approval steps | ⚠️ PARTIAL - signals/await patterns, not Laravel step gates | ✅ YES - callback/task-token pattern |
 | Container-resolved PHP handlers | ✅ YES - handlers and compensators resolve through Laravel's container | ✅ YES - PHP workflow/activity classes | ✅ YES - Symfony services/listeners | ❌ NO - worker model is outside Laravel's container | ❌ NO - Lambda/service fanout |
 | Audit trail and event hooks | ✅ YES - `FlowStep*` / `FlowCompensated` events plus optional `flow_audit` rows | ⚠️ PARTIAL - status tracking and Laravel event integration | ✅ YES - workflow events and optional audit trail | ✅ YES - managed workflow event history | ✅ YES - execution history plus CloudWatch/CloudTrail integrations |
 | In-memory default with opt-in app DB persistence | ✅ YES - memory by default; DB runs/steps/audit only when enabled | ❌ NO - durable persistence is central to the engine | ⚠️ PARTIAL - marking store is app-defined | ❌ NO - dedicated Temporal service/cluster | ❌ NO - managed AWS service |
@@ -348,6 +349,7 @@ $queueLockSeconds = env('LARAVEL_FLOW_QUEUE_LOCK_SECONDS', 3600);
 $queueLockRetrySeconds = env('LARAVEL_FLOW_QUEUE_LOCK_RETRY_SECONDS', 30);
 $queueTries = env('LARAVEL_FLOW_QUEUE_TRIES', null);
 $queueBackoffSeconds = env('LARAVEL_FLOW_QUEUE_BACKOFF_SECONDS', null);
+$approvalTokenTtlMinutes = env('LARAVEL_FLOW_APPROVAL_TOKEN_TTL_MINUTES', 1440);
 
 return [
     'default_storage'        => env('LARAVEL_FLOW_STORAGE', null),
@@ -373,6 +375,11 @@ return [
         'tries' => $queueTries,
         'backoff_seconds' => $queueBackoffSeconds, // set LARAVEL_FLOW_QUEUE_BACKOFF_SECONDS=5,30,120 for a retry schedule
     ],
+    'approval'               => [
+        'token_ttl_minutes' => is_numeric($approvalTokenTtlMinutes) && (int) $approvalTokenTtlMinutes >= 1
+            ? (int) $approvalTokenTtlMinutes
+            : 1440,
+    ],
     'audit_trail_enabled'    => env('LARAVEL_FLOW_AUDIT_ENABLED', true), // events; DB audit rows require this=true, persistence.enabled=true, and a non-dry-run execution
     'dry_run_default'        => env('LARAVEL_FLOW_DRY_RUN_DEFAULT', false),
     'step_timeout_seconds'   => (int) env('LARAVEL_FLOW_STEP_TIMEOUT', 300), // v0.2
@@ -392,6 +399,7 @@ return [
 | `queue.lock_retry_seconds` | `30`            | Delay before a duplicate delivery retries when the per-dispatch lock is still held; the job caps it at `queue.lock_seconds`. |
 | `queue.tries`             | `null`           | Optional Laravel job attempts value stamped onto `RunFlowJob`; `null` leaves the worker/connection default in control, while `0` preserves Laravel's unlimited-retry semantics. Async values that can retry the whole run are rejected until step-level retry or replay semantics are available. |
 | `queue.backoff_seconds`   | `null`           | Optional Laravel job backoff value stamped onto `RunFlowJob`; use a single integer or comma-separated/list values such as `5,30,120`. Async backoff schedules that can retry the whole run are rejected until step-level retry or replay semantics are available. |
+| `approval.token_ttl_minutes` | `1440`        | Expiry window for `ApprovalTokenManager` one-time tokens. Only token hashes are stored in `flow_approvals`; the plain token is returned once from issuance. |
 | `audit_trail_enabled`     | `true`           | When `false`, suppresses every `FlowStep*` / `FlowCompensated` event and persisted audit row; persisted audit rows also require persistence and a non-dry-run execution. |
 | `dry_run_default`         | `false`          | When `true`, `Flow::execute()` behaves like `dryRun()` — guard rail for staging environments.     |
 | `step_timeout_seconds`    | `300`            | Reserved for follow-up queued step execution; the current `RunFlowJob` dispatch slice does not enforce per-step timeouts. |
@@ -490,7 +498,7 @@ CI runs Pint (style), PHPStan (level 6), and the Unit + Architecture suites thro
 | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
 | v0.1    | In-memory engine, fluent builder, dry-run, reverse-order compensation, four audit event classes, business-impact field on results, Facade. Architecture test enforces standalone-agnostic.                                                                            | code complete     |
 | v0.2    | Persistence core: `flow_runs` / `flow_steps` / `flow_audit` tables, synchronous engine writes, redacted payload storage, correlation/idempotency keys, terminal-run retention pruning, queued dispatch foundation with per-dispatch locking, database queue coverage, guarded Laravel-native retry/backoff metadata, `flow:replay` for terminal persisted runs, and opt-in parallel compensation for independent compensators. | Q3 2026           |
-| v0.3    | Approval-gate primitive (step pause state now landed), hashed one-time resume/reject tokens, CLI/API resume controls, and signed webhook outbox delivery.                                                                                                             | Q4 2026           |
+| v0.3    | Approval-gate primitive (step pause state now landed), hashed one-time approval-token manager now landed, CLI/API flow resume controls, and signed webhook outbox delivery.                                                                                           | Q4 2026           |
 | v1.0    | Stable API, semver guarantee, full migration helpers from Durable Workflow / Symfony Workflow.                                                                                                                                                                       | 2027              |
 
 ---

@@ -6,6 +6,8 @@ namespace Padosoft\LaravelFlow\Tests\Unit;
 
 use Illuminate\Support\ServiceProvider;
 use Orchestra\Testbench\TestCase;
+use Padosoft\LaravelFlow\ApprovalTokenManager;
+use Padosoft\LaravelFlow\Contracts\ApprovalRepository;
 use Padosoft\LaravelFlow\Contracts\AuditRepository;
 use Padosoft\LaravelFlow\Contracts\FlowStore;
 use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
@@ -50,13 +52,15 @@ final class ServiceProviderTest extends TestCase
         );
     }
 
-    public function test_persistence_contracts_are_bound(): void
+    public function test_persistence_and_approval_services_are_bound(): void
     {
         $this->assertTrue($this->app->bound(FlowStore::class));
         $this->assertTrue($this->app->bound(RunRepository::class));
         $this->assertTrue($this->app->bound(StepRunRepository::class));
         $this->assertTrue($this->app->bound(AuditRepository::class));
+        $this->assertTrue($this->app->bound(ApprovalRepository::class));
         $this->assertTrue($this->app->bound(PayloadRedactor::class));
+        $this->assertTrue($this->app->bound(ApprovalTokenManager::class));
     }
 
     public function test_parallel_compensation_unknown_driver_falls_back_to_engine_resolution(): void

@@ -19,6 +19,11 @@ final class PersistencePayloadRedaction
     public const STEP_JSON_FIELDS = ['business_impact', 'input', 'output'];
 
     /**
+     * @var list<string>
+     */
+    public const APPROVAL_JSON_FIELDS = ['actor', 'payload'];
+
+    /**
      * @param  array<string, mixed>  $attributes
      * @param  list<string>  $fields
      * @return array<string, mixed>

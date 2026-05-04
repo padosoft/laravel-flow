@@ -24,6 +24,7 @@ use Padosoft\LaravelFlow\Jobs\RunFlowJob;
 use Padosoft\LaravelFlow\Models\FlowRunRecord;
 use Padosoft\LaravelFlow\Models\FlowStepRecord;
 use Padosoft\LaravelFlow\Persistence\PayloadRedactorResolution;
+use Padosoft\LaravelFlow\Queue\QueueRetryPolicy;
 use Throwable;
 
 /**
@@ -52,7 +53,13 @@ class FlowEngine
          *         enabled?: bool,
          *         redaction?: array{enabled?: bool, keys?: array<int, string>, replacement?: string}
          *     },
-         *     queue?: array{lock_store?: string|null, lock_seconds?: int, lock_retry_seconds?: int}
+         *     queue?: array{
+         *         lock_store?: string|null,
+         *         lock_seconds?: int,
+         *         lock_retry_seconds?: int,
+         *         tries?: mixed,
+         *         backoff_seconds?: mixed
+         *     }
          * }
          */
         private readonly array $config = [],
@@ -124,6 +131,9 @@ class FlowEngine
         /** @var BusDispatcher $bus */
         $bus = $this->container->make(BusDispatcher::class);
 
+        $retryPolicy = $this->queueRetryPolicy();
+        $this->assertQueuedRunRetryPolicyIsSafe($retryPolicy, $options);
+
         return $bus->dispatch(new RunFlowJob(
             name: $definition->name,
             input: $input,
@@ -132,6 +142,8 @@ class FlowEngine
             lockStore: $this->queueLockStore(),
             lockSeconds: $this->queueLockSeconds(),
             lockRetrySeconds: $this->queueLockRetrySeconds(),
+            tries: $retryPolicy->tries,
+            backoffSeconds: $retryPolicy->backoffSeconds,
         ));
     }
 
@@ -1382,6 +1394,40 @@ class FlowEngine
         $seconds = $this->config['queue']['lock_retry_seconds'] ?? 30;
 
         return is_int($seconds) && $seconds >= 1 ? $seconds : 30;
+    }
+
+    private function queueRetryPolicy(): QueueRetryPolicy
+    {
+        $queue = $this->config['queue'] ?? [];
+
+        return QueueRetryPolicy::fromConfig(is_array($queue) ? $queue : []);
+    }
+
+    private function assertQueuedRunRetryPolicyIsSafe(QueueRetryPolicy $retryPolicy, ?FlowExecutionOptions $options): void
+    {
+        if (! $retryPolicy->canRetryWholeRun()) {
+            return;
+        }
+
+        if ($this->queueDefaultConnectionUsesSyncDriver()) {
+            return;
+        }
+
+        throw new FlowExecutionException(
+            'Async queued run retries can re-run the whole flow. Leave queue.tries as null/1 and queue.backoff_seconds as null until step-level retries or replay are available.',
+        );
+    }
+
+    private function queueDefaultConnectionUsesSyncDriver(): bool
+    {
+        $config = $this->container->make('config');
+        $connection = $config->get('queue.default');
+
+        if (! is_string($connection) || $connection === '') {
+            return false;
+        }
+
+        return $config->get('queue.connections.'.$connection.'.driver') === 'sync';
     }
 
     private function dispatchEvent(object $event): void

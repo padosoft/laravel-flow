@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 $queueLockSeconds = env('LARAVEL_FLOW_QUEUE_LOCK_SECONDS', 3600);
 $queueLockRetrySeconds = env('LARAVEL_FLOW_QUEUE_LOCK_RETRY_SECONDS', 30);
+$queueTries = env('LARAVEL_FLOW_QUEUE_TRIES', null);
+$queueBackoffSeconds = env('LARAVEL_FLOW_QUEUE_BACKOFF_SECONDS', null);
 
 return [
 
@@ -53,6 +55,11 @@ return [
     | expected maximum flow runtime; Laravel's portable lock contract cannot
     | renew it. The store must support shared Laravel atomic locks; the
     | process-local array store is accepted only when the queue driver is sync.
+    | Optional tries/backoff values are normalized at dispatch time and captured
+    | into the job payload so worker retry behavior is explicit and visible to
+    | Laravel queue tooling. Because async workers retry the whole wrapper job,
+    | retry policies that can re-run a flow are rejected until step-level retry
+    | or replay semantics are available.
     |
     */
     'queue' => [
@@ -63,6 +70,8 @@ return [
         'lock_retry_seconds' => is_numeric($queueLockRetrySeconds) && (int) $queueLockRetrySeconds >= 1
             ? (int) $queueLockRetrySeconds
             : 30,
+        'tries' => $queueTries,
+        'backoff_seconds' => $queueBackoffSeconds,
     ],
 
     /*

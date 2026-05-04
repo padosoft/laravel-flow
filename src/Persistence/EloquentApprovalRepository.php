@@ -83,7 +83,7 @@ final class EloquentApprovalRepository implements ApprovalRepository
     private function updatePending(string $tokenHash, array $attributes): ?FlowApprovalRecord
     {
         $model = $this->newModel();
-        $attributes['updated_at'] = $model->freshTimestamp();
+        $attributes['updated_at'] = $attributes['decided_at'] ?? $model->freshTimestamp();
         $model->forceFill($this->redact($attributes));
 
         $query = $this->newModel()->newQuery()

@@ -91,6 +91,7 @@ final class PersistenceRepositoryTest extends PersistenceTestCase
         $this->assertSame('[redacted]', $approved->payload['secret']);
         $this->assertNotNull($approved->consumed_at);
         $this->assertNotNull($approved->decided_at);
+        $this->assertSame($approved->decided_at->getTimestamp(), $approved->updated_at->getTimestamp());
         $this->assertNull($manager->approve($issued->plainTextToken));
         $this->assertNull($manager->pending($issued->plainTextToken));
     }
@@ -153,6 +154,7 @@ final class PersistenceRepositoryTest extends PersistenceTestCase
         $this->assertInstanceOf(FlowApprovalRecord::class, $record);
         $this->assertSame(FlowApprovalRecord::STATUS_EXPIRED, $record->status);
         $this->assertNotNull($record->decided_at);
+        $this->assertSame($record->decided_at->getTimestamp(), $record->updated_at->getTimestamp());
         $this->assertNull($manager->reject($issued->plainTextToken));
     }
 

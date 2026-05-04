@@ -190,3 +190,10 @@
 - Replay commands should catch missing or partially migrated persistence tables around both run and step queries and return actionable Artisan failures.
 - Replay execution should catch persistence `QueryException` separately from handler/runtime failures so stale schemas get migration guidance instead of a generic replay failure.
 - Additive migration rollbacks should prefer column-based index drops such as `dropIndex(['column'])` over hard-coded generated index names for database portability.
+- Keep `reverse-order` as the default compensation strategy; `parallel` must be a deliberate opt-in because many saga compensators depend on newest-side-effect-first rollback.
+- Parallel compensation should execute compensator side effects as a batch but keep audit/event recording in the parent engine process so durable `FlowCompensated` rows still gate emitted events.
+- Laravel Concurrency process/fork drivers require serializable compensation context and outputs; expose a driver setting and use `sync` in local tests when deterministic in-process execution matters.
+- If the parallel compensation driver fails before running the batch, fall back to injected-container local compensation so rollback still attempts every prior side effect.
+- Only use global-container compensation tasks when the injected engine container is the global Laravel container; isolated package/embedded containers must resolve compensators through the injected container.
+- Validate compensation strategy configuration before the first forward step runs; discovering a bad strategy only after side effects have happened can block rollback.
+- Unknown Laravel Concurrency driver names should not make `FlowEngine` resolution fail; return no driver and let the engine use local compensation fallback.

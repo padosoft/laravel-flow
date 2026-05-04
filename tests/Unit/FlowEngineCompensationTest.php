@@ -4,8 +4,13 @@ declare(strict_types=1);
 
 namespace Padosoft\LaravelFlow\Tests\Unit;
 
+use Closure;
+use Illuminate\Container\Container as IlluminateContainer;
+use Illuminate\Contracts\Concurrency\Driver;
+use Illuminate\Support\Defer\DeferredCallback;
 use Padosoft\LaravelFlow\Events\FlowCompensated;
 use Padosoft\LaravelFlow\Exceptions\FlowCompensationException;
+use Padosoft\LaravelFlow\Exceptions\FlowInputException;
 use Padosoft\LaravelFlow\FlowEngine;
 use Padosoft\LaravelFlow\FlowRun;
 use Padosoft\LaravelFlow\Tests\TestCase;
@@ -25,6 +30,7 @@ final class FlowEngineCompensationTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        AlwaysSucceedsHandler::$callCount = 0;
         RecordingCompensator::reset();
     }
 
@@ -175,6 +181,112 @@ final class FlowEngineCompensationTest extends TestCase
         $this->assertSame('first', RecordingCompensator::$invocations[1]['originalOutput']['compensator']);
     }
 
+    public function test_parallel_compensation_strategy_runs_completed_compensators_through_concurrency_driver(): void
+    {
+        $driver = new RecordingConcurrencyDriver;
+        $engine = new FlowEngine(
+            $this->app,
+            $this->app['events'],
+            ['compensation_strategy' => 'parallel'],
+            compensationConcurrencyDriver: $driver,
+        );
+
+        $engine->define('flow.parallel-compensation')
+            ->step('first', AlwaysSucceedsHandler::class)
+            ->compensateWith(FirstStepCompensator::class)
+            ->step('second', SecondHandler::class)
+            ->compensateWith(SecondStepCompensator::class)
+            ->step('third', AlwaysFailsHandler::class)
+            ->register();
+
+        $run = $engine->execute('flow.parallel-compensation', []);
+
+        $this->assertSame(FlowRun::STATUS_COMPENSATED, $run->status);
+        $this->assertSame(1, $driver->runCount);
+        $this->assertSame(2, $driver->lastTaskCount);
+        $this->assertCount(2, RecordingCompensator::$invocations);
+        $this->assertSame('first', RecordingCompensator::$invocations[0]['originalOutput']['compensator']);
+        $this->assertSame('second', RecordingCompensator::$invocations[1]['originalOutput']['compensator']);
+    }
+
+    public function test_parallel_compensation_falls_back_to_local_rollback_when_driver_fails(): void
+    {
+        $driver = new RecordingConcurrencyDriver(throwOnRun: true);
+        $engine = new FlowEngine(
+            $this->app,
+            $this->app['events'],
+            ['compensation_strategy' => 'parallel'],
+            compensationConcurrencyDriver: $driver,
+        );
+
+        $engine->define('flow.parallel-compensation-driver-down')
+            ->step('first', AlwaysSucceedsHandler::class)
+            ->compensateWith(FirstStepCompensator::class)
+            ->step('second', SecondHandler::class)
+            ->compensateWith(SecondStepCompensator::class)
+            ->step('third', AlwaysFailsHandler::class)
+            ->register();
+
+        $run = $engine->execute('flow.parallel-compensation-driver-down', []);
+
+        $this->assertSame(FlowRun::STATUS_COMPENSATED, $run->status);
+        $this->assertSame(1, $driver->runCount);
+        $this->assertCount(2, RecordingCompensator::$invocations);
+    }
+
+    public function test_parallel_compensation_uses_injected_container_when_it_is_not_global(): void
+    {
+        $container = new IlluminateContainer;
+        $driver = new RecordingConcurrencyDriver;
+        $engine = new FlowEngine(
+            $container,
+            $this->app['events'],
+            ['compensation_strategy' => 'parallel'],
+            compensationConcurrencyDriver: $driver,
+        );
+
+        $engine->define('flow.parallel-compensation-isolated-container')
+            ->step('first', AlwaysSucceedsHandler::class)
+            ->compensateWith(FirstStepCompensator::class)
+            ->step('second', AlwaysFailsHandler::class)
+            ->register();
+
+        $run = $engine->execute('flow.parallel-compensation-isolated-container', []);
+
+        $this->assertSame(FlowRun::STATUS_COMPENSATED, $run->status);
+        $this->assertSame(0, $driver->runCount);
+        $this->assertCount(1, RecordingCompensator::$invocations);
+        $this->assertSame('first', RecordingCompensator::$invocations[0]['originalOutput']['compensator']);
+    }
+
+    public function test_invalid_compensation_strategy_fails_before_rollback(): void
+    {
+        $engine = new FlowEngine(
+            $this->app,
+            $this->app['events'],
+            ['compensation_strategy' => 'sideways'],
+        );
+
+        $engine->define('flow.invalid-compensation-strategy')
+            ->step('first', AlwaysSucceedsHandler::class)
+            ->compensateWith(FirstStepCompensator::class)
+            ->step('second', AlwaysFailsHandler::class)
+            ->register();
+
+        try {
+            $engine->execute('flow.invalid-compensation-strategy', []);
+            $this->fail('Invalid compensation strategy should fail before any step runs.');
+        } catch (FlowInputException $e) {
+            $this->assertSame(
+                'Unsupported compensation strategy [sideways]. Supported strategies: reverse-order, parallel.',
+                $e->getMessage(),
+            );
+        }
+
+        $this->assertSame(0, AlwaysSucceedsHandler::$callCount);
+        $this->assertSame([], RecordingCompensator::$invocations);
+    }
+
     public function test_dry_run_failure_does_not_invoke_compensators(): void
     {
         /** @var FlowEngine $engine */
@@ -194,5 +306,40 @@ final class FlowEngineCompensationTest extends TestCase
         $this->assertSame(FlowRun::STATUS_FAILED, $run->status);
         $this->assertFalse($run->compensated);
         $this->assertSame([], RecordingCompensator::$invocations);
+    }
+}
+
+final class RecordingConcurrencyDriver implements Driver
+{
+    public function __construct(
+        private readonly bool $throwOnRun = false,
+    ) {}
+
+    public int $runCount = 0;
+
+    public int $lastTaskCount = 0;
+
+    public function run(Closure|array $tasks): array
+    {
+        $this->runCount++;
+
+        if ($this->throwOnRun) {
+            throw new RuntimeException('concurrency driver down');
+        }
+
+        $tasks = $tasks instanceof Closure ? [$tasks] : $tasks;
+        $this->lastTaskCount = count($tasks);
+        $results = [];
+
+        foreach ($tasks as $key => $task) {
+            $results[$key] = $task();
+        }
+
+        return $results;
+    }
+
+    public function defer(Closure|array $tasks): DeferredCallback
+    {
+        throw new RuntimeException('Deferred compensation is not used by these tests.');
     }
 }

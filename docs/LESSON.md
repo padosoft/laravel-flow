@@ -250,3 +250,4 @@
 - Custom approval persistence is not only a `FlowStore` concern: approval token lookup and decisions resolve through the separate `ApprovalRepository` binding, so custom-backend docs must name that binding plus the optional `ApprovalDecisionRepository` extension.
 - Lock-contention fallback for an already-decided token must also verify the approval step has persisted the decided state; otherwise a retry can observe the old `paused` run while the lock holder is still inside the persist path.
 - Step-list hydration is part of the public resume/reject diagnostic surface; wrap `flow_steps` reads with the same package-level migration/connection guidance as token and run lookups.
+- Approval decision payload/actor persistence must use the same execution-frozen redactor as the resumed step/run writes; default approval repositories should be redactor-aware so transient or request-scoped redactors cannot diverge mid-decision.

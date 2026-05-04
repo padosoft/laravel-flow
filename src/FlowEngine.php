@@ -16,9 +16,11 @@ use Illuminate\Contracts\Container\Container;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Database\QueryException;
 use InvalidArgumentException;
+use Padosoft\LaravelFlow\Contracts\ApprovalRepository;
 use Padosoft\LaravelFlow\Contracts\ConditionalRunRepository;
 use Padosoft\LaravelFlow\Contracts\FlowStore;
 use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
+use Padosoft\LaravelFlow\Contracts\RedactorAwareApprovalRepository;
 use Padosoft\LaravelFlow\Contracts\RedactorAwareFlowStore;
 use Padosoft\LaravelFlow\Events\FlowCompensated;
 use Padosoft\LaravelFlow\Events\FlowPaused;
@@ -664,7 +666,7 @@ class FlowEngine
             $this->conditionalRuns($store);
         }
 
-        [$approval, $consumedNow] = $this->consumeApprovalDecisionForPausedRun($token, $decision, $payload, $actor);
+        [$approval, $consumedNow] = $this->consumeApprovalDecisionForPausedRun($token, $decision, $payload, $actor, $redactor);
         $decisionPayload = $approval->payload ?? [];
         $decisionActor = $approval->actor ?? [];
 
@@ -866,8 +868,9 @@ class FlowEngine
         string $decision,
         array $payload,
         array $actor,
+        PayloadRedactor $redactor,
     ): array {
-        $manager = $this->approvalTokenManager();
+        $manager = $this->approvalTokenManager($redactor);
         $approval = $decision === FlowApprovalRecord::STATUS_APPROVED
             ? $manager->approveForRunStatus($token, FlowRun::STATUS_PAUSED, $actor, $payload)
             : $manager->rejectForRunStatus($token, FlowRun::STATUS_PAUSED, $actor, $payload);
@@ -2741,16 +2744,39 @@ class FlowEngine
         }
     }
 
-    private function approvalTokenManager(): ApprovalTokenManager
+    private function approvalTokenManager(?PayloadRedactor $redactor = null): ApprovalTokenManager
     {
         if ($this->approvalTokenManager instanceof ApprovalTokenManager) {
             return $this->approvalTokenManager;
+        }
+
+        if ($redactor instanceof PayloadRedactor) {
+            /** @var ApprovalRepository $approvals */
+            $approvals = $this->container->make(ApprovalRepository::class);
+
+            if ($approvals instanceof RedactorAwareApprovalRepository) {
+                $approvals = $approvals->withPayloadRedactor($redactor);
+            }
+
+            return new ApprovalTokenManager(
+                approvals: $approvals,
+                tokenTtlMinutes: $this->approvalTokenTtlMinutes(),
+                clock: fn (): DateTimeImmutable => $this->now(),
+            );
         }
 
         /** @var ApprovalTokenManager $manager */
         $manager = $this->container->make(ApprovalTokenManager::class);
 
         return $manager;
+    }
+
+    private function approvalTokenTtlMinutes(): int
+    {
+        /** @var mixed $ttlMinutes */
+        $ttlMinutes = $this->container['config']->get('laravel-flow.approval.token_ttl_minutes', 1440);
+
+        return is_numeric($ttlMinutes) && (int) $ttlMinutes >= 1 ? (int) $ttlMinutes : 1440;
     }
 
     private function storeForExecution(bool $dryRun): ?FlowStore

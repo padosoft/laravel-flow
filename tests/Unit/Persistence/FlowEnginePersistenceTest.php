@@ -490,6 +490,81 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         ], FlowAuditRecord::query()->where('run_id', $pausedRun->id)->orderBy('id')->pluck('event')->all());
     }
 
+    public function test_resume_uses_execution_frozen_redactor_for_approval_decision_record(): void
+    {
+        $this->migrateFlowTables();
+        $counter = new class
+        {
+            public int $value = 0;
+        };
+        $this->app->bind(PayloadRedactor::class, static function () use ($counter): PayloadRedactor {
+            $counter->value++;
+
+            return new class($counter->value === 1) implements PayloadRedactor
+            {
+                public function __construct(
+                    private readonly bool $redactsApprovalSecret,
+                ) {}
+
+                public function redact(array $payload): array
+                {
+                    foreach ($payload as $key => $value) {
+                        if (is_array($value)) {
+                            /** @var array<string, mixed> $value */
+                            $payload[$key] = $this->redact($value);
+
+                            continue;
+                        }
+
+                        if ($this->redactsApprovalSecret && $value === 'approval-secret') {
+                            $payload[$key] = '[frozen-redacted]';
+                        }
+                    }
+
+                    return $payload;
+                }
+            };
+        });
+        $engine = $this->engineWithPersistence();
+
+        $engine->define('flow.persist.approval-resume-frozen-approval-redactor')
+            ->step('create', AlwaysSucceedsHandler::class)
+            ->approvalGate('manager')
+            ->step('publish', ApprovalPayloadCapturingHandler::class)
+            ->register();
+
+        $pausedRun = $engine->execute('flow.persist.approval-resume-frozen-approval-redactor', []);
+        $token = $pausedRun->approvalTokens['manager']->plainTextToken;
+        $counter->value = 0;
+
+        $resumedRun = $engine->resume(
+            $token,
+            ['decision' => 'ship', 'secret' => 'approval-secret'],
+            ['token' => 'approval-secret'],
+        );
+
+        $approvalRecord = FlowApprovalRecord::query()
+            ->where('run_id', $pausedRun->id)
+            ->where('step_name', 'manager')
+            ->firstOrFail();
+        $approvalStep = FlowStepRecord::query()
+            ->where('run_id', $pausedRun->id)
+            ->where('step_name', 'manager')
+            ->firstOrFail();
+        $runRecord = FlowRunRecord::query()->find($pausedRun->id);
+
+        $this->assertInstanceOf(FlowRunRecord::class, $runRecord);
+        $this->assertSame($pausedRun->id, $resumedRun->id);
+        $this->assertSame('[frozen-redacted]', $approvalRecord->payload['secret']);
+        $this->assertSame('[frozen-redacted]', $approvalRecord->actor['token']);
+        $this->assertSame('[frozen-redacted]', $approvalStep->output['approval_payload']['secret']);
+        $this->assertSame('[frozen-redacted]', $approvalStep->output['approval_actor']['token']);
+        $this->assertSame('[frozen-redacted]', $runRecord->output['manager']['approval_payload']['secret']);
+        $this->assertSame('[frozen-redacted]', $runRecord->output['manager']['approval_actor']['token']);
+        $this->assertSame('[frozen-redacted]', ApprovalPayloadCapturingHandler::$lastStepOutputs['manager']['approval_payload']['secret']);
+        $this->assertSame('[frozen-redacted]', ApprovalPayloadCapturingHandler::$lastStepOutputs['manager']['approval_actor']['token']);
+    }
+
     public function test_resume_approval_token_is_idempotent_after_success(): void
     {
         $this->migrateFlowTables();

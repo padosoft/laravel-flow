@@ -13,6 +13,7 @@ use Padosoft\LaravelFlow\Contracts\AuditRepository;
 use Padosoft\LaravelFlow\Contracts\ConditionalRunRepository;
 use Padosoft\LaravelFlow\Contracts\FlowStore;
 use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
+use Padosoft\LaravelFlow\Contracts\RedactorAwareApprovalRepository;
 use Padosoft\LaravelFlow\Contracts\RunRepository;
 use Padosoft\LaravelFlow\Contracts\StepRunRepository;
 use Padosoft\LaravelFlow\FlowEngine;
@@ -67,6 +68,7 @@ final class ServiceProviderTest extends TestCase
         $this->assertFalse($this->app->bound(ApprovalDecisionRepository::class));
         $this->assertInstanceOf(ConditionalRunRepository::class, $this->app->make(FlowStore::class)->runs());
         $this->assertInstanceOf(ApprovalDecisionRepository::class, $this->app->make(ApprovalRepository::class));
+        $this->assertInstanceOf(RedactorAwareApprovalRepository::class, $this->app->make(ApprovalRepository::class));
     }
 
     public function test_parallel_compensation_unknown_driver_falls_back_to_engine_resolution(): void

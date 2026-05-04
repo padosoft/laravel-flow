@@ -9,15 +9,21 @@ use InvalidArgumentException;
 use Padosoft\LaravelFlow\Contracts\ApprovalDecisionRepository;
 use Padosoft\LaravelFlow\Contracts\ApprovalRepository;
 use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
+use Padosoft\LaravelFlow\Contracts\RedactorAwareApprovalRepository;
 use Padosoft\LaravelFlow\Models\FlowApprovalRecord;
 use Padosoft\LaravelFlow\Models\FlowRunRecord;
 
-final class EloquentApprovalRepository implements ApprovalDecisionRepository, ApprovalRepository
+final class EloquentApprovalRepository implements ApprovalDecisionRepository, ApprovalRepository, RedactorAwareApprovalRepository
 {
     public function __construct(
         private readonly ?string $connection,
         private readonly PayloadRedactor $redactor,
     ) {}
+
+    public function withPayloadRedactor(PayloadRedactor $redactor): ApprovalRepository
+    {
+        return new self($this->connection, $redactor);
+    }
 
     public function createPending(
         string $id,

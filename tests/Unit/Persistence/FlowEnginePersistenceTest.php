@@ -1272,6 +1272,71 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         $engine->resume('missing-token');
     }
 
+    public function test_resume_reports_missing_approval_tables_with_package_message(): void
+    {
+        $engine = $this->engineWithPersistence();
+
+        try {
+            $engine->resume('missing-token');
+            $this->fail('Missing approval tables should be reported as a package-level configuration failure.');
+        } catch (FlowExecutionException $exception) {
+            $this->assertSame(
+                'Approval resume/reject requires published laravel-flow persistence tables and a reachable persistence connection. Run the package migrations and verify the persistence connection.',
+                $exception->getMessage(),
+            );
+        }
+
+        try {
+            $engine->reject('missing-token');
+            $this->fail('Missing approval tables should be reported as a package-level configuration failure.');
+        } catch (FlowExecutionException $exception) {
+            $this->assertSame(
+                'Approval resume/reject requires published laravel-flow persistence tables and a reachable persistence connection. Run the package migrations and verify the persistence connection.',
+                $exception->getMessage(),
+            );
+        }
+    }
+
+    public function test_resume_reports_unknown_cache_lock_store_with_package_message(): void
+    {
+        $this->migrateFlowTables();
+        $engine = $this->engineWithPersistence();
+
+        $engine->define('flow.persist.approval-resume-missing-lock-store')
+            ->step('create', AlwaysSucceedsHandler::class)
+            ->approvalGate('manager')
+            ->step('publish', ApprovalPayloadCapturingHandler::class)
+            ->register();
+
+        $pausedRun = $engine->execute('flow.persist.approval-resume-missing-lock-store', []);
+        $token = $pausedRun->approvalTokens['manager']->plainTextToken;
+        $this->app['config']->set('laravel-flow.queue.lock_store', 'missing-lock-store');
+        $this->app->forgetInstance(FlowEngine::class);
+
+        /** @var FlowEngine $resumeEngine */
+        $resumeEngine = $this->app->make(FlowEngine::class);
+
+        try {
+            $resumeEngine->resume($token);
+            $this->fail('Unknown approval lock stores should be reported as package-level configuration failures.');
+        } catch (FlowExecutionException $exception) {
+            $this->assertSame(
+                'Approval resume/reject requires a configured cache lock store; cache store [missing-lock-store] is not defined.',
+                $exception->getMessage(),
+            );
+        }
+
+        try {
+            $resumeEngine->reject($token);
+            $this->fail('Unknown approval lock stores should be reported as package-level configuration failures.');
+        } catch (FlowExecutionException $exception) {
+            $this->assertSame(
+                'Approval resume/reject requires a configured cache lock store; cache store [missing-lock-store] is not defined.',
+                $exception->getMessage(),
+            );
+        }
+    }
+
     public function test_resume_rejects_expired_approval_token(): void
     {
         $this->migrateFlowTables();

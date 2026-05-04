@@ -14,6 +14,8 @@ use Illuminate\Contracts\Cache\LockProvider;
 use Illuminate\Contracts\Concurrency\Driver as ConcurrencyDriver;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Contracts\Events\Dispatcher;
+use Illuminate\Database\QueryException;
+use InvalidArgumentException;
 use Padosoft\LaravelFlow\Contracts\ConditionalRunRepository;
 use Padosoft\LaravelFlow\Contracts\FlowStore;
 use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
@@ -622,7 +624,11 @@ class FlowEngine
 
     private function approvalDecisionRecord(string $token): FlowApprovalRecord
     {
-        $approval = $this->approvalTokenManager()->find($token);
+        try {
+            $approval = $this->approvalTokenManager()->find($token);
+        } catch (QueryException $e) {
+            throw $this->approvalPersistenceUnavailableException($e);
+        }
 
         if (! ($approval instanceof FlowApprovalRecord)
             || $approval->status === FlowApprovalRecord::STATUS_EXPIRED
@@ -645,13 +651,7 @@ class FlowEngine
         FlowStore $store,
         PayloadRedactor $redactor,
     ): FlowRun {
-        $preDecisionApproval = $this->approvalTokenManager()->find($token);
-
-        if (! ($preDecisionApproval instanceof FlowApprovalRecord)
-            || $preDecisionApproval->status === FlowApprovalRecord::STATUS_EXPIRED
-        ) {
-            throw new FlowExecutionException('Approval token is invalid or expired.');
-        }
+        $preDecisionApproval = $this->approvalDecisionRecord($token);
 
         if ($preDecisionApproval->status === FlowApprovalRecord::STATUS_PENDING) {
             $preDecisionRunRecord = $this->approvalRunRecord($preDecisionApproval, $store);
@@ -687,7 +687,17 @@ class FlowEngine
     ): FlowRun {
         /** @var CacheFactory $cache */
         $cache = $this->container->make(CacheFactory::class);
-        $repository = $cache->store($this->queueLockStore());
+        $lockStoreName = $this->queueLockStore();
+
+        try {
+            $repository = $cache->store($lockStoreName);
+        } catch (InvalidArgumentException $e) {
+            throw new FlowExecutionException(sprintf(
+                'Approval resume/reject requires a configured cache lock store; cache store [%s] is not defined.',
+                $lockStoreName ?? 'default',
+            ), previous: $e);
+        }
+
         $cacheStore = $repository->getStore();
 
         if ($cacheStore instanceof ArrayStore) {
@@ -1496,13 +1506,25 @@ class FlowEngine
 
     private function approvalRunRecord(FlowApprovalRecord $approval, FlowStore $store): FlowRunRecord
     {
-        $runRecord = $store->runs()->find($approval->run_id);
+        try {
+            $runRecord = $store->runs()->find($approval->run_id);
+        } catch (QueryException $e) {
+            throw $this->approvalPersistenceUnavailableException($e);
+        }
 
         if (! $runRecord instanceof FlowRunRecord) {
             throw new FlowExecutionException(sprintf('Approval run [%s] was not found.', $approval->run_id));
         }
 
         return $runRecord;
+    }
+
+    private function approvalPersistenceUnavailableException(QueryException $e): FlowExecutionException
+    {
+        return new FlowExecutionException(
+            'Approval resume/reject requires published laravel-flow persistence tables and a reachable persistence connection. Run the package migrations and verify the persistence connection.',
+            previous: $e,
+        );
     }
 
     private function approvalStepIndex(FlowDefinition $definition, string $stepName): int

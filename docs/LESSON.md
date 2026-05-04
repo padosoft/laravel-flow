@@ -246,3 +246,5 @@
 - Lock-contention fallbacks must not return current run state for still-pending approval tokens; the lock holder may not have written the decision yet, so the loser should retry instead of making conflicting decisions nondeterministic.
 - Already-approved earlier approval tokens are idempotent lookup handles only until a later persisted approval gate exists; after that, they must not recover later-gated running work or restart downstream side effects.
 - New facade methods are public API and need facade-level regression tests in addition to direct engine tests.
+- New public resume/reject APIs should convert common rollout/configuration failures, such as missing published persistence tables or unknown cache lock stores, into package-level exceptions with migration/config guidance.
+- Custom approval persistence is not only a `FlowStore` concern: approval token lookup and decisions resolve through the separate `ApprovalRepository` binding, so custom-backend docs must name that binding plus the optional `ApprovalDecisionRepository` extension.

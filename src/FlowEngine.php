@@ -692,9 +692,9 @@ class FlowEngine
             return $this->flowRunFromRecord($runRecord, $store);
         }
 
-        $claimedRunRecord = $this->claimPausedRun($store, $runRecord);
+        [$claimedRunRecord, $claimedRun] = $this->claimPausedRun($store, $runRecord);
 
-        if ($claimedRunRecord->status !== FlowRun::STATUS_RUNNING) {
+        if (! $claimedRun) {
             return $this->flowRunFromRecord($claimedRunRecord, $store);
         }
 
@@ -818,9 +818,9 @@ class FlowEngine
             return $this->flowRunFromRecord($runRecord, $store);
         }
 
-        $claimedRunRecord = $this->claimPausedRun($store, $runRecord);
+        [$claimedRunRecord, $claimedRun] = $this->claimPausedRun($store, $runRecord);
 
-        if ($claimedRunRecord->status !== FlowRun::STATUS_RUNNING) {
+        if (! $claimedRun) {
             return $this->flowRunFromRecord($claimedRunRecord, $store);
         }
 
@@ -887,7 +887,10 @@ class FlowEngine
         return FlowStepResult::success($output);
     }
 
-    private function claimPausedRun(FlowStore $store, FlowRunRecord $runRecord): FlowRunRecord
+    /**
+     * @return array{0: FlowRunRecord, 1: bool}
+     */
+    private function claimPausedRun(FlowStore $store, FlowRunRecord $runRecord): array
     {
         $claimed = $store->runs()->updateWhereStatus($runRecord->id, FlowRun::STATUS_PAUSED, [
             'duration_ms' => null,
@@ -896,13 +899,13 @@ class FlowEngine
         ]);
 
         if ($claimed instanceof FlowRunRecord) {
-            return $claimed;
+            return [$claimed, true];
         }
 
         $current = $store->runs()->find($runRecord->id);
 
         if ($current instanceof FlowRunRecord) {
-            return $current;
+            return [$current, false];
         }
 
         throw new FlowExecutionException(sprintf('Flow run [%s] was not found while claiming approval resume.', $runRecord->id));

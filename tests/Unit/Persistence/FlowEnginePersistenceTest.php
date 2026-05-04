@@ -507,6 +507,43 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
             ->count());
     }
 
+    public function test_resume_does_not_continue_when_paused_run_claim_was_lost(): void
+    {
+        $this->migrateFlowTables();
+        $engine = $this->engineWithPersistence();
+
+        $engine->define('flow.persist.approval-resume-lost-claim')
+            ->step('create', AlwaysSucceedsHandler::class)
+            ->approvalGate('manager')
+            ->step('publish', ApprovalPayloadCapturingHandler::class)
+            ->register();
+
+        $pausedRun = $engine->execute('flow.persist.approval-resume-lost-claim', []);
+        $token = $pausedRun->approvalTokens['manager']->plainTextToken;
+        $resumeEngine = $this->engineWithLostPausedRunClaim();
+
+        $resumeEngine->define('flow.persist.approval-resume-lost-claim')
+            ->step('create', AlwaysSucceedsHandler::class)
+            ->approvalGate('manager')
+            ->step('publish', ApprovalPayloadCapturingHandler::class)
+            ->register();
+
+        $returnedRun = $resumeEngine->resume($token, ['decision' => 'ship']);
+
+        $this->assertSame($pausedRun->id, $returnedRun->id);
+        $this->assertSame(FlowRun::STATUS_RUNNING, $returnedRun->status);
+        $this->assertSame(0, ApprovalPayloadCapturingHandler::$callCount);
+        $this->assertSame(0, (int) FlowStepRecord::query()
+            ->where('run_id', $pausedRun->id)
+            ->where('step_name', 'publish')
+            ->count());
+        $this->assertSame(FlowApprovalRecord::STATUS_APPROVED, FlowApprovalRecord::query()
+            ->where('run_id', $pausedRun->id)
+            ->where('step_name', 'manager')
+            ->firstOrFail()
+            ->status);
+    }
+
     public function test_reject_approval_token_fails_run_and_compensates_prior_steps(): void
     {
         $this->migrateFlowTables();
@@ -2111,6 +2148,86 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
                     if ($this->seen === $this->attempt) {
                         throw new RuntimeException('run update down for '.$this->status.' on attempt '.$this->attempt);
                     }
+                }
+
+                return $this->inner->updateWhereStatus($runId, $expectedStatus, $attributes);
+            }
+
+            public function find(string $runId): ?FlowRunRecord
+            {
+                return $this->inner->find($runId);
+            }
+
+            public function findByIdempotencyKey(string $idempotencyKey): ?FlowRunRecord
+            {
+                return $this->inner->findByIdempotencyKey($idempotencyKey);
+            }
+        };
+
+        $store = new class($inner, $runRepository) implements FlowStore
+        {
+            public function __construct(
+                private readonly FlowStore $inner,
+                private readonly RunRepository $runRepository,
+            ) {}
+
+            public function runs(): RunRepository
+            {
+                return $this->runRepository;
+            }
+
+            public function steps(): StepRunRepository
+            {
+                return $this->inner->steps();
+            }
+
+            public function audit(): AuditRepository
+            {
+                return $this->inner->audit();
+            }
+
+            public function transaction(callable $callback): mixed
+            {
+                return $this->inner->transaction($callback);
+            }
+        };
+
+        /** @var array<string, mixed> $config */
+        $config = $this->app['config']->get('laravel-flow');
+
+        return new FlowEngine($this->app, $this->app['events'], $config, $store);
+    }
+
+    private function engineWithLostPausedRunClaim(): FlowEngine
+    {
+        $this->app['config']->set('laravel-flow.persistence.enabled', true);
+
+        /** @var FlowStore $inner */
+        $inner = $this->app->make(FlowStore::class);
+        $runRepository = new class($inner->runs()) implements RunRepository
+        {
+            public function __construct(
+                private readonly RunRepository $inner,
+            ) {}
+
+            public function create(array $attributes): FlowRunRecord
+            {
+                return $this->inner->create($attributes);
+            }
+
+            public function update(string $runId, array $attributes): FlowRunRecord
+            {
+                return $this->inner->update($runId, $attributes);
+            }
+
+            public function updateWhereStatus(string $runId, string $expectedStatus, array $attributes): ?FlowRunRecord
+            {
+                if ($expectedStatus === FlowRun::STATUS_PAUSED
+                    && ($attributes['status'] ?? null) === FlowRun::STATUS_RUNNING
+                ) {
+                    $this->inner->updateWhereStatus($runId, $expectedStatus, $attributes);
+
+                    return null;
                 }
 
                 return $this->inner->updateWhereStatus($runId, $expectedStatus, $attributes);

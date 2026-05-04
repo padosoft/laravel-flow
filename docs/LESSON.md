@@ -221,5 +221,6 @@
 - If a paused transition later aborts because a `FlowPaused` listener throws, expire the newly issued approval token best-effort before compensation so a failed/compensated run cannot retain a pending usable token.
 - Negated `instanceof` guards should use explicit parentheses, e.g. `! ($value instanceof Type)`, so null-store checks remain clear to reviewers and future refactors.
 - Approval resume must claim a paused run with an atomic expected-status update before continuing, so repeated decisions can return the current run instead of replaying downstream side effects.
+- Approval resume claim helpers must return whether this caller actually won the paused-run compare-and-set. Returning the current `running` row is not enough; losers must not continue downstream steps.
 - `Flow::resume()` reconstructs context from persisted run input and successful step outputs. Because persistence redacts before storage, redacted values remain redacted after resume; flows that need secrets after an approval gate must fetch them from an application secret store instead of relying on persisted flow payloads.
 - Treat `Flow::reject()` as a failed approval-gate step: persist the gate failure, consume the one-time token as rejected, and compensate prior completed business steps without running downstream steps.

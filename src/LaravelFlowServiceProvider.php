@@ -10,7 +10,9 @@ use Illuminate\Contracts\Container\Container;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\ServiceProvider;
+use Padosoft\LaravelFlow\Console\ApproveFlowCommand;
 use Padosoft\LaravelFlow\Console\PruneFlowRunsCommand;
+use Padosoft\LaravelFlow\Console\RejectFlowCommand;
 use Padosoft\LaravelFlow\Console\ReplayFlowRunCommand;
 use Padosoft\LaravelFlow\Contracts\ApprovalRepository;
 use Padosoft\LaravelFlow\Contracts\AuditRepository;
@@ -119,6 +121,8 @@ final class LaravelFlowServiceProvider extends ServiceProvider
         ], 'laravel-flow-migrations');
 
         $this->commands([
+            ApproveFlowCommand::class,
+            RejectFlowCommand::class,
             PruneFlowRunsCommand::class,
             ReplayFlowRunCommand::class,
         ]);

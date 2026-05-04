@@ -248,3 +248,5 @@
 - New facade methods are public API and need facade-level regression tests in addition to direct engine tests.
 - New public resume/reject APIs should convert common rollout/configuration failures, such as missing published persistence tables or unknown cache lock stores, into package-level exceptions with migration/config guidance.
 - Custom approval persistence is not only a `FlowStore` concern: approval token lookup and decisions resolve through the separate `ApprovalRepository` binding, so custom-backend docs must name that binding plus the optional `ApprovalDecisionRepository` extension.
+- Lock-contention fallback for an already-decided token must also verify the approval step has persisted the decided state; otherwise a retry can observe the old `paused` run while the lock holder is still inside the persist path.
+- Step-list hydration is part of the public resume/reject diagnostic surface; wrap `flow_steps` reads with the same package-level migration/connection guidance as token and run lookups.

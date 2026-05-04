@@ -741,13 +741,35 @@ class FlowEngine
             ));
         }
 
-        $runRecord = $store->runs()->find($approval->run_id);
+        $runRecord = $this->approvalRunRecord($approval, $store);
 
-        if (! $runRecord instanceof FlowRunRecord) {
-            throw new FlowExecutionException(sprintf('Approval run [%s] was not found.', $approval->run_id));
+        if ($runRecord->status === FlowRun::STATUS_PAUSED
+            && ! $this->hasPersistedApprovalDecisionStep($approval, $store, $runRecord)
+        ) {
+            throw new FlowExecutionException('Approval token could not be consumed. Try again.');
         }
 
         return $this->flowRunFromRecord($runRecord, $store);
+    }
+
+    private function hasPersistedApprovalDecisionStep(
+        FlowApprovalRecord $approval,
+        FlowStore $store,
+        FlowRunRecord $runRecord,
+    ): bool {
+        foreach ($this->stepRecordsForRun($store, $runRecord->id) as $stepRecord) {
+            if ($stepRecord->step_name !== $approval->step_name) {
+                continue;
+            }
+
+            return match ($approval->status) {
+                FlowApprovalRecord::STATUS_APPROVED => $stepRecord->status === 'succeeded',
+                FlowApprovalRecord::STATUS_REJECTED => $stepRecord->status === 'failed',
+                default => false,
+            };
+        }
+
+        return false;
     }
 
     private function hasPersistedDownstreamPause(
@@ -763,7 +785,7 @@ class FlowEngine
 
         $approvalSequence = null;
 
-        foreach ($store->steps()->forRun($runRecord->id) as $stepRecord) {
+        foreach ($this->stepRecordsForRun($store, $runRecord->id) as $stepRecord) {
             if ($stepRecord->step_name === $approval->step_name) {
                 if ($stepRecord->status !== 'succeeded') {
                     return false;
@@ -796,7 +818,7 @@ class FlowEngine
 
         $approvalSequence = null;
 
-        foreach ($store->steps()->forRun($runRecord->id) as $stepRecord) {
+        foreach ($this->stepRecordsForRun($store, $runRecord->id) as $stepRecord) {
             if ($stepRecord->step_name === $approval->step_name) {
                 if ($stepRecord->status !== 'succeeded') {
                     return false;
@@ -1369,7 +1391,7 @@ class FlowEngine
         $retryStartIndex = $approvalIndex;
         $pausedDownstreamStep = null;
 
-        foreach ($store->steps()->forRun($runRecord->id) as $stepRecord) {
+        foreach ($this->stepRecordsForRun($store, $runRecord->id) as $stepRecord) {
             $result = $this->flowStepResultFromRecord($stepRecord);
 
             if ($result instanceof FlowStepResult) {
@@ -1523,6 +1545,26 @@ class FlowEngine
     {
         return new FlowExecutionException(
             'Approval resume/reject requires published laravel-flow persistence tables and a reachable persistence connection. Run the package migrations and verify the persistence connection.',
+            previous: $e,
+        );
+    }
+
+    /**
+     * @return iterable<FlowStepRecord>
+     */
+    private function stepRecordsForRun(FlowStore $store, string $runId): iterable
+    {
+        try {
+            return $store->steps()->forRun($runId);
+        } catch (QueryException $e) {
+            throw $this->flowPersistenceUnavailableException($e);
+        }
+    }
+
+    private function flowPersistenceUnavailableException(QueryException $e): FlowExecutionException
+    {
+        return new FlowExecutionException(
+            'Laravel Flow persistence requires published laravel-flow persistence tables and a reachable persistence connection. Run the package migrations and verify the persistence connection.',
             previous: $e,
         );
     }
@@ -2342,7 +2384,7 @@ class FlowEngine
         $run = $this->flowRunShellFromRecord($record);
 
         if ($store instanceof FlowStore) {
-            foreach ($store->steps()->forRun($record->id) as $stepRecord) {
+            foreach ($this->stepRecordsForRun($store, $record->id) as $stepRecord) {
                 $result = $this->flowStepResultFromRecord($stepRecord);
 
                 if ($result instanceof FlowStepResult) {

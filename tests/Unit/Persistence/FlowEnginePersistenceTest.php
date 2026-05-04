@@ -10,6 +10,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Schema;
 use Padosoft\LaravelFlow\ApprovalTokenManager;
 use Padosoft\LaravelFlow\Contracts\ApprovalDecisionRepository;
 use Padosoft\LaravelFlow\Contracts\ApprovalRepository;
@@ -798,6 +799,43 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         $this->assertSame(0, ApprovalPayloadCapturingHandler::$callCount);
     }
 
+    public function test_resume_decided_token_reports_retry_when_lock_holder_has_not_persisted_step(): void
+    {
+        $this->migrateFlowTables();
+        $engine = $this->engineWithPersistence();
+
+        $engine->define('flow.persist.approval-resume-decided-token-step-pending')
+            ->step('create', AlwaysSucceedsHandler::class)
+            ->approvalGate('manager')
+            ->step('publish', ApprovalPayloadCapturingHandler::class)
+            ->register();
+
+        $pausedRun = $engine->execute('flow.persist.approval-resume-decided-token-step-pending', []);
+        $token = $pausedRun->approvalTokens['manager']->plainTextToken;
+        $approval = $this->app->make(ApprovalTokenManager::class)
+            ->approveForRunStatus($token, FlowRun::STATUS_PAUSED, payload: ['decision' => 'ship']);
+        $this->assertInstanceOf(FlowApprovalRecord::class, $approval);
+
+        $lock = Cache::store('file')->getStore()->lock('laravel-flow:approval-run:'.$pausedRun->id, 60);
+        $this->assertTrue($lock->get());
+
+        try {
+            $engine->resume($token, ['decision' => 'ship']);
+            $this->fail('Decided tokens should retry while the locked caller has not persisted the approval step.');
+        } catch (FlowExecutionException $exception) {
+            $this->assertSame('Approval token could not be consumed. Try again.', $exception->getMessage());
+        } finally {
+            $lock->release();
+        }
+
+        $this->assertSame('paused', FlowStepRecord::query()
+            ->where('run_id', $pausedRun->id)
+            ->where('step_name', 'manager')
+            ->firstOrFail()
+            ->status);
+        $this->assertSame(0, ApprovalPayloadCapturingHandler::$callCount);
+    }
+
     public function test_reject_old_approved_token_reports_conflict_when_run_lock_is_held(): void
     {
         $this->migrateFlowTables();
@@ -1292,6 +1330,32 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         } catch (FlowExecutionException $exception) {
             $this->assertSame(
                 'Approval resume/reject requires published laravel-flow persistence tables and a reachable persistence connection. Run the package migrations and verify the persistence connection.',
+                $exception->getMessage(),
+            );
+        }
+    }
+
+    public function test_resume_reports_missing_step_table_with_package_message(): void
+    {
+        $this->migrateFlowTables();
+        $engine = $this->engineWithPersistence();
+
+        $engine->define('flow.persist.approval-resume-missing-step-table')
+            ->step('create', AlwaysSucceedsHandler::class)
+            ->approvalGate('manager')
+            ->step('publish', ApprovalPayloadCapturingHandler::class)
+            ->register();
+
+        $pausedRun = $engine->execute('flow.persist.approval-resume-missing-step-table', []);
+        $token = $pausedRun->approvalTokens['manager']->plainTextToken;
+        Schema::dropIfExists('flow_steps');
+
+        try {
+            $engine->resume($token);
+            $this->fail('Missing step tables should be reported as a package-level configuration failure.');
+        } catch (FlowExecutionException $exception) {
+            $this->assertSame(
+                'Laravel Flow persistence requires published laravel-flow persistence tables and a reachable persistence connection. Run the package migrations and verify the persistence connection.',
                 $exception->getMessage(),
             );
         }

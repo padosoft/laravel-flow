@@ -50,7 +50,10 @@ final class EloquentApprovalRepository implements ApprovalDecisionRepository, Ap
     public function findPendingByTokenHash(string $tokenHash): ?FlowApprovalRecord
     {
         return $this->newModel()->newQuery()
-            ->where('token_hash', $tokenHash)
+            ->where(function ($query) use ($tokenHash): void {
+                $query->where('token_hash', $tokenHash)
+                    ->orWhere('previous_token_hash', $tokenHash);
+            })
             ->where('status', FlowApprovalRecord::STATUS_PENDING)
             ->first();
     }
@@ -58,7 +61,10 @@ final class EloquentApprovalRepository implements ApprovalDecisionRepository, Ap
     public function findByTokenHash(string $tokenHash): ?FlowApprovalRecord
     {
         return $this->newModel()->newQuery()
-            ->where('token_hash', $tokenHash)
+            ->where(function ($query) use ($tokenHash): void {
+                $query->where('token_hash', $tokenHash)
+                    ->orWhere('previous_token_hash', $tokenHash);
+            })
             ->first();
     }
 
@@ -128,13 +134,14 @@ final class EloquentApprovalRepository implements ApprovalDecisionRepository, Ap
             ->latest('created_at')
             ->first();
 
-        if (! $pending instanceof FlowApprovalRecord) {
+        if (! $pending instanceof FlowApprovalRecord || $pending->previous_token_hash !== null) {
             return null;
         }
 
         $model = $this->newModel();
         $attributes = $this->redact([
             'expires_at' => $expiresAt,
+            'previous_token_hash' => $pending->token_hash,
             'token_hash' => $tokenHash,
             'updated_at' => $model->freshTimestamp(),
         ]);
@@ -163,7 +170,10 @@ final class EloquentApprovalRepository implements ApprovalDecisionRepository, Ap
         $model->forceFill($this->redact($attributes));
 
         $query = $this->newModel()->newQuery()
-            ->where('token_hash', $tokenHash)
+            ->where(function ($query) use ($tokenHash): void {
+                $query->where('token_hash', $tokenHash)
+                    ->orWhere('previous_token_hash', $tokenHash);
+            })
             ->where('status', FlowApprovalRecord::STATUS_PENDING);
 
         if (in_array($attributes['status'] ?? null, [FlowApprovalRecord::STATUS_APPROVED, FlowApprovalRecord::STATUS_REJECTED], true)) {
@@ -189,7 +199,10 @@ final class EloquentApprovalRepository implements ApprovalDecisionRepository, Ap
         }
 
         return $this->newModel()->newQuery()
-            ->where('token_hash', $tokenHash)
+            ->where(function ($query) use ($tokenHash): void {
+                $query->where('token_hash', $tokenHash)
+                    ->orWhere('previous_token_hash', $tokenHash);
+            })
             ->first();
     }
 

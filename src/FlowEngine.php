@@ -859,6 +859,29 @@ class FlowEngine
         }
 
         if ($token instanceof IssuedApprovalToken) {
+            $output = is_array($approvalStepRecord->output) ? $approvalStepRecord->output : [];
+            $output['approval_expires_at'] = $token->expiresAt->format(DateTimeInterface::ATOM);
+
+            $refreshedStep = $store->steps()->createOrUpdate($runRecord->id, $approvalStepRecord->step_name, [
+                'business_impact' => $approvalStepRecord->business_impact,
+                'dry_run_skipped' => (bool) $approvalStepRecord->dry_run_skipped,
+                'duration_ms' => $approvalStepRecord->duration_ms,
+                'error_class' => $approvalStepRecord->error_class,
+                'error_message' => $approvalStepRecord->error_message,
+                'finished_at' => $approvalStepRecord->finished_at,
+                'handler' => $approvalStepRecord->handler,
+                'input' => $approvalStepRecord->input,
+                'output' => $output,
+                'sequence' => $approvalStepRecord->sequence,
+                'started_at' => $approvalStepRecord->started_at,
+                'status' => $approvalStepRecord->status,
+            ]);
+            $result = $this->flowStepResultFromRecord($refreshedStep);
+
+            if ($result instanceof FlowStepResult) {
+                $run->recordStepResult($refreshedStep->step_name, $result);
+            }
+
             $run->recordApprovalToken($token);
         }
 

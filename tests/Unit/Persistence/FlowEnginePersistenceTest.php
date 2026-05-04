@@ -688,18 +688,37 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         $this->assertArrayHasKey('director', $directorPausedRun->approvalTokens);
         $this->assertArrayHasKey('director', $oldTokenRetry->approvalTokens);
         $this->assertNotSame($originalDirectorToken, $oldTokenRetry->approvalTokens['director']->plainTextToken);
+        $this->assertSame(
+            $oldTokenRetry->approvalTokens['director']->expiresAt->format(DateTimeInterface::ATOM),
+            $oldTokenRetry->stepResults['director']->output['approval_expires_at'],
+        );
         $this->assertSame(1, ApprovalPayloadCapturingHandler::$callCount);
         $this->assertSame(0, (int) FlowStepRecord::query()
             ->where('run_id', $directorPausedRun->id)
             ->where('step_name', 'finalize')
             ->count());
-        $this->assertSame(ApprovalTokenManager::hashToken($oldTokenRetry->approvalTokens['director']->plainTextToken), FlowApprovalRecord::query()
+        $directorApprovalRecord = FlowApprovalRecord::query()
+            ->where('run_id', $directorPausedRun->id)
+            ->where('step_name', 'director')
+            ->firstOrFail();
+        $this->assertSame(ApprovalTokenManager::hashToken($oldTokenRetry->approvalTokens['director']->plainTextToken), $directorApprovalRecord->token_hash);
+        $this->assertSame(ApprovalTokenManager::hashToken($originalDirectorToken), $directorApprovalRecord->previous_token_hash);
+        $this->assertSame($oldTokenRetry->stepResults['director']->output['approval_expires_at'], FlowStepRecord::query()
+            ->where('run_id', $directorPausedRun->id)
+            ->where('step_name', 'director')
+            ->firstOrFail()
+            ->output['approval_expires_at']);
+
+        $secondOldTokenRetry = $engine->resume($managerToken, ['decision' => 'ignored-again']);
+
+        $this->assertArrayNotHasKey('director', $secondOldTokenRetry->approvalTokens);
+        $this->assertSame($directorApprovalRecord->token_hash, FlowApprovalRecord::query()
             ->where('run_id', $directorPausedRun->id)
             ->where('step_name', 'director')
             ->firstOrFail()
             ->token_hash);
 
-        $completedRun = $engine->resume($oldTokenRetry->approvalTokens['director']->plainTextToken, ['decision' => 'release']);
+        $completedRun = $engine->resume($originalDirectorToken, ['decision' => 'release']);
 
         $this->assertSame(FlowRun::STATUS_SUCCEEDED, $completedRun->status);
         $this->assertSame(1, (int) FlowStepRecord::query()

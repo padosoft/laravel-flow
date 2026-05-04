@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Model;
  * @property string $step_name
  * @property string $status
  * @property string $token_hash
+ * @property string|null $previous_token_hash
  * @property array<string, mixed>|null $payload
  * @property array<string, mixed>|null $actor
  * @property \DateTimeInterface|null $expires_at

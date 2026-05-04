@@ -200,9 +200,13 @@ final class PersistenceRepositoryTest extends PersistenceTestCase
         $this->assertInstanceOf(IssuedApprovalToken::class, $reissued);
         $this->assertSame($issued->approvalId, $reissued->approvalId);
         $this->assertNotSame($issued->plainTextToken, $reissued->plainTextToken);
-        $this->assertNull($manager->pending($issued->plainTextToken));
+        $this->assertSame($issued->approvalId, $manager->pending($issued->plainTextToken)?->id);
         $this->assertSame($issued->approvalId, $manager->pending($reissued->plainTextToken)?->id);
         $this->assertSame('2026-05-04 10:35:00', $reissued->expiresAt->format('Y-m-d H:i:s'));
+        $this->assertNull($manager->reissuePendingForStep(
+            runId: '00000000-0000-4000-8000-000000000138',
+            stepName: 'director',
+        ));
     }
 
     public function test_approval_token_manager_uses_one_clock_read_when_consuming(): void

@@ -6,6 +6,7 @@
 - That short-circuit must stay narrow: if a downstream step has already been persisted as completed, the approval resume still has to reconstruct enough state to finish the run instead of freezing it at `running`.
 - When `Flow::resume()` reissues a later paused approval gate token, the downstream `steps()->createOrUpdate()` write must translate DB failures into the package-level persistence exception; raw `QueryException` leaks make the approval path look like an uncaught infrastructure crash.
 - The README `Comparison vs alternatives` table should keep the status prefix format consistent (`✅ YES`, `⚠️ PARTIAL`, `❌ NO`) and the approval-gate row should be updated when reissue or duplicate-resume behavior changes.
+- CLI approval commands should not echo approval tokens back to the operator; success output can stay focused on run id and status, while JSON option validation should name the failing option explicitly.
 
 ## 2026-05-02
 

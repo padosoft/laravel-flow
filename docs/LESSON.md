@@ -239,3 +239,4 @@
 - Approval lock-contention fallbacks must treat `expired` approval records the same as missing records. `ApprovalTokenManager::find()` can expire and return the stale record, and that must still surface as an invalid/expired token instead of returning the run state.
 - If token expiry cleanup loses a race to a concurrent approve/reject, re-read the token before reporting invalid/expired so duplicate resume/reject calls preserve the already-decided state.
 - Optional persistence contracts required by approval resume/reject should fail before consuming a pending token where possible, and third-party backend failure paths need explicit regression tests because these contracts are public extension points.
+- Optional extension contracts should not be container-bound unconditionally. Binding them to closures that throw for legacy custom stores breaks feature detection; validate capabilities where the feature is invoked instead.

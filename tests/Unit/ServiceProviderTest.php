@@ -58,15 +58,15 @@ final class ServiceProviderTest extends TestCase
     {
         $this->assertTrue($this->app->bound(FlowStore::class));
         $this->assertTrue($this->app->bound(RunRepository::class));
-        $this->assertTrue($this->app->bound(ConditionalRunRepository::class));
         $this->assertTrue($this->app->bound(StepRunRepository::class));
         $this->assertTrue($this->app->bound(AuditRepository::class));
         $this->assertTrue($this->app->bound(ApprovalRepository::class));
-        $this->assertTrue($this->app->bound(ApprovalDecisionRepository::class));
         $this->assertTrue($this->app->bound(PayloadRedactor::class));
         $this->assertTrue($this->app->bound(ApprovalTokenManager::class));
-        $this->assertInstanceOf(ConditionalRunRepository::class, $this->app->make(ConditionalRunRepository::class));
-        $this->assertInstanceOf(ApprovalDecisionRepository::class, $this->app->make(ApprovalDecisionRepository::class));
+        $this->assertFalse($this->app->bound(ConditionalRunRepository::class));
+        $this->assertFalse($this->app->bound(ApprovalDecisionRepository::class));
+        $this->assertInstanceOf(ConditionalRunRepository::class, $this->app->make(FlowStore::class)->runs());
+        $this->assertInstanceOf(ApprovalDecisionRepository::class, $this->app->make(ApprovalRepository::class));
     }
 
     public function test_parallel_compensation_unknown_driver_falls_back_to_engine_resolution(): void

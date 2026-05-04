@@ -174,6 +174,7 @@ class FlowEngine
             startedAt: $startedAt,
             correlationId: $options->correlationId,
             idempotencyKey: $options->idempotencyKey,
+            replayedFromRunId: $options->replayedFromRunId,
         );
         $run->markRunning();
 
@@ -921,7 +922,7 @@ class FlowEngine
             return;
         }
 
-        $store->runs()->create([
+        $attributes = [
             'definition_name' => $run->definitionName,
             'correlation_id' => $run->correlationId,
             'dry_run' => $run->dryRun,
@@ -930,7 +931,13 @@ class FlowEngine
             'input' => $input,
             'started_at' => $run->startedAt,
             'status' => $run->status,
-        ]);
+        ];
+
+        if ($run->replayedFromRunId !== null) {
+            $attributes['replayed_from_run_id'] = $run->replayedFromRunId;
+        }
+
+        $store->runs()->create($attributes);
     }
 
     private function existingRunForIdempotency(
@@ -964,6 +971,7 @@ class FlowEngine
             startedAt: $this->immutableDate($record->started_at) ?? $this->now(),
             correlationId: $record->correlation_id,
             idempotencyKey: $record->idempotency_key,
+            replayedFromRunId: $record->replayed_from_run_id,
         );
         $run->status = $record->status;
         $run->failedStep = $record->failed_step;

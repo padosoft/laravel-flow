@@ -9,7 +9,10 @@ use Padosoft\LaravelFlow\Tests\TestCase;
 
 abstract class PersistenceTestCase extends TestCase
 {
-    private Migration $flowMigration;
+    /**
+     * @var list<Migration>
+     */
+    private array $flowMigrations = [];
 
     protected function defineEnvironment($app): void
     {
@@ -26,24 +29,31 @@ abstract class PersistenceTestCase extends TestCase
     {
         parent::setUp();
 
-        $this->flowMigration = require __DIR__.'/../../../database/migrations/2026_05_02_000001_create_laravel_flow_tables.php';
-        $this->flowMigration->down();
+        $this->flowMigrations = [
+            require __DIR__.'/../../../database/migrations/2026_05_02_000001_create_laravel_flow_tables.php',
+            require __DIR__.'/../../../database/migrations/2026_05_04_000002_add_replay_lineage_to_laravel_flow_runs.php',
+        ];
+        $this->dropFlowTables();
     }
 
     protected function tearDown(): void
     {
-        $this->flowMigration->down();
+        $this->dropFlowTables();
 
         parent::tearDown();
     }
 
     protected function migrateFlowTables(): void
     {
-        $this->flowMigration->up();
+        foreach ($this->flowMigrations as $migration) {
+            $migration->up();
+        }
     }
 
     protected function dropFlowTables(): void
     {
-        $this->flowMigration->down();
+        foreach (array_reverse($this->flowMigrations) as $migration) {
+            $migration->down();
+        }
     }
 }

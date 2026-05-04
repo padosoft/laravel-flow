@@ -1054,6 +1054,62 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
             ->status);
     }
 
+    public function test_resume_does_not_recover_succeeded_approval_step_when_paused_run_claim_was_lost(): void
+    {
+        $this->migrateFlowTables();
+        $engine = $this->engineWithPersistence();
+
+        $engine->define('flow.persist.approval-resume-lost-claim-after-succeeded-step')
+            ->step('create', AlwaysSucceedsHandler::class)
+            ->approvalGate('manager')
+            ->step('publish', ApprovalPayloadCapturingHandler::class)
+            ->register();
+
+        $pausedRun = $engine->execute('flow.persist.approval-resume-lost-claim-after-succeeded-step', []);
+        $token = $pausedRun->approvalTokens['manager']->plainTextToken;
+        $approval = $this->app->make(ApprovalTokenManager::class)
+            ->approveForRunStatus($token, FlowRun::STATUS_PAUSED, payload: ['decision' => 'ship']);
+        $this->assertInstanceOf(FlowApprovalRecord::class, $approval);
+
+        $approvalStep = FlowStepRecord::query()
+            ->where('run_id', $pausedRun->id)
+            ->where('step_name', 'manager')
+            ->firstOrFail();
+        $approvalStep->forceFill([
+            'duration_ms' => 0,
+            'finished_at' => now(),
+            'output' => [
+                'approval_id' => $approval->id,
+                'approval_payload' => $approval->payload,
+                'approval_status' => FlowApprovalRecord::STATUS_APPROVED,
+            ],
+            'status' => 'succeeded',
+        ])->save();
+
+        $this->assertSame(FlowRun::STATUS_PAUSED, FlowRunRecord::query()
+            ->whereKey($pausedRun->id)
+            ->firstOrFail()
+            ->status);
+
+        $resumeEngine = $this->engineWithLostPausedRunClaim();
+
+        $resumeEngine->define('flow.persist.approval-resume-lost-claim-after-succeeded-step')
+            ->step('create', AlwaysSucceedsHandler::class)
+            ->approvalGate('manager')
+            ->step('publish', ApprovalPayloadCapturingHandler::class)
+            ->register();
+
+        $returnedRun = $resumeEngine->resume($token, ['decision' => 'ship']);
+
+        $this->assertSame($pausedRun->id, $returnedRun->id);
+        $this->assertSame(FlowRun::STATUS_RUNNING, $returnedRun->status);
+        $this->assertSame(0, ApprovalPayloadCapturingHandler::$callCount);
+        $this->assertSame(0, (int) FlowStepRecord::query()
+            ->where('run_id', $pausedRun->id)
+            ->where('step_name', 'publish')
+            ->count());
+    }
+
     public function test_resume_does_not_consume_pending_token_for_non_paused_run(): void
     {
         $this->migrateFlowTables();
@@ -3512,6 +3568,7 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
     private function engineWithLostPausedRunClaim(): FlowEngine
     {
         $this->app['config']->set('laravel-flow.persistence.enabled', true);
+        $this->app['config']->set('laravel-flow.queue.lock_store', 'file');
 
         /** @var FlowStore $inner */
         $inner = $this->app->make(FlowStore::class);

@@ -982,6 +982,26 @@ class FlowEngine
 
         if ($approvalStepRecord->status === 'succeeded') {
             $run = $state['run'];
+            $claimedRunRecord = null;
+
+            $this->persistAtomically($store, function () use ($store, $run, &$claimedRunRecord): void {
+                $claimedRunRecord = $this->conditionalRuns($store)->updateWhereStatus($run->id, FlowRun::STATUS_PAUSED, [
+                    'duration_ms' => null,
+                    'finished_at' => null,
+                    'status' => FlowRun::STATUS_RUNNING,
+                ]);
+            });
+
+            if (! $claimedRunRecord instanceof FlowRunRecord) {
+                $currentRunRecord = $store->runs()->find($run->id);
+
+                if ($currentRunRecord instanceof FlowRunRecord) {
+                    return $this->flowRunFromRecord($currentRunRecord, $store);
+                }
+
+                throw new FlowExecutionException(sprintf('Flow run [%s] was not found while claiming approval resume.', $run->id));
+            }
+
             $run->markRunning();
 
             return $this->executeFromIndex(

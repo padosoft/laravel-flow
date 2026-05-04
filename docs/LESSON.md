@@ -255,3 +255,4 @@
 - The approval resume/reject pre-consume validation state can be reused after a successful consume while the per-run lock is held, avoiding an extra `flow_steps` scan without widening concurrency risk.
 - Public conditional run compare-and-set updates should hydrate a model before query-builder `update()` so JSON and date casts match normal repository writes.
 - Do not retry rejected-approval compensation without durable per-compensator progress; returning the current failed run is safer than duplicating undo side effects.
+- Approval custom backends must keep the approval decision repository and run repository inside one durable storage/transaction boundary; separate stores can satisfy PHP interfaces while breaking atomic token-consume plus paused-run-claim guarantees.

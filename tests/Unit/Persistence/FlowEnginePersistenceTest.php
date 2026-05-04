@@ -11,6 +11,8 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\Event;
 use Padosoft\LaravelFlow\ApprovalTokenManager;
+use Padosoft\LaravelFlow\Contracts\ApprovalDecisionRepository;
+use Padosoft\LaravelFlow\Contracts\ApprovalRepository;
 use Padosoft\LaravelFlow\Contracts\AuditRepository;
 use Padosoft\LaravelFlow\Contracts\ConditionalRunRepository;
 use Padosoft\LaravelFlow\Contracts\CurrentPayloadRedactorProvider;
@@ -1084,6 +1086,99 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         }
 
         $this->assertSame(FlowApprovalRecord::STATUS_EXPIRED, FlowApprovalRecord::query()
+            ->where('run_id', $pausedRun->id)
+            ->where('step_name', 'manager')
+            ->firstOrFail()
+            ->status);
+    }
+
+    public function test_resume_requires_approval_decision_repository_extension_for_custom_approval_stores(): void
+    {
+        $this->migrateFlowTables();
+        $this->app['config']->set('laravel-flow.persistence.enabled', true);
+        $this->app['config']->set('laravel-flow.queue.lock_store', 'file');
+
+        $approvalRepository = new class implements ApprovalRepository
+        {
+            public function createPending(
+                string $id,
+                string $runId,
+                string $stepName,
+                string $tokenHash,
+                DateTimeInterface $expiresAt,
+                array $payload = [],
+            ): FlowApprovalRecord {
+                throw new RuntimeException('not used');
+            }
+
+            public function findPendingByTokenHash(string $tokenHash): ?FlowApprovalRecord
+            {
+                return null;
+            }
+
+            public function consumePending(
+                string $tokenHash,
+                string $status,
+                array $actor = [],
+                array $payload = [],
+                ?DateTimeInterface $decidedAt = null,
+            ): ?FlowApprovalRecord {
+                return null;
+            }
+
+            public function expirePending(string $tokenHash, DateTimeInterface $decidedAt): ?FlowApprovalRecord
+            {
+                return null;
+            }
+        };
+
+        /** @var array<string, mixed> $config */
+        $config = $this->app['config']->get('laravel-flow');
+        $engine = new FlowEngine(
+            $this->app,
+            $this->app['events'],
+            $config,
+            $this->app->make(FlowStore::class),
+            approvalTokenManager: new ApprovalTokenManager($approvalRepository),
+        );
+
+        try {
+            $engine->resume('custom-token');
+            $this->fail('Approval resume should require the approval-decision repository extension.');
+        } catch (FlowExecutionException $exception) {
+            $this->assertStringContainsString(ApprovalDecisionRepository::class, $exception->getMessage());
+        }
+    }
+
+    public function test_resume_requires_conditional_run_repository_extension_before_consuming_token(): void
+    {
+        $this->migrateFlowTables();
+        $engine = $this->engineWithPersistence();
+
+        $engine->define('flow.persist.approval-missing-conditional-run')
+            ->step('create', AlwaysSucceedsHandler::class)
+            ->approvalGate('manager')
+            ->step('publish', ApprovalPayloadCapturingHandler::class)
+            ->register();
+
+        $pausedRun = $engine->execute('flow.persist.approval-missing-conditional-run', []);
+        $token = $pausedRun->approvalTokens['manager']->plainTextToken;
+        $resumeEngine = $this->engineWithoutConditionalRunRepository();
+
+        $resumeEngine->define('flow.persist.approval-missing-conditional-run')
+            ->step('create', AlwaysSucceedsHandler::class)
+            ->approvalGate('manager')
+            ->step('publish', ApprovalPayloadCapturingHandler::class)
+            ->register();
+
+        try {
+            $resumeEngine->resume($token, ['decision' => 'ship']);
+            $this->fail('Approval resume should require the conditional run repository extension.');
+        } catch (FlowExecutionException $exception) {
+            $this->assertStringContainsString(ConditionalRunRepository::class, $exception->getMessage());
+        }
+
+        $this->assertSame(FlowApprovalRecord::STATUS_PENDING, FlowApprovalRecord::query()
             ->where('run_id', $pausedRun->id)
             ->where('step_name', 'manager')
             ->firstOrFail()
@@ -2684,6 +2779,74 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
                 }
 
                 return $this->inner->updateWhereStatus($runId, $expectedStatus, $attributes);
+            }
+
+            public function find(string $runId): ?FlowRunRecord
+            {
+                return $this->inner->find($runId);
+            }
+
+            public function findByIdempotencyKey(string $idempotencyKey): ?FlowRunRecord
+            {
+                return $this->inner->findByIdempotencyKey($idempotencyKey);
+            }
+        };
+
+        $store = new class($inner, $runRepository) implements FlowStore
+        {
+            public function __construct(
+                private readonly FlowStore $inner,
+                private readonly RunRepository $runRepository,
+            ) {}
+
+            public function runs(): RunRepository
+            {
+                return $this->runRepository;
+            }
+
+            public function steps(): StepRunRepository
+            {
+                return $this->inner->steps();
+            }
+
+            public function audit(): AuditRepository
+            {
+                return $this->inner->audit();
+            }
+
+            public function transaction(callable $callback): mixed
+            {
+                return $this->inner->transaction($callback);
+            }
+        };
+
+        /** @var array<string, mixed> $config */
+        $config = $this->app['config']->get('laravel-flow');
+
+        return new FlowEngine($this->app, $this->app['events'], $config, $store);
+    }
+
+    private function engineWithoutConditionalRunRepository(): FlowEngine
+    {
+        $this->app['config']->set('laravel-flow.persistence.enabled', true);
+        $this->app['config']->set('laravel-flow.queue.lock_store', 'file');
+
+        /** @var FlowStore $inner */
+        $inner = $this->app->make(FlowStore::class);
+        $runRepository = new class($inner->runs()) implements RunRepository
+        {
+            public function __construct(
+                private readonly RunRepository $inner,
+            ) {}
+
+            public function create(array $attributes): FlowRunRecord
+            {
+                return $this->inner->create($attributes);
+            }
+
+            public function update(string $runId, array $attributes): FlowRunRecord
+            {
+                return $this->inner->update($runId, $attributes);
             }
 
             public function find(string $runId): ?FlowRunRecord

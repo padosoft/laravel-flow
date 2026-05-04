@@ -661,6 +661,7 @@ class FlowEngine
             }
 
             $this->approvalExecutionState($preDecisionApproval, $store, $preDecisionRunRecord);
+            $this->conditionalRuns($store);
         }
 
         [$approval, $consumedNow] = $this->consumeApprovalDecisionForPausedRun($token, $decision, $payload, $actor);

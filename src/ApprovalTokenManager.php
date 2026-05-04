@@ -79,7 +79,28 @@ final class ApprovalTokenManager
             && $expiresAt instanceof DateTimeImmutable
             && $expiresAt <= $now
         ) {
-            return $this->approvals->expirePending($tokenHash, $now);
+            $expired = $this->approvals->expirePending($tokenHash, $now);
+
+            if ($expired instanceof FlowApprovalRecord) {
+                return $expired;
+            }
+
+            $current = $this->approvalDecisions()->findByTokenHash($tokenHash);
+
+            if (! $current instanceof FlowApprovalRecord) {
+                return null;
+            }
+
+            $currentExpiresAt = $this->immutableDate($current->expires_at);
+
+            if ($current->status === FlowApprovalRecord::STATUS_PENDING
+                && $currentExpiresAt instanceof DateTimeImmutable
+                && $currentExpiresAt <= $now
+            ) {
+                return null;
+            }
+
+            return $current;
         }
 
         return $record;

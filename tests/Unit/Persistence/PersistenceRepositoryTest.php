@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Padosoft\LaravelFlow\Tests\Unit\Persistence;
 
 use DateTimeImmutable;
+use DateTimeInterface;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
@@ -235,6 +236,95 @@ final class PersistenceRepositoryTest extends PersistenceTestCase
         $this->assertNotNull($record->decided_at);
         $this->assertSame($record->decided_at->getTimestamp(), $record->updated_at->getTimestamp());
         $this->assertNull($manager->reject($issued->plainTextToken));
+    }
+
+    public function test_approval_token_find_preserves_concurrent_decision_when_expiry_update_loses_race(): void
+    {
+        $repository = new class implements ApprovalDecisionRepository, ApprovalRepository
+        {
+            public int $finds = 0;
+
+            public function createPending(
+                string $id,
+                string $runId,
+                string $stepName,
+                string $tokenHash,
+                DateTimeInterface $expiresAt,
+                array $payload = [],
+            ): FlowApprovalRecord {
+                throw new RuntimeException('not used');
+            }
+
+            public function findPendingByTokenHash(string $tokenHash): ?FlowApprovalRecord
+            {
+                throw new RuntimeException('not used');
+            }
+
+            public function findByTokenHash(string $tokenHash): ?FlowApprovalRecord
+            {
+                $this->finds++;
+
+                if ($this->finds === 1) {
+                    return (new FlowApprovalRecord)->forceFill([
+                        'expires_at' => new DateTimeImmutable('2026-05-04 10:00:00'),
+                        'id' => '00000000-0000-4000-8000-000000000151',
+                        'run_id' => '00000000-0000-4000-8000-000000000150',
+                        'status' => FlowApprovalRecord::STATUS_PENDING,
+                        'step_name' => 'manager',
+                        'token_hash' => $tokenHash,
+                    ]);
+                }
+
+                return (new FlowApprovalRecord)->forceFill([
+                    'consumed_at' => new DateTimeImmutable('2026-05-04 10:00:01'),
+                    'decided_at' => new DateTimeImmutable('2026-05-04 10:00:01'),
+                    'expires_at' => new DateTimeImmutable('2026-05-04 10:00:00'),
+                    'id' => '00000000-0000-4000-8000-000000000151',
+                    'run_id' => '00000000-0000-4000-8000-000000000150',
+                    'status' => FlowApprovalRecord::STATUS_APPROVED,
+                    'step_name' => 'manager',
+                    'token_hash' => $tokenHash,
+                ]);
+            }
+
+            public function consumePending(
+                string $tokenHash,
+                string $status,
+                array $actor = [],
+                array $payload = [],
+                ?DateTimeInterface $decidedAt = null,
+            ): ?FlowApprovalRecord {
+                throw new RuntimeException('not used');
+            }
+
+            public function consumePendingForRunStatus(
+                string $tokenHash,
+                string $status,
+                string $runStatus,
+                array $actor = [],
+                array $payload = [],
+                ?DateTimeInterface $decidedAt = null,
+            ): ?FlowApprovalRecord {
+                throw new RuntimeException('not used');
+            }
+
+            public function expirePending(string $tokenHash, DateTimeInterface $decidedAt): ?FlowApprovalRecord
+            {
+                return null;
+            }
+        };
+
+        $manager = new ApprovalTokenManager(
+            approvals: $repository,
+            tokenTtlMinutes: 1,
+            clock: static fn (): DateTimeImmutable => new DateTimeImmutable('2026-05-04 10:00:01'),
+        );
+
+        $record = $manager->find('race-token');
+
+        $this->assertInstanceOf(FlowApprovalRecord::class, $record);
+        $this->assertSame(FlowApprovalRecord::STATUS_APPROVED, $record->status);
+        $this->assertSame(2, $repository->finds);
     }
 
     public function test_repositories_store_redacted_run_step_and_audit_records(): void

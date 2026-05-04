@@ -117,10 +117,6 @@ final class ApprovalTokenManager
             throw new InvalidArgumentException(sprintf('Unsupported approval decision status [%s].', $status));
         }
 
-        if (! $this->pending($plainTextToken) instanceof FlowApprovalRecord) {
-            return null;
-        }
-
         $tokenHash = self::hashToken($plainTextToken);
         $now = $this->now();
 

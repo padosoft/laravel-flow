@@ -124,6 +124,41 @@ final class PersistenceRepositoryTest extends PersistenceTestCase
         $this->assertNull($record->consumed_at);
     }
 
+    public function test_approval_token_manager_uses_one_clock_read_when_consuming(): void
+    {
+        $this->migrateFlowTables();
+        $this->createAuditRun('00000000-0000-4000-8000-000000000141');
+
+        $clock = new class
+        {
+            public int $calls = 0;
+
+            public DateTimeImmutable $now;
+        };
+        $clock->now = new DateTimeImmutable('2026-05-04 10:00:00');
+
+        $manager = new ApprovalTokenManager(
+            approvals: $this->app->make(ApprovalRepository::class),
+            tokenTtlMinutes: 30,
+            clock: static function () use ($clock): DateTimeImmutable {
+                $clock->calls++;
+
+                return $clock->now;
+            },
+        );
+
+        $issued = $manager->issue(
+            runId: '00000000-0000-4000-8000-000000000141',
+            stepName: 'manager',
+        );
+
+        $clock->calls = 0;
+        $approved = $manager->approve($issued->plainTextToken);
+
+        $this->assertInstanceOf(FlowApprovalRecord::class, $approved);
+        $this->assertSame(1, $clock->calls);
+    }
+
     public function test_approval_token_manager_expires_pending_tokens(): void
     {
         $this->migrateFlowTables();

@@ -12,7 +12,7 @@ Known workstreams:
 | Macro Task 1 - baseline tooling and Laravel 13 policy | Completed after merge of the macro PR to `main`; Composer/CI/docs now narrow to Laravel 13, PHP 8.3/8.4, and Composer-script quality gates. |
 | Macro Task 2 - v0.2 persistence layer | Completed after merge of the macro PR to `main`; the package has opt-in DB persistence for runs, steps, audit rows, redaction, retention pruning, correlation IDs, and idempotency keys. |
 | Macro Task 2 macro review hardening | Centralizes execution-scoped redactor provider resolution, aligns prune transaction callback usage, explicitly deletes pruned child rows, and keeps persistence model PHPDoc aligned with stored timestamp columns so Macro Task 2 review feedback remains folded into the durable implementation. |
-| Macro Task 3 - v0.2 queues/replay | In progress with queue dispatch, terminal-run replay, and compensation strategy expansion: `Flow::dispatch()` validates and queues an after-commit `RunFlowJob` carrying flow name, input, execution options, per-dispatch lock metadata, and optional guarded Laravel-native tries/backoff metadata; queued jobs release lock-held duplicates after a configurable short delay, no-op completed duplicates, reject process-local `array` locks outside the `sync` queue driver, and have sync/database queue coverage. PR #22 (`task/replay-command` -> `task/v02-queues-replay`) added `flow:replay {runId}` with additive lineage metadata and partial-schema failures. Active branch `task/parallel-compensation-strategy` adds `compensation_strategy=parallel` for independent compensators while preserving `reverse-order` as the default. |
+| Macro Task 3 - v0.2 queues/replay | Completed on macro branch `task/v02-queues-replay` and ready for macro PR to `main`: `Flow::dispatch()` validates and queues an after-commit `RunFlowJob` carrying flow name, input, execution options, per-dispatch lock metadata, and optional guarded Laravel-native tries/backoff metadata; queued jobs release lock-held duplicates after a configurable short delay, no-op completed duplicates, reject process-local `array` locks outside the `sync` queue driver, and have sync/database queue coverage. `flow:replay {runId}` creates new linked terminal-run replays with additive lineage metadata and partial-schema failures. `compensation_strategy=parallel` batches independent compensators while preserving `reverse-order` as the default. |
 
 Concurrent subtasks should add rows here instead of replacing existing workstreams.
 
@@ -56,4 +56,4 @@ Current validation baseline:
 
 Next active macro:
 
-- Continue Macro Task 3 from `docs/ENTERPRISE_PLAN.md`: finish the `task/parallel-compensation-strategy` PR loop, then reassess whether the v0.2 queues/replay macro is ready for its macro PR to `main`.
+- Open and complete the Macro Task 3 PR from `task/v02-queues-replay` to `main`; after it merges, start Macro Task 4 approval gates/webhooks from `docs/ENTERPRISE_PLAN.md`.

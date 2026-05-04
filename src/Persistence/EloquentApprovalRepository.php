@@ -86,10 +86,15 @@ final class EloquentApprovalRepository implements ApprovalRepository
         $attributes['updated_at'] = $model->freshTimestamp();
         $model->forceFill($this->redact($attributes));
 
-        $updated = $this->newModel()->newQuery()
+        $query = $this->newModel()->newQuery()
             ->where('token_hash', $tokenHash)
-            ->where('status', FlowApprovalRecord::STATUS_PENDING)
-            ->update($model->getAttributes());
+            ->where('status', FlowApprovalRecord::STATUS_PENDING);
+
+        if (in_array($attributes['status'] ?? null, [FlowApprovalRecord::STATUS_APPROVED, FlowApprovalRecord::STATUS_REJECTED], true)) {
+            $query->where('expires_at', '>', $attributes['decided_at']);
+        }
+
+        $updated = $query->update($model->getAttributes());
 
         if ($updated !== 1) {
             return null;

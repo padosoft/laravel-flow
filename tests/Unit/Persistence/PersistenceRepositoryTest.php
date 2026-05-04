@@ -59,7 +59,7 @@ final class PersistenceRepositoryTest extends PersistenceTestCase
         $manager = new ApprovalTokenManager(
             approvals: $this->app->make(ApprovalRepository::class),
             tokenTtlMinutes: 30,
-            clock: static fn (): DateTimeImmutable => new DateTimeImmutable('2026-05-04 10:00:00'),
+            clock: static fn () => Carbon::parse('2026-05-04 10:00:00'),
         );
 
         $issued = $manager->issue(
@@ -93,6 +93,34 @@ final class PersistenceRepositoryTest extends PersistenceTestCase
         $this->assertNotNull($approved->decided_at);
         $this->assertNull($manager->approve($issued->plainTextToken));
         $this->assertNull($manager->pending($issued->plainTextToken));
+    }
+
+    public function test_approval_repository_rejects_expired_consume_updates_atomically(): void
+    {
+        $this->migrateFlowTables();
+        $this->createAuditRun('00000000-0000-4000-8000-000000000131');
+
+        $approvals = $this->app->make(ApprovalRepository::class);
+        $tokenHash = str_repeat('b', 64);
+        $approvals->createPending(
+            id: '00000000-0000-4000-8000-000000000132',
+            runId: '00000000-0000-4000-8000-000000000131',
+            stepName: 'manager',
+            tokenHash: $tokenHash,
+            expiresAt: new DateTimeImmutable('2026-05-04 10:00:00'),
+        );
+
+        $this->assertNull($approvals->consumePending(
+            tokenHash: $tokenHash,
+            status: FlowApprovalRecord::STATUS_APPROVED,
+            actor: ['email' => 'late@example.test'],
+            decidedAt: new DateTimeImmutable('2026-05-04 10:00:01'),
+        ));
+
+        $record = $approvals->findPendingByTokenHash($tokenHash);
+        $this->assertInstanceOf(FlowApprovalRecord::class, $record);
+        $this->assertSame(FlowApprovalRecord::STATUS_PENDING, $record->status);
+        $this->assertNull($record->consumed_at);
     }
 
     public function test_approval_token_manager_expires_pending_tokens(): void

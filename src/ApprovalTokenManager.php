@@ -14,11 +14,18 @@ final class ApprovalTokenManager
 {
     private const DEFAULT_TTL_MINUTES = 1440;
 
+    /**
+     * @var callable|null
+     */
+    private readonly mixed $clock;
+
     public function __construct(
         private readonly ApprovalRepository $approvals,
         private readonly int $tokenTtlMinutes = self::DEFAULT_TTL_MINUTES,
-        private readonly mixed $clock = null,
-    ) {}
+        ?callable $clock = null,
+    ) {
+        $this->clock = $clock;
+    }
 
     /**
      * @param  array<string, mixed>  $payload
@@ -110,13 +117,21 @@ final class ApprovalTokenManager
             return null;
         }
 
-        return $this->approvals->consumePending(
-            tokenHash: self::hashToken($plainTextToken),
+        $tokenHash = self::hashToken($plainTextToken);
+        $now = $this->now();
+        $record = $this->approvals->consumePending(
+            tokenHash: $tokenHash,
             status: $status,
             actor: $actor,
             payload: $payload,
-            decidedAt: $this->now(),
+            decidedAt: $now,
         );
+
+        if (! $record instanceof FlowApprovalRecord) {
+            $this->approvals->expirePending($tokenHash, $now);
+        }
+
+        return $record;
     }
 
     private function ttlMinutes(): int
@@ -127,10 +142,15 @@ final class ApprovalTokenManager
     private function now(): DateTimeImmutable
     {
         if (is_callable($this->clock)) {
-            /** @var DateTimeImmutable $now */
             $now = ($this->clock)();
 
-            return $now;
+            $immutable = $this->immutableDate($now);
+
+            if ($immutable instanceof DateTimeImmutable) {
+                return $immutable;
+            }
+
+            throw new InvalidArgumentException('Approval token clock must return a DateTimeInterface or date-time string.');
         }
 
         return new DateTimeImmutable;

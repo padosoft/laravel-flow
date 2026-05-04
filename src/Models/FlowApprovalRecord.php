@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Padosoft\LaravelFlow\Models;
 
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Support\Carbon;
 
 /**
  * @property string $id
@@ -15,11 +14,11 @@ use Illuminate\Support\Carbon;
  * @property string $token_hash
  * @property array<string, mixed>|null $payload
  * @property array<string, mixed>|null $actor
- * @property Carbon|null $expires_at
- * @property Carbon|null $consumed_at
- * @property Carbon|null $decided_at
- * @property Carbon|null $created_at
- * @property Carbon|null $updated_at
+ * @property \DateTimeInterface|null $expires_at
+ * @property \DateTimeInterface|null $consumed_at
+ * @property \DateTimeInterface|null $decided_at
+ * @property \DateTimeInterface|null $created_at
+ * @property \DateTimeInterface|null $updated_at
  */
 final class FlowApprovalRecord extends Model
 {
@@ -43,18 +42,15 @@ final class FlowApprovalRecord extends Model
     protected $guarded = [];
 
     /**
-     * @return array<string, string>
+     * @var array<string, string>
      */
-    protected function casts(): array
-    {
-        return [
-            'actor' => 'array',
-            'consumed_at' => 'datetime',
-            'created_at' => 'datetime',
-            'decided_at' => 'datetime',
-            'expires_at' => 'datetime',
-            'payload' => 'array',
-            'updated_at' => 'datetime',
-        ];
-    }
+    protected $casts = [
+        'actor' => 'array',
+        'consumed_at' => 'immutable_datetime',
+        'created_at' => 'immutable_datetime',
+        'decided_at' => 'immutable_datetime',
+        'expires_at' => 'immutable_datetime',
+        'payload' => 'array',
+        'updated_at' => 'immutable_datetime',
+    ];
 }

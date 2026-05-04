@@ -212,3 +212,6 @@
 - Approval token issuance should return the plain token only at issuance time and persist only its fixed-width hash; repository lookup/consume paths must operate on hashes so clear tokens are not recoverable from storage.
 - Approval approve/reject consumption should update by `token_hash` plus `pending` status in a single write, so repeated submissions cannot consume the same token twice.
 - Approval actor and decision payloads are operator-provided data and must pass through the same payload redaction path as run, step, and audit JSON before persistence.
+- Approval token expiry must be enforced in the same conditional consume update as the `pending` status check; checking expiry before the write leaves a race where a token can cross TTL and still be approved.
+- Approval persistence models should use the same `immutable_datetime` cast style as run/step records so operator-facing timestamps behave consistently across stored flow state.
+- Public clock hooks should accept common `DateTimeInterface` implementations such as Carbon and normalize to immutable internals instead of assuming callers return `DateTimeImmutable`.

@@ -34,6 +34,7 @@ use Padosoft\LaravelFlow\Jobs\RunFlowJob;
 use Padosoft\LaravelFlow\Models\FlowApprovalRecord;
 use Padosoft\LaravelFlow\Models\FlowRunRecord;
 use Padosoft\LaravelFlow\Models\FlowStepRecord;
+use Padosoft\LaravelFlow\Persistence\EloquentWebhookOutboxRepository;
 use Padosoft\LaravelFlow\Persistence\PayloadRedactorResolution;
 use Padosoft\LaravelFlow\Queue\QueueRetryPolicy;
 use Throwable;
@@ -361,6 +362,23 @@ class FlowEngine
                             'output' => $result->output,
                             'status' => 'paused',
                         ], $result->businessImpact, $stepFinishedAt);
+                        $this->recordWebhookOutbox(
+                            event: 'flow.paused',
+                            runId: $run->id,
+                            approvalId: isset($result->output['approval_id']) && is_string($result->output['approval_id'])
+                                ? $result->output['approval_id']
+                                : null,
+                            payload: [
+                                'definition_name' => $definition->name,
+                                'dry_run' => $dryRun,
+                                'flow_run_id' => $run->id,
+                                'occurred_at' => $stepFinishedAt->format(DateTimeInterface::ATOM),
+                                'output' => $result->output,
+                                'step_name' => $step->name,
+                                'status' => 'paused',
+                            ],
+                            availableAt: $stepFinishedAt,
+                        );
                         $this->persistRunFinished($store, $run);
                     });
 
@@ -2376,6 +2394,28 @@ class FlowEngine
 
             throw $e;
         }
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    private function recordWebhookOutbox(
+        string $event,
+        ?string $runId,
+        ?string $approvalId,
+        array $payload,
+        ?DateTimeImmutable $availableAt = null,
+    ): void {
+        /** @var EloquentWebhookOutboxRepository $repository */
+        $repository = $this->container->make(EloquentWebhookOutboxRepository::class);
+
+        $repository->createPending(
+            event: $event,
+            runId: $runId,
+            approvalId: $approvalId,
+            payload: $payload,
+            availableAt: $availableAt,
+        );
     }
 
     private function dispatchCompensatedAndIgnoreListenerFailure(

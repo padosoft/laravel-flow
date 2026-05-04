@@ -22,6 +22,7 @@ use Padosoft\LaravelFlow\Contracts\RunRepository;
 use Padosoft\LaravelFlow\Contracts\StepRunRepository;
 use Padosoft\LaravelFlow\Persistence\EloquentApprovalRepository;
 use Padosoft\LaravelFlow\Persistence\EloquentFlowStore;
+use Padosoft\LaravelFlow\Persistence\EloquentWebhookOutboxRepository;
 use Padosoft\LaravelFlow\Persistence\ExecutionScopedPayloadRedactor;
 use Padosoft\LaravelFlow\Persistence\KeyBasedPayloadRedactor;
 use Throwable;
@@ -82,6 +83,15 @@ final class LaravelFlowServiceProvider extends ServiceProvider
         $this->app->bind(RunRepository::class, fn (Container $app): RunRepository => $app->make(FlowStore::class)->runs());
         $this->app->bind(StepRunRepository::class, fn (Container $app): StepRunRepository => $app->make(FlowStore::class)->steps());
         $this->app->bind(AuditRepository::class, fn (Container $app): AuditRepository => $app->make(FlowStore::class)->audit());
+        $this->app->singleton(EloquentWebhookOutboxRepository::class, function (Container $app): EloquentWebhookOutboxRepository {
+            /** @var string|null $connection */
+            $connection = $app['config']->get('laravel-flow.default_storage');
+
+            return new EloquentWebhookOutboxRepository(
+                connection: $connection,
+                redactor: $app->make(ExecutionScopedPayloadRedactor::class),
+            );
+        });
         $this->app->bind(ApprovalRepository::class, function (Container $app): ApprovalRepository {
             /** @var string|null $connection */
             $connection = $app['config']->get('laravel-flow.default_storage');

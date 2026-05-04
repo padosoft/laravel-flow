@@ -18,6 +18,7 @@ use Padosoft\LaravelFlow\Contracts\RunRepository;
 use Padosoft\LaravelFlow\Contracts\StepRunRepository;
 use Padosoft\LaravelFlow\FlowEngine;
 use Padosoft\LaravelFlow\LaravelFlowServiceProvider;
+use Padosoft\LaravelFlow\Persistence\EloquentWebhookOutboxRepository;
 
 /**
  * Smoke coverage for service-provider auto-discovery and package bindings.
@@ -62,6 +63,7 @@ final class ServiceProviderTest extends TestCase
         $this->assertTrue($this->app->bound(StepRunRepository::class));
         $this->assertTrue($this->app->bound(AuditRepository::class));
         $this->assertTrue($this->app->bound(ApprovalRepository::class));
+        $this->assertTrue($this->app->bound(EloquentWebhookOutboxRepository::class));
         $this->assertTrue($this->app->bound(PayloadRedactor::class));
         $this->assertTrue($this->app->bound(ApprovalTokenManager::class));
         $this->assertFalse($this->app->bound(ConditionalRunRepository::class));

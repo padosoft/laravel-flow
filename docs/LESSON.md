@@ -211,6 +211,7 @@
 - Approval resume tokens must be represented as fixed-width hashes in persistence from the first schema slice; do not add a clear-text token column even temporarily.
 - Webhook outbox rows should be state records, not delivery logs only: keep event, status, attempt counters, next-available time, terminal timestamps, and last error separate so retry workers can be idempotent.
 - Approval/webhook tables should be additive to the persisted run schema and cascade with `flow_runs`; deleting retained/pruned runs must not leave orphan approval tokens or outbox rows.
+- The `flow.paused` webhook outbox row belongs in the same pause transaction as the paused step/audit write so the durable event trail stays aligned with the persisted run state.
 - Approval pause state is not terminal: keep `finished_at` and `duration_ms` null while status is `paused`, and do not run compensation or downstream steps.
 - A paused approval step should not contribute to aggregate run output/business impact; it is control-plane state, not a completed business step.
 - If persisting a paused transition fails, runtime-abort recovery must persist the approval step as failed; a failed run with a paused step row is inconsistent for replay and operators.

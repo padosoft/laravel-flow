@@ -16,11 +16,9 @@ use Illuminate\Contracts\Container\Container;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Database\QueryException;
 use InvalidArgumentException;
-use Padosoft\LaravelFlow\Contracts\ApprovalRepository;
 use Padosoft\LaravelFlow\Contracts\ConditionalRunRepository;
 use Padosoft\LaravelFlow\Contracts\FlowStore;
 use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
-use Padosoft\LaravelFlow\Contracts\RedactorAwareApprovalRepository;
 use Padosoft\LaravelFlow\Contracts\RedactorAwareFlowStore;
 use Padosoft\LaravelFlow\Events\FlowCompensated;
 use Padosoft\LaravelFlow\Events\FlowPaused;
@@ -655,6 +653,8 @@ class FlowEngine
     ): FlowRun {
         $preDecisionApproval = $this->approvalDecisionRecord($token);
 
+        $preDecisionState = null;
+
         if ($preDecisionApproval->status === FlowApprovalRecord::STATUS_PENDING) {
             $preDecisionRunRecord = $this->approvalRunRecord($preDecisionApproval, $store);
 
@@ -662,7 +662,7 @@ class FlowEngine
                 return $this->flowRunFromRecord($preDecisionRunRecord, $store);
             }
 
-            $this->approvalExecutionState($preDecisionApproval, $store, $preDecisionRunRecord);
+            $preDecisionState = $this->approvalExecutionState($preDecisionApproval, $store, $preDecisionRunRecord);
             $this->conditionalRuns($store);
         }
 
@@ -671,10 +671,10 @@ class FlowEngine
         $decisionActor = $approval->actor ?? [];
 
         if ($decision === FlowApprovalRecord::STATUS_APPROVED) {
-            return $this->resumeApprovedApproval($approval, $consumedNow, $decisionPayload, $decisionActor, $store, $redactor);
+            return $this->resumeApprovedApproval($approval, $consumedNow, $decisionPayload, $decisionActor, $store, $redactor, $preDecisionState);
         }
 
-        return $this->rejectApprovalDecision($approval, $decisionPayload, $decisionActor, $store, $redactor);
+        return $this->rejectApprovalDecision($approval, $decisionPayload, $decisionActor, $store, $redactor, $preDecisionState);
     }
 
     /**
@@ -871,15 +871,24 @@ class FlowEngine
         PayloadRedactor $redactor,
     ): array {
         $manager = $this->approvalTokenManager($redactor);
-        $approval = $decision === FlowApprovalRecord::STATUS_APPROVED
-            ? $manager->approveForRunStatus($token, FlowRun::STATUS_PAUSED, $actor, $payload)
-            : $manager->rejectForRunStatus($token, FlowRun::STATUS_PAUSED, $actor, $payload);
+
+        try {
+            $approval = $decision === FlowApprovalRecord::STATUS_APPROVED
+                ? $manager->approveForRunStatus($token, FlowRun::STATUS_PAUSED, $actor, $payload)
+                : $manager->rejectForRunStatus($token, FlowRun::STATUS_PAUSED, $actor, $payload);
+        } catch (QueryException $e) {
+            throw $this->approvalPersistenceUnavailableException($e);
+        }
 
         if ($approval instanceof FlowApprovalRecord) {
             return [$approval, true];
         }
 
-        $approval = $manager->find($token);
+        try {
+            $approval = $manager->find($token);
+        } catch (QueryException $e) {
+            throw $this->approvalPersistenceUnavailableException($e);
+        }
 
         if (! $approval instanceof FlowApprovalRecord || $approval->status === FlowApprovalRecord::STATUS_EXPIRED) {
             throw new FlowExecutionException('Approval token is invalid or expired.');
@@ -902,6 +911,21 @@ class FlowEngine
     /**
      * @param  array<string, mixed>  $payload
      * @param  array<string, mixed>  $actor
+     * @param  array{
+     *     approval_index: int,
+     *     approval_step: FlowStep,
+     *     approval_step_record: FlowStepRecord,
+     *     completed_steps: list<FlowStep>,
+     *     context: FlowContext,
+     *     definition: FlowDefinition,
+     *     paused_downstream_step: string|null,
+     *     retry_completed_steps: list<FlowStep>,
+     *     retry_context: FlowContext,
+     *     retry_sequence: int,
+     *     retry_start_index: int,
+     *     run: FlowRun,
+     *     run_record: FlowRunRecord
+     * }|null  $preDecisionState
      */
     private function resumeApprovedApproval(
         FlowApprovalRecord $approval,
@@ -910,6 +934,7 @@ class FlowEngine
         array $actor,
         FlowStore $store,
         PayloadRedactor $redactor,
+        ?array $preDecisionState = null,
     ): FlowRun {
         $runRecord = $this->approvalRunRecord($approval, $store);
 
@@ -925,7 +950,9 @@ class FlowEngine
             return $this->flowRunFromRecord($runRecord, $store);
         }
 
-        $state = $this->approvalExecutionState($approval, $store, $runRecord);
+        $state = $consumedNow && $preDecisionState !== null
+            ? $preDecisionState
+            : $this->approvalExecutionState($approval, $store, $runRecord);
 
         if ($runRecord->status !== FlowRun::STATUS_PAUSED) {
             if ($state['approval_step_record']->status === 'succeeded') {
@@ -1078,6 +1105,21 @@ class FlowEngine
     /**
      * @param  array<string, mixed>  $payload
      * @param  array<string, mixed>  $actor
+     * @param  array{
+     *     approval_index: int,
+     *     approval_step: FlowStep,
+     *     approval_step_record: FlowStepRecord,
+     *     completed_steps: list<FlowStep>,
+     *     context: FlowContext,
+     *     definition: FlowDefinition,
+     *     paused_downstream_step: string|null,
+     *     retry_completed_steps: list<FlowStep>,
+     *     retry_context: FlowContext,
+     *     retry_sequence: int,
+     *     retry_start_index: int,
+     *     run: FlowRun,
+     *     run_record: FlowRunRecord
+     * }|null  $preDecisionState
      */
     private function rejectApprovalDecision(
         FlowApprovalRecord $approval,
@@ -1085,6 +1127,7 @@ class FlowEngine
         array $actor,
         FlowStore $store,
         PayloadRedactor $redactor,
+        ?array $preDecisionState = null,
     ): FlowRun {
         $runRecord = $this->approvalRunRecord($approval, $store);
 
@@ -1111,7 +1154,7 @@ class FlowEngine
             return $this->flowRunFromRecord($runRecord, $store);
         }
 
-        $state = $this->approvalExecutionState($approval, $store, $runRecord);
+        $state = $preDecisionState ?? $this->approvalExecutionState($approval, $store, $runRecord);
 
         if ($state['approval_step_record']->status !== 'paused') {
             return $this->flowRunFromRecord($runRecord, $store);
@@ -2747,36 +2790,19 @@ class FlowEngine
     private function approvalTokenManager(?PayloadRedactor $redactor = null): ApprovalTokenManager
     {
         if ($this->approvalTokenManager instanceof ApprovalTokenManager) {
-            return $this->approvalTokenManager;
+            return $redactor instanceof PayloadRedactor
+                ? $this->approvalTokenManager->withPayloadRedactor($redactor)
+                : $this->approvalTokenManager;
         }
 
         if ($redactor instanceof PayloadRedactor) {
-            /** @var ApprovalRepository $approvals */
-            $approvals = $this->container->make(ApprovalRepository::class);
-
-            if ($approvals instanceof RedactorAwareApprovalRepository) {
-                $approvals = $approvals->withPayloadRedactor($redactor);
-            }
-
-            return new ApprovalTokenManager(
-                approvals: $approvals,
-                tokenTtlMinutes: $this->approvalTokenTtlMinutes(),
-                clock: fn (): DateTimeImmutable => $this->now(),
-            );
+            return $this->approvalTokenManager()->withPayloadRedactor($redactor);
         }
 
         /** @var ApprovalTokenManager $manager */
         $manager = $this->container->make(ApprovalTokenManager::class);
 
         return $manager;
-    }
-
-    private function approvalTokenTtlMinutes(): int
-    {
-        /** @var mixed $ttlMinutes */
-        $ttlMinutes = $this->container['config']->get('laravel-flow.approval.token_ttl_minutes', 1440);
-
-        return is_numeric($ttlMinutes) && (int) $ttlMinutes >= 1 ? (int) $ttlMinutes : 1440;
     }
 
     private function storeForExecution(bool $dryRun): ?FlowStore

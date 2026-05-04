@@ -6,6 +6,7 @@ namespace Padosoft\LaravelFlow\Tests\Unit\Persistence;
 
 use DateTimeInterface;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Date;
@@ -563,6 +564,72 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         $this->assertSame('[frozen-redacted]', $runRecord->output['manager']['approval_actor']['token']);
         $this->assertSame('[frozen-redacted]', ApprovalPayloadCapturingHandler::$lastStepOutputs['manager']['approval_payload']['secret']);
         $this->assertSame('[frozen-redacted]', ApprovalPayloadCapturingHandler::$lastStepOutputs['manager']['approval_actor']['token']);
+    }
+
+    public function test_resume_uses_execution_frozen_redactor_for_injected_approval_token_manager(): void
+    {
+        $this->migrateFlowTables();
+        $counter = new class
+        {
+            public int $value = 0;
+        };
+        $this->app->bind(PayloadRedactor::class, static function () use ($counter): PayloadRedactor {
+            $counter->value++;
+
+            return new class($counter->value === 1) implements PayloadRedactor
+            {
+                public function __construct(
+                    private readonly bool $redactsApprovalSecret,
+                ) {}
+
+                public function redact(array $payload): array
+                {
+                    foreach ($payload as $key => $value) {
+                        if ($this->redactsApprovalSecret && $value === 'approval-secret') {
+                            $payload[$key] = '[injected-frozen-redacted]';
+                        }
+                    }
+
+                    return $payload;
+                }
+            };
+        });
+
+        /** @var ApprovalRepository $approvals */
+        $approvals = $this->app->make(ApprovalRepository::class);
+        $this->app['config']->set('laravel-flow.persistence.enabled', true);
+        $this->app['config']->set('laravel-flow.queue.lock_store', 'file');
+        /** @var FlowStore $store */
+        $store = $this->app->make(FlowStore::class);
+        /** @var array<string, mixed> $config */
+        $config = $this->app['config']->get('laravel-flow');
+        $engine = new FlowEngine(
+            $this->app,
+            $this->app['events'],
+            $config,
+            $store,
+            approvalTokenManager: new ApprovalTokenManager($approvals),
+        );
+
+        $engine->define('flow.persist.approval-resume-injected-manager-redactor')
+            ->step('create', AlwaysSucceedsHandler::class)
+            ->approvalGate('manager')
+            ->step('publish', ApprovalPayloadCapturingHandler::class)
+            ->register();
+
+        $pausedRun = $engine->execute('flow.persist.approval-resume-injected-manager-redactor', []);
+        $token = $pausedRun->approvalTokens['manager']->plainTextToken;
+        $counter->value = 0;
+
+        $engine->resume($token, ['secret' => 'approval-secret']);
+
+        $approvalRecord = FlowApprovalRecord::query()
+            ->where('run_id', $pausedRun->id)
+            ->where('step_name', 'manager')
+            ->firstOrFail();
+
+        $this->assertSame('[injected-frozen-redacted]', $approvalRecord->payload['secret']);
+        $this->assertSame('[injected-frozen-redacted]', ApprovalPayloadCapturingHandler::$lastStepOutputs['manager']['approval_payload']['secret']);
     }
 
     public function test_resume_approval_token_is_idempotent_after_success(): void
@@ -1471,6 +1538,103 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         } catch (FlowExecutionException $exception) {
             $this->assertSame(
                 'Approval resume/reject requires a configured cache lock store; cache store [missing-lock-store] is not defined.',
+                $exception->getMessage(),
+            );
+        }
+    }
+
+    public function test_resume_translates_approval_consume_query_failure(): void
+    {
+        $this->migrateFlowTables();
+        $engine = $this->engineWithPersistence();
+
+        $engine->define('flow.persist.approval-resume-consume-query-failure')
+            ->step('create', AlwaysSucceedsHandler::class)
+            ->approvalGate('manager')
+            ->step('publish', ApprovalPayloadCapturingHandler::class)
+            ->register();
+
+        $pausedRun = $engine->execute('flow.persist.approval-resume-consume-query-failure', []);
+        $token = $pausedRun->approvalTokens['manager']->plainTextToken;
+        $approvalRecord = FlowApprovalRecord::query()
+            ->where('run_id', $pausedRun->id)
+            ->where('step_name', 'manager')
+            ->firstOrFail();
+        $approvalRepository = new class($approvalRecord) implements ApprovalDecisionRepository, ApprovalRepository
+        {
+            public function __construct(
+                private readonly FlowApprovalRecord $approval,
+            ) {}
+
+            public function createPending(
+                string $id,
+                string $runId,
+                string $stepName,
+                string $tokenHash,
+                DateTimeInterface $expiresAt,
+                array $payload = [],
+            ): FlowApprovalRecord {
+                throw new RuntimeException('not used');
+            }
+
+            public function findPendingByTokenHash(string $tokenHash): ?FlowApprovalRecord
+            {
+                return $this->approval;
+            }
+
+            public function findByTokenHash(string $tokenHash): ?FlowApprovalRecord
+            {
+                return $this->approval;
+            }
+
+            public function consumePending(
+                string $tokenHash,
+                string $status,
+                array $actor = [],
+                array $payload = [],
+                ?DateTimeInterface $decidedAt = null,
+            ): ?FlowApprovalRecord {
+                throw new QueryException('testing', 'update flow_approvals', [], new RuntimeException('table missing'));
+            }
+
+            public function consumePendingForRunStatus(
+                string $tokenHash,
+                string $status,
+                string $runStatus,
+                array $actor = [],
+                array $payload = [],
+                ?DateTimeInterface $decidedAt = null,
+            ): ?FlowApprovalRecord {
+                throw new QueryException('testing', 'update flow_approvals', [], new RuntimeException('table missing'));
+            }
+
+            public function expirePending(string $tokenHash, DateTimeInterface $decidedAt): ?FlowApprovalRecord
+            {
+                return null;
+            }
+        };
+        /** @var array<string, mixed> $config */
+        $config = $this->app['config']->get('laravel-flow');
+        $resumeEngine = new FlowEngine(
+            $this->app,
+            $this->app['events'],
+            $config,
+            $this->app->make(FlowStore::class),
+            approvalTokenManager: new ApprovalTokenManager($approvalRepository),
+        );
+
+        $resumeEngine->define('flow.persist.approval-resume-consume-query-failure')
+            ->step('create', AlwaysSucceedsHandler::class)
+            ->approvalGate('manager')
+            ->step('publish', ApprovalPayloadCapturingHandler::class)
+            ->register();
+
+        try {
+            $resumeEngine->resume($token);
+            $this->fail('Approval consume query failures should be translated.');
+        } catch (FlowExecutionException $exception) {
+            $this->assertSame(
+                'Approval resume/reject requires published laravel-flow persistence tables and a reachable persistence connection. Run the package migrations and verify the persistence connection.',
                 $exception->getMessage(),
             );
         }

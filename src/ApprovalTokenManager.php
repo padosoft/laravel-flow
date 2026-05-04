@@ -9,6 +9,8 @@ use DateTimeInterface;
 use InvalidArgumentException;
 use Padosoft\LaravelFlow\Contracts\ApprovalDecisionRepository;
 use Padosoft\LaravelFlow\Contracts\ApprovalRepository;
+use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
+use Padosoft\LaravelFlow\Contracts\RedactorAwareApprovalRepository;
 use Padosoft\LaravelFlow\Exceptions\FlowExecutionException;
 use Padosoft\LaravelFlow\Models\FlowApprovalRecord;
 
@@ -172,6 +174,15 @@ final class ApprovalTokenManager
     public function expireIssued(IssuedApprovalToken $token, ?DateTimeInterface $decidedAt = null): ?FlowApprovalRecord
     {
         return $this->approvals->expirePending($token->tokenHash, $this->immutableDate($decidedAt) ?? $this->now());
+    }
+
+    public function withPayloadRedactor(PayloadRedactor $redactor): self
+    {
+        if (! ($this->approvals instanceof RedactorAwareApprovalRepository)) {
+            return $this;
+        }
+
+        return new self($this->approvals->withPayloadRedactor($redactor), $this->tokenTtlMinutes, $this->clock);
     }
 
     public static function hashToken(string $plainTextToken): string

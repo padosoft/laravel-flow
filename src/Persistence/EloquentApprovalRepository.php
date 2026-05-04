@@ -20,7 +20,7 @@ final class EloquentApprovalRepository implements ApprovalDecisionRepository, Ap
         private readonly PayloadRedactor $redactor,
     ) {}
 
-    public function withPayloadRedactor(PayloadRedactor $redactor): ApprovalRepository
+    public function withPayloadRedactor(PayloadRedactor $redactor): self
     {
         return new self($this->connection, $redactor);
     }

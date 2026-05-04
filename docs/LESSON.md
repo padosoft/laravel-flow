@@ -235,3 +235,5 @@
 - Approval resume definition drift checks should compare both persisted step names/order and handler classes; same-name handler swaps can otherwise continue a paused run under a different implementation.
 - Resume retries must rebuild context through any already-persisted downstream successes and start after the last contiguous successful step; otherwise a crash after downstream persistence can duplicate side effects.
 - If a retry sees a downstream step row stuck in `running` after `FlowStepStarted` persisted, resume from that step instead of throwing forever; the approval token has already been consumed and must remain a recovery handle.
+- Approval resume/reject locks must be keyed by run id, not token hash. Multi-gate flows can retry an already-decided older token while a later gate is resuming the same run; per-token locks would let both requests recover/execute downstream state concurrently.
+- Approval lock-contention fallbacks must treat `expired` approval records the same as missing records. `ApprovalTokenManager::find()` can expire and return the stale record, and that must still surface as an invalid/expired token instead of returning the run state.

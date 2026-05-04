@@ -48,6 +48,8 @@ class FlowEngine
 
     private const COMPENSATION_STRATEGY_PARALLEL = 'parallel';
 
+    private const APPROVAL_DECISION_LOCK_PREFIX = 'laravel-flow:approval-run:';
+
     /**
      * @var array<string, FlowDefinition>
      */
@@ -611,10 +613,24 @@ class FlowEngine
         }
 
         [$store, $redactor] = $this->approvalDecisionStore();
+        $approval = $this->approvalDecisionRecord($token);
 
-        return $this->withApprovalDecisionLock($token, $store, function () use ($token, $decision, $payload, $actor, $store, $redactor): FlowRun {
+        return $this->withApprovalDecisionLock($token, $approval, $store, function () use ($token, $decision, $payload, $actor, $store, $redactor): FlowRun {
             return $this->decideApprovalWithLock($token, $decision, $payload, $actor, $store, $redactor);
         });
+    }
+
+    private function approvalDecisionRecord(string $token): FlowApprovalRecord
+    {
+        $approval = $this->approvalTokenManager()->find($token);
+
+        if (! ($approval instanceof FlowApprovalRecord)
+            || $approval->status === FlowApprovalRecord::STATUS_EXPIRED
+        ) {
+            throw new FlowExecutionException('Approval token is invalid or expired.');
+        }
+
+        return $approval;
     }
 
     /**
@@ -661,8 +677,12 @@ class FlowEngine
     /**
      * @param  callable(): FlowRun  $callback
      */
-    private function withApprovalDecisionLock(string $token, FlowStore $store, callable $callback): FlowRun
-    {
+    private function withApprovalDecisionLock(
+        string $token,
+        FlowApprovalRecord $approval,
+        FlowStore $store,
+        callable $callback,
+    ): FlowRun {
         /** @var CacheFactory $cache */
         $cache = $this->container->make(CacheFactory::class);
         $repository = $cache->store($this->queueLockStore());
@@ -677,7 +697,7 @@ class FlowEngine
         }
 
         $lock = $cacheStore->lock(
-            'laravel-flow:approval:'.ApprovalTokenManager::hashToken($token),
+            self::APPROVAL_DECISION_LOCK_PREFIX.$approval->run_id,
             $this->queueLockSeconds(),
         );
 
@@ -694,11 +714,7 @@ class FlowEngine
 
     private function approvalRunStateForToken(string $token, FlowStore $store): FlowRun
     {
-        $approval = $this->approvalTokenManager()->find($token);
-
-        if (! $approval instanceof FlowApprovalRecord) {
-            throw new FlowExecutionException('Approval token is invalid or expired.');
-        }
+        $approval = $this->approvalDecisionRecord($token);
 
         $runRecord = $store->runs()->find($approval->run_id);
 

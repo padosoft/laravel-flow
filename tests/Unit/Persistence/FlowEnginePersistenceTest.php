@@ -1289,6 +1289,12 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
             'status' => 'succeeded',
         ])->save();
 
+        $engine->define('flow.persist.approval-resume-after-claim')
+            ->step('create', SecondHandler::class)
+            ->approvalGate('manager')
+            ->step('publish', ApprovalPayloadCapturingHandler::class)
+            ->register();
+
         $resumedRun = $engine->resume($token);
 
         $this->assertSame(FlowRun::STATUS_RUNNING, $resumedRun->status);
@@ -1297,6 +1303,93 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
             ->where('run_id', $pausedRun->id)
             ->where('step_name', 'publish')
             ->count());
+    }
+
+    public function test_resume_translates_reissued_approval_step_write_failure(): void
+    {
+        $this->migrateFlowTables();
+        $engine = $this->engineWithPersistence();
+
+        $engine->define('flow.persist.approval-resume-reissue-write-failure')
+            ->step('create', AlwaysSucceedsHandler::class)
+            ->approvalGate('manager')
+            ->step('publish', ApprovalPayloadCapturingHandler::class)
+            ->approvalGate('director')
+            ->step('finalize', AlwaysSucceedsHandler::class)
+            ->register();
+
+        $managerPausedRun = $engine->execute('flow.persist.approval-resume-reissue-write-failure', []);
+        $managerToken = $managerPausedRun->approvalTokens['manager']->plainTextToken;
+        $directorPausedRun = $engine->resume($managerToken, ['decision' => 'ship']);
+
+        $store = new class($this->app->make(FlowStore::class)) implements FlowStore
+        {
+            public function __construct(
+                private readonly FlowStore $inner,
+            ) {}
+
+            public function runs(): RunRepository
+            {
+                return $this->inner->runs();
+            }
+
+            public function steps(): StepRunRepository
+            {
+                return new class($this->inner->steps()) implements StepRunRepository
+                {
+                    public function __construct(
+                        private readonly StepRunRepository $inner,
+                    ) {}
+
+                    public function createOrUpdate(string $runId, string $stepName, array $attributes): FlowStepRecord
+                    {
+                        throw new QueryException('testing', 'update flow_steps', [], new RuntimeException('table missing'));
+                    }
+
+                    public function forRun(string $runId): Collection
+                    {
+                        return $this->inner->forRun($runId);
+                    }
+                };
+            }
+
+            public function audit(): AuditRepository
+            {
+                return $this->inner->audit();
+            }
+
+            public function transaction(callable $callback): mixed
+            {
+                return $this->inner->transaction($callback);
+            }
+        };
+
+        /** @var array<string, mixed> $config */
+        $config = $this->app['config']->get('laravel-flow');
+        $resumeEngine = new FlowEngine($this->app, $this->app['events'], $config, $store);
+
+        $resumeEngine->define('flow.persist.approval-resume-reissue-write-failure')
+            ->step('create', AlwaysSucceedsHandler::class)
+            ->approvalGate('manager')
+            ->step('publish', ApprovalPayloadCapturingHandler::class)
+            ->approvalGate('director')
+            ->step('finalize', AlwaysSucceedsHandler::class)
+            ->register();
+
+        try {
+            $resumeEngine->resume($managerToken, ['decision' => 'ignored']);
+            $this->fail('Reissued approval step write failures should be translated.');
+        } catch (FlowExecutionException $exception) {
+            $this->assertSame(
+                'Laravel Flow persistence requires published laravel-flow persistence tables and a reachable persistence connection. Run the package migrations and verify the persistence connection.',
+                $exception->getMessage(),
+            );
+        }
+
+        $this->assertSame(FlowRun::STATUS_PAUSED, FlowRunRecord::query()
+            ->whereKey($directorPausedRun->id)
+            ->firstOrFail()
+            ->status);
     }
 
     public function test_resume_does_not_retry_downstream_step_left_running_after_lock_expiry(): void

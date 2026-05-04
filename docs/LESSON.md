@@ -1,5 +1,12 @@
 # Lessons
 
+## 2026-05-04
+
+- Duplicate approval resumes must short-circuit on a persisted `running` run before rebuilding approval recovery state; otherwise a deploy-time definition drift can turn a harmless retry into a definition-mismatch failure.
+- That short-circuit must stay narrow: if a downstream step has already been persisted as completed, the approval resume still has to reconstruct enough state to finish the run instead of freezing it at `running`.
+- When `Flow::resume()` reissues a later paused approval gate token, the downstream `steps()->createOrUpdate()` write must translate DB failures into the package-level persistence exception; raw `QueryException` leaks make the approval path look like an uncaught infrastructure crash.
+- The README `Comparison vs alternatives` table should keep the status prefix format consistent (`✅ YES`, `⚠️ PARTIAL`, `❌ NO`) and the approval-gate row should be updated when reissue or duplicate-resume behavior changes.
+
 ## 2026-05-02
 
 - v0.1 is no longer a no-op scaffold. It includes the in-memory Flow engine core, facade, dry-run, compensation, events, business-impact results, README expansion, and architecture tests.

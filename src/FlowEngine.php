@@ -25,6 +25,7 @@ use Padosoft\LaravelFlow\Events\FlowPaused;
 use Padosoft\LaravelFlow\Events\FlowStepCompleted;
 use Padosoft\LaravelFlow\Events\FlowStepFailed;
 use Padosoft\LaravelFlow\Events\FlowStepStarted;
+use Padosoft\LaravelFlow\Exceptions\ApprovalPersistenceException;
 use Padosoft\LaravelFlow\Exceptions\FlowCompensationException;
 use Padosoft\LaravelFlow\Exceptions\FlowExecutionException;
 use Padosoft\LaravelFlow\Exceptions\FlowInputException;
@@ -865,21 +866,24 @@ class FlowEngine
         if ($token instanceof IssuedApprovalToken) {
             $output = is_array($approvalStepRecord->output) ? $approvalStepRecord->output : [];
             $output['approval_expires_at'] = $token->expiresAt->format(DateTimeInterface::ATOM);
-
-            $refreshedStep = $store->steps()->createOrUpdate($runRecord->id, $approvalStepRecord->step_name, [
-                'business_impact' => $approvalStepRecord->business_impact,
-                'dry_run_skipped' => (bool) $approvalStepRecord->dry_run_skipped,
-                'duration_ms' => $approvalStepRecord->duration_ms,
-                'error_class' => $approvalStepRecord->error_class,
-                'error_message' => $approvalStepRecord->error_message,
-                'finished_at' => $approvalStepRecord->finished_at,
-                'handler' => $approvalStepRecord->handler,
-                'input' => $approvalStepRecord->input,
-                'output' => $output,
-                'sequence' => $approvalStepRecord->sequence,
-                'started_at' => $approvalStepRecord->started_at,
-                'status' => $approvalStepRecord->status,
-            ]);
+            try {
+                $refreshedStep = $store->steps()->createOrUpdate($runRecord->id, $approvalStepRecord->step_name, [
+                    'business_impact' => $approvalStepRecord->business_impact,
+                    'dry_run_skipped' => (bool) $approvalStepRecord->dry_run_skipped,
+                    'duration_ms' => $approvalStepRecord->duration_ms,
+                    'error_class' => $approvalStepRecord->error_class,
+                    'error_message' => $approvalStepRecord->error_message,
+                    'finished_at' => $approvalStepRecord->finished_at,
+                    'handler' => $approvalStepRecord->handler,
+                    'input' => $approvalStepRecord->input,
+                    'output' => $output,
+                    'sequence' => $approvalStepRecord->sequence,
+                    'started_at' => $approvalStepRecord->started_at,
+                    'status' => $approvalStepRecord->status,
+                ]);
+            } catch (QueryException $e) {
+                throw $this->flowPersistenceUnavailableException($e);
+            }
             $result = $this->flowStepResultFromRecord($refreshedStep);
 
             if ($result instanceof FlowStepResult) {
@@ -917,6 +921,39 @@ class FlowEngine
             if ($approvalSequence !== null
                 && $stepRecord->sequence > $approvalSequence
                 && $stepRecord->handler === ApprovalGate::class
+            ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function hasPersistedDownstreamCompletedStep(
+        FlowApprovalRecord $approval,
+        FlowStore $store,
+        FlowRunRecord $runRecord,
+    ): bool {
+        if ($approval->status !== FlowApprovalRecord::STATUS_APPROVED) {
+            return false;
+        }
+
+        $approvalSequence = null;
+
+        foreach ($this->stepRecordsForRun($store, $runRecord->id) as $stepRecord) {
+            if ($stepRecord->step_name === $approval->step_name) {
+                if ($stepRecord->status !== 'succeeded') {
+                    return false;
+                }
+
+                $approvalSequence = $stepRecord->sequence;
+
+                continue;
+            }
+
+            if ($approvalSequence !== null
+                && $stepRecord->sequence > $approvalSequence
+                && in_array($stepRecord->status, ['succeeded', 'skipped'], true)
             ) {
                 return true;
             }
@@ -1026,6 +1063,12 @@ class FlowEngine
             return $this->flowRunFromRecord($runRecord, $store);
         }
 
+        if ($runRecord->status === FlowRun::STATUS_RUNNING
+            && ! $this->hasPersistedDownstreamCompletedStep($approval, $store, $runRecord)
+        ) {
+            return $this->flowRunFromRecord($runRecord, $store);
+        }
+
         $state = $consumedNow && $preDecisionState !== null
             ? $preDecisionState
             : $this->approvalExecutionState($approval, $store, $runRecord);
@@ -1069,7 +1112,7 @@ class FlowEngine
             });
 
             if (! ($claimedRunRecord instanceof FlowRunRecord)) {
-                $currentRunRecord = $store->runs()->find($run->id);
+                $currentRunRecord = $this->approvalCurrentRunRecord($store, $run->id);
 
                 if ($currentRunRecord instanceof FlowRunRecord) {
                     return $this->flowRunFromRecord($currentRunRecord, $store);
@@ -1153,7 +1196,7 @@ class FlowEngine
             });
 
             if (! ($claimedRunRecord instanceof FlowRunRecord)) {
-                $currentRunRecord = $store->runs()->find($run->id);
+                $currentRunRecord = $this->approvalCurrentRunRecord($store, $run->id);
 
                 if ($currentRunRecord instanceof FlowRunRecord) {
                     return $this->flowRunFromRecord($currentRunRecord, $store);
@@ -1166,6 +1209,8 @@ class FlowEngine
                 new FlowStepCompleted($run->id, $state->definition->name, $approval->step_name, $result, false),
                 $listenerFailureEvent,
             );
+        } catch (ApprovalPersistenceException $e) {
+            throw $e;
         } catch (Throwable $e) {
             $this->compensateAfterRuntimeAbort(
                 $state->definition,
@@ -1294,7 +1339,7 @@ class FlowEngine
             });
 
             if (! ($claimedRunRecord instanceof FlowRunRecord)) {
-                $currentRunRecord = $store->runs()->find($run->id);
+                $currentRunRecord = $this->approvalCurrentRunRecord($store, $run->id);
 
                 if ($currentRunRecord instanceof FlowRunRecord) {
                     return $this->flowRunFromRecord($currentRunRecord, $store);
@@ -1307,6 +1352,8 @@ class FlowEngine
                 new FlowStepFailed($run->id, $state->definition->name, $state->approvalStep->name, $result, false),
                 $listenerFailureEvent,
             );
+        } catch (ApprovalPersistenceException $e) {
+            throw $e;
         } catch (Throwable $e) {
             $this->compensateAfterRuntimeAbort(
                 $state->definition,
@@ -1566,9 +1613,18 @@ class FlowEngine
         return $runRecord;
     }
 
-    private function approvalPersistenceUnavailableException(QueryException $e): FlowExecutionException
+    private function approvalCurrentRunRecord(FlowStore $store, string $runId): ?FlowRunRecord
     {
-        return new FlowExecutionException(
+        try {
+            return $store->runs()->find($runId);
+        } catch (QueryException $e) {
+            throw $this->approvalPersistenceUnavailableException($e);
+        }
+    }
+
+    private function approvalPersistenceUnavailableException(QueryException $e): ApprovalPersistenceException
+    {
+        return new ApprovalPersistenceException(
             'Approval resume/reject requires published laravel-flow persistence tables and a reachable persistence connection. Run the package migrations and verify the persistence connection.',
             previous: $e,
         );

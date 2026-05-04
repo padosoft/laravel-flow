@@ -243,3 +243,6 @@
 - Before writing code for enterprise PR fixes, run a local preflight over public contract compatibility, edge cases, diagnostics/CLI behavior, README/comparison updates, retention/concurrency risk, and explicit tests for every behavior branch. The goal is to catch Copilot-class findings before review.
 - Lock-contention fallbacks for idempotent approval decisions still need to reject conflicting operator actions; returning current run state is safe only when the requested decision matches the stored decision.
 - Already-approved old approval tokens should return a downstream paused run without re-validating current definition drift for the original gate. Drift checks belong to pending/current-gate decisions and recovery, not old-token idempotency after the run moved on.
+- Lock-contention fallbacks must not return current run state for still-pending approval tokens; the lock holder may not have written the decision yet, so the loser should retry instead of making conflicting decisions nondeterministic.
+- Already-approved earlier approval tokens are idempotent lookup handles only until a later persisted approval gate exists; after that, they must not recover later-gated running work or restart downstream side effects.
+- New facade methods are public API and need facade-level regression tests in addition to direct engine tests.

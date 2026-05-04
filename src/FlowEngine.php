@@ -718,6 +718,10 @@ class FlowEngine
     {
         $approval = $this->approvalDecisionRecord($token);
 
+        if ($approval->status === FlowApprovalRecord::STATUS_PENDING) {
+            throw new FlowExecutionException('Approval token could not be consumed. Try again.');
+        }
+
         if (in_array($approval->status, [FlowApprovalRecord::STATUS_APPROVED, FlowApprovalRecord::STATUS_REJECTED], true)
             && $approval->status !== $decision
         ) {
@@ -763,6 +767,39 @@ class FlowEngine
             if ($approvalSequence !== null
                 && $stepRecord->sequence > $approvalSequence
                 && $stepRecord->status === 'paused'
+            ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function hasPersistedDownstreamApprovalGate(
+        FlowApprovalRecord $approval,
+        FlowStore $store,
+        FlowRunRecord $runRecord,
+    ): bool {
+        if ($approval->status !== FlowApprovalRecord::STATUS_APPROVED) {
+            return false;
+        }
+
+        $approvalSequence = null;
+
+        foreach ($store->steps()->forRun($runRecord->id) as $stepRecord) {
+            if ($stepRecord->step_name === $approval->step_name) {
+                if ($stepRecord->status !== 'succeeded') {
+                    return false;
+                }
+
+                $approvalSequence = $stepRecord->sequence;
+
+                continue;
+            }
+
+            if ($approvalSequence !== null
+                && $stepRecord->sequence > $approvalSequence
+                && $stepRecord->handler === ApprovalGate::class
             ) {
                 return true;
             }
@@ -842,6 +879,10 @@ class FlowEngine
         $runRecord = $this->approvalRunRecord($approval, $store);
 
         if (! in_array($runRecord->status, [FlowRun::STATUS_PAUSED, FlowRun::STATUS_RUNNING], true)) {
+            return $this->flowRunFromRecord($runRecord, $store);
+        }
+
+        if (! $consumedNow && $this->hasPersistedDownstreamApprovalGate($approval, $store, $runRecord)) {
             return $this->flowRunFromRecord($runRecord, $store);
         }
 

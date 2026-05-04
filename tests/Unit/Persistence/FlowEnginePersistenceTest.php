@@ -660,6 +660,144 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
             ->status);
     }
 
+    public function test_resume_old_approval_token_returns_current_running_run_after_later_gate_advanced(): void
+    {
+        $this->migrateFlowTables();
+        $engine = $this->engineWithPersistence();
+
+        $engine->define('flow.persist.approval-resume-old-token-running-later-gate')
+            ->step('create', AlwaysSucceedsHandler::class)
+            ->approvalGate('manager')
+            ->step('publish', ApprovalPayloadCapturingHandler::class)
+            ->approvalGate('director')
+            ->step('finalize', AlwaysSucceedsHandler::class)
+            ->register();
+
+        $managerPausedRun = $engine->execute('flow.persist.approval-resume-old-token-running-later-gate', []);
+        $managerToken = $managerPausedRun->approvalTokens['manager']->plainTextToken;
+
+        $directorPausedRun = $engine->resume($managerToken, ['decision' => 'ship']);
+        $directorToken = $directorPausedRun->approvalTokens['director']->plainTextToken;
+        $directorApproval = $this->app->make(ApprovalTokenManager::class)
+            ->approveForRunStatus($directorToken, FlowRun::STATUS_PAUSED, payload: ['decision' => 'release']);
+        $this->assertInstanceOf(FlowApprovalRecord::class, $directorApproval);
+
+        FlowRunRecord::query()
+            ->whereKey($directorPausedRun->id)
+            ->update([
+                'duration_ms' => null,
+                'finished_at' => null,
+                'status' => FlowRun::STATUS_RUNNING,
+            ]);
+
+        $directorStep = FlowStepRecord::query()
+            ->where('run_id', $directorPausedRun->id)
+            ->where('step_name', 'director')
+            ->firstOrFail();
+        $directorStep->forceFill([
+            'duration_ms' => 0,
+            'finished_at' => now(),
+            'output' => [
+                'approval_id' => $directorApproval->id,
+                'approval_payload' => $directorApproval->payload,
+                'approval_status' => FlowApprovalRecord::STATUS_APPROVED,
+            ],
+            'status' => 'succeeded',
+        ])->save();
+
+        (new FlowStepRecord)->forceFill([
+            'dry_run_skipped' => false,
+            'handler' => AlwaysSucceedsHandler::class,
+            'input' => ['flow_input_keys' => [], 'step_output_keys' => ['create', 'manager', 'publish', 'director']],
+            'run_id' => $directorPausedRun->id,
+            'sequence' => 5,
+            'started_at' => now(),
+            'status' => 'running',
+            'step_name' => 'finalize',
+        ])->save();
+
+        $oldTokenRetry = $engine->resume($managerToken, ['decision' => 'ignored']);
+
+        $this->assertSame($directorPausedRun->id, $oldTokenRetry->id);
+        $this->assertSame(FlowRun::STATUS_RUNNING, $oldTokenRetry->status);
+        $this->assertSame(1, AlwaysSucceedsHandler::$callCount);
+        $this->assertSame('running', FlowStepRecord::query()
+            ->where('run_id', $directorPausedRun->id)
+            ->where('step_name', 'finalize')
+            ->firstOrFail()
+            ->status);
+    }
+
+    public function test_resume_pending_token_reports_retry_when_run_lock_is_held(): void
+    {
+        $this->migrateFlowTables();
+        $engine = $this->engineWithPersistence();
+
+        $engine->define('flow.persist.approval-resume-pending-token-lock-conflict')
+            ->step('create', AlwaysSucceedsHandler::class)
+            ->approvalGate('manager')
+            ->step('publish', ApprovalPayloadCapturingHandler::class)
+            ->register();
+
+        $pausedRun = $engine->execute('flow.persist.approval-resume-pending-token-lock-conflict', []);
+        $token = $pausedRun->approvalTokens['manager']->plainTextToken;
+        $lock = Cache::store('file')->getStore()->lock('laravel-flow:approval-run:'.$pausedRun->id, 60);
+        $this->assertTrue($lock->get());
+
+        try {
+            $engine->resume($token, ['decision' => 'ship']);
+            $this->fail('Pending tokens should not return current run state while the decision lock is held.');
+        } catch (FlowExecutionException $exception) {
+            $this->assertSame('Approval token could not be consumed. Try again.', $exception->getMessage());
+        } finally {
+            $lock->release();
+        }
+
+        $this->assertSame(FlowApprovalRecord::STATUS_PENDING, FlowApprovalRecord::query()
+            ->where('run_id', $pausedRun->id)
+            ->where('step_name', 'manager')
+            ->firstOrFail()
+            ->status);
+        $this->assertSame(0, ApprovalPayloadCapturingHandler::$callCount);
+    }
+
+    public function test_reject_pending_token_reports_retry_when_run_lock_is_held(): void
+    {
+        $this->migrateFlowTables();
+        $engine = $this->engineWithPersistence();
+
+        $engine->define('flow.persist.approval-reject-pending-token-lock-conflict')
+            ->step('create', AlwaysSucceedsHandler::class)
+            ->approvalGate('manager')
+            ->step('publish', ApprovalPayloadCapturingHandler::class)
+            ->register();
+
+        $pausedRun = $engine->execute('flow.persist.approval-reject-pending-token-lock-conflict', []);
+        $token = $pausedRun->approvalTokens['manager']->plainTextToken;
+        $lock = Cache::store('file')->getStore()->lock('laravel-flow:approval-run:'.$pausedRun->id, 60);
+        $this->assertTrue($lock->get());
+
+        try {
+            $engine->reject($token, ['reason' => 'changed']);
+            $this->fail('Pending tokens should not return current run state while the decision lock is held.');
+        } catch (FlowExecutionException $exception) {
+            $this->assertSame('Approval token could not be consumed. Try again.', $exception->getMessage());
+        } finally {
+            $lock->release();
+        }
+
+        $this->assertSame(FlowApprovalRecord::STATUS_PENDING, FlowApprovalRecord::query()
+            ->where('run_id', $pausedRun->id)
+            ->where('step_name', 'manager')
+            ->firstOrFail()
+            ->status);
+        $this->assertSame(FlowRun::STATUS_PAUSED, FlowRunRecord::query()
+            ->whereKey($pausedRun->id)
+            ->firstOrFail()
+            ->status);
+        $this->assertSame(0, ApprovalPayloadCapturingHandler::$callCount);
+    }
+
     public function test_reject_old_approved_token_reports_conflict_when_run_lock_is_held(): void
     {
         $this->migrateFlowTables();

@@ -12,7 +12,8 @@ use Padosoft\LaravelFlow\FlowRun;
 
 /**
  * Facade exposing {@see FlowEngine} as `Flow::define()` / `Flow::execute()`
- * / `Flow::dryRun()` / `Flow::dispatch()` / `Flow::definitions()`.
+ * / `Flow::dryRun()` / `Flow::dispatch()` / `Flow::resume()`
+ * / `Flow::reject()` / `Flow::definitions()`.
  *
  * @method static FlowDefinitionBuilder define(string $name)
  * @method static FlowRun execute(string $name, array<string, mixed> $input, ?\Padosoft\LaravelFlow\FlowExecutionOptions $options = null)

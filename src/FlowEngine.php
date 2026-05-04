@@ -911,21 +911,6 @@ class FlowEngine
     /**
      * @param  array<string, mixed>  $payload
      * @param  array<string, mixed>  $actor
-     * @param  array{
-     *     approval_index: int,
-     *     approval_step: FlowStep,
-     *     approval_step_record: FlowStepRecord,
-     *     completed_steps: list<FlowStep>,
-     *     context: FlowContext,
-     *     definition: FlowDefinition,
-     *     paused_downstream_step: string|null,
-     *     retry_completed_steps: list<FlowStep>,
-     *     retry_context: FlowContext,
-     *     retry_sequence: int,
-     *     retry_start_index: int,
-     *     run: FlowRun,
-     *     run_record: FlowRunRecord
-     * }|null  $preDecisionState
      */
     private function resumeApprovedApproval(
         FlowApprovalRecord $approval,
@@ -934,7 +919,7 @@ class FlowEngine
         array $actor,
         FlowStore $store,
         PayloadRedactor $redactor,
-        ?array $preDecisionState = null,
+        ?ApprovalRecoveryState $preDecisionState = null,
     ): FlowRun {
         $runRecord = $this->approvalRunRecord($approval, $store);
 
@@ -955,17 +940,17 @@ class FlowEngine
             : $this->approvalExecutionState($approval, $store, $runRecord);
 
         if ($runRecord->status !== FlowRun::STATUS_PAUSED) {
-            if ($state['approval_step_record']->status === 'succeeded') {
-                $run = $state['run'];
+            if ($state->approvalStepRecord->status === 'succeeded' && ! $state->wouldExecuteHandlers()) {
+                $run = $state->run;
                 $run->markRunning();
 
                 return $this->executeFromIndex(
-                    $state['definition'],
+                    $state->definition,
                     $run,
-                    $state['retry_context'],
-                    $state['retry_completed_steps'],
-                    $state['retry_start_index'],
-                    $state['retry_sequence'],
+                    $state->retryContext,
+                    $state->retryCompletedSteps,
+                    $state->retryStartIndex,
+                    $state->retrySequence,
                     $store,
                     $redactor,
                 );
@@ -974,14 +959,14 @@ class FlowEngine
             return $this->flowRunFromRecord($runRecord, $store);
         }
 
-        $approvalStepRecord = $state['approval_step_record'];
+        $approvalStepRecord = $state->approvalStepRecord;
 
-        if ($state['paused_downstream_step'] !== null) {
+        if ($state->pausedDownstreamStep !== null) {
             return $this->flowRunFromRecord($runRecord, $store);
         }
 
         if ($approvalStepRecord->status === 'succeeded') {
-            $run = $state['run'];
+            $run = $state->run;
             $claimedRunRecord = null;
 
             $this->persistAtomically($store, function () use ($store, $run, &$claimedRunRecord): void {
@@ -1005,12 +990,12 @@ class FlowEngine
             $run->markRunning();
 
             return $this->executeFromIndex(
-                $state['definition'],
+                $state->definition,
                 $run,
-                $state['retry_context'],
-                $state['retry_completed_steps'],
-                $state['retry_start_index'],
-                $state['retry_sequence'],
+                $state->retryContext,
+                $state->retryCompletedSteps,
+                $state->retryStartIndex,
+                $state->retrySequence,
                 $store,
                 $redactor,
             );
@@ -1020,10 +1005,10 @@ class FlowEngine
             return $this->flowRunFromRecord($runRecord, $store);
         }
 
-        $run = $state['run'];
+        $run = $state->run;
         $result = $this->approvedApprovalResult($approval, $payload, $actor);
-        $contextAfterStep = $state['context']->withStepOutput($approval->step_name, $result->output);
-        $completedSteps = [...$state['completed_steps'], $state['approval_step']];
+        $contextAfterStep = $state->context->withStepOutput($approval->step_name, $result->output);
+        $completedSteps = [...$state->completedSteps, $state->approvalStep];
         $finishedAt = $this->immutableDate($approval->decided_at) ?? $this->now();
         $startedAt = $this->immutableDate($approvalStepRecord->started_at) ?? $finishedAt;
         $listenerFailureEvent = null;
@@ -1057,9 +1042,9 @@ class FlowEngine
                 $this->persistStepFinished(
                     $store,
                     $run,
-                    $state['approval_step'],
-                    $state['approval_step_record']->sequence,
-                    $state['context'],
+                    $state->approvalStep,
+                    $state->approvalStepRecord->sequence,
+                    $state->context,
                     $result,
                     $startedAt,
                     $finishedAt,
@@ -1068,7 +1053,7 @@ class FlowEngine
                 $this->recordAudit($store, 'FlowStepCompleted', $run, $approval->step_name, [
                     'approval_id' => $approval->id,
                     'approval_status' => FlowApprovalRecord::STATUS_APPROVED,
-                    'definition_name' => $state['definition']->name,
+                    'definition_name' => $state->definition->name,
                     'dry_run' => false,
                     'output' => $result->output,
                     'status' => 'succeeded',
@@ -1087,36 +1072,36 @@ class FlowEngine
             }
 
             $this->dispatchOrCaptureListenerFailure(
-                new FlowStepCompleted($run->id, $state['definition']->name, $approval->step_name, $result, false),
+                new FlowStepCompleted($run->id, $state->definition->name, $approval->step_name, $result, false),
                 $listenerFailureEvent,
             );
         } catch (Throwable $e) {
             $this->compensateAfterRuntimeAbort(
-                $state['definition'],
+                $state->definition,
                 $contextAfterStep,
                 $completedSteps,
                 $run,
                 $store,
-                $state['approval_step'],
-                $state['approval_step_record']->sequence,
+                $state->approvalStep,
+                $state->approvalStepRecord->sequence,
                 FlowStepResult::failed($e),
                 $startedAt,
                 $this->now(),
                 $redactor,
                 listenerEvent: $listenerFailureEvent,
-                failedStepPersistenceContext: $state['context'],
+                failedStepPersistenceContext: $state->context,
             );
 
             throw $e;
         }
 
         return $this->executeFromIndex(
-            $state['definition'],
+            $state->definition,
             $run,
             $contextAfterStep,
             $completedSteps,
-            $state['approval_index'] + 1,
-            $state['approval_step_record']->sequence,
+            $state->approvalIndex + 1,
+            $state->approvalStepRecord->sequence,
             $store,
             $redactor,
         );
@@ -1125,21 +1110,6 @@ class FlowEngine
     /**
      * @param  array<string, mixed>  $payload
      * @param  array<string, mixed>  $actor
-     * @param  array{
-     *     approval_index: int,
-     *     approval_step: FlowStep,
-     *     approval_step_record: FlowStepRecord,
-     *     completed_steps: list<FlowStep>,
-     *     context: FlowContext,
-     *     definition: FlowDefinition,
-     *     paused_downstream_step: string|null,
-     *     retry_completed_steps: list<FlowStep>,
-     *     retry_context: FlowContext,
-     *     retry_sequence: int,
-     *     retry_start_index: int,
-     *     run: FlowRun,
-     *     run_record: FlowRunRecord
-     * }|null  $preDecisionState
      */
     private function rejectApprovalDecision(
         FlowApprovalRecord $approval,
@@ -1147,7 +1117,7 @@ class FlowEngine
         array $actor,
         FlowStore $store,
         PayloadRedactor $redactor,
-        ?array $preDecisionState = null,
+        ?ApprovalRecoveryState $preDecisionState = null,
     ): FlowRun {
         $runRecord = $this->approvalRunRecord($approval, $store);
 
@@ -1157,11 +1127,11 @@ class FlowEngine
 
         $state = $preDecisionState ?? $this->approvalExecutionState($approval, $store, $runRecord);
 
-        if ($state['approval_step_record']->status !== 'paused') {
+        if ($state->approvalStepRecord->status !== 'paused') {
             return $this->flowRunFromRecord($runRecord, $store);
         }
 
-        $run = $state['run'];
+        $run = $state->run;
         $result = FlowStepResult::failed(new FlowExecutionException(sprintf(
             'Approval step [%s] was rejected.',
             $approval->step_name,
@@ -1171,33 +1141,16 @@ class FlowEngine
         return $this->recordRejectedApprovalStepAndCompensate($approval, $state, $run, $store, $result, $finishedAt, $redactor);
     }
 
-    /**
-     * @param  array{
-     *     approval_index: int,
-     *     approval_step: FlowStep,
-     *     approval_step_record: FlowStepRecord,
-     *     completed_steps: list<FlowStep>,
-     *     context: FlowContext,
-     *     definition: FlowDefinition,
-     *     paused_downstream_step: string|null,
-     *     retry_completed_steps: list<FlowStep>,
-     *     retry_context: FlowContext,
-     *     retry_sequence: int,
-     *     retry_start_index: int,
-     *     run: FlowRun,
-     *     run_record: FlowRunRecord
-     * }  $state
-     */
     private function recordRejectedApprovalStepAndCompensate(
         FlowApprovalRecord $approval,
-        array $state,
+        ApprovalRecoveryState $state,
         FlowRun $run,
         FlowStore $store,
         FlowStepResult $result,
         DateTimeImmutable $finishedAt,
         PayloadRedactor $redactor,
     ): FlowRun {
-        $startedAt = $this->immutableDate($state['approval_step_record']->started_at) ?? $finishedAt;
+        $startedAt = $this->immutableDate($state->approvalStepRecord->started_at) ?? $finishedAt;
         $listenerFailureEvent = null;
         $claimedRunRecord = null;
 
@@ -1223,15 +1176,15 @@ class FlowEngine
                 }
 
                 $run->markRunning();
-                $run->recordStepResult($state['approval_step']->name, $result);
-                $run->markFailed($state['approval_step']->name, $finishedAt);
+                $run->recordStepResult($state->approvalStep->name, $result);
+                $run->markFailed($state->approvalStep->name, $finishedAt);
 
                 $this->persistStepFinished(
                     $store,
                     $run,
-                    $state['approval_step'],
-                    $state['approval_step_record']->sequence,
-                    $state['context'],
+                    $state->approvalStep,
+                    $state->approvalStepRecord->sequence,
+                    $state->context,
                     $result,
                     $startedAt,
                     $finishedAt,
@@ -1239,8 +1192,8 @@ class FlowEngine
                 );
 
                 $error = $result->error;
-                $this->recordAudit($store, 'FlowStepFailed', $run, $state['approval_step']->name, [
-                    'definition_name' => $state['definition']->name,
+                $this->recordAudit($store, 'FlowStepFailed', $run, $state->approvalStep->name, [
+                    'definition_name' => $state->definition->name,
                     'dry_run' => false,
                     'error_class' => $error instanceof Throwable ? $error::class : null,
                     'error_message' => $this->safeErrorMessage($error, $redactor),
@@ -1260,18 +1213,18 @@ class FlowEngine
             }
 
             $this->dispatchOrCaptureListenerFailure(
-                new FlowStepFailed($run->id, $state['definition']->name, $state['approval_step']->name, $result, false),
+                new FlowStepFailed($run->id, $state->definition->name, $state->approvalStep->name, $result, false),
                 $listenerFailureEvent,
             );
         } catch (Throwable $e) {
             $this->compensateAfterRuntimeAbort(
-                $state['definition'],
-                $state['context'],
-                $state['completed_steps'],
+                $state->definition,
+                $state->context,
+                $state->completedSteps,
                 $run,
                 $store,
-                $state['approval_step'],
-                $state['approval_step_record']->sequence,
+                $state->approvalStep,
+                $state->approvalStepRecord->sequence,
                 $result,
                 $startedAt,
                 $finishedAt,
@@ -1283,7 +1236,7 @@ class FlowEngine
         }
 
         try {
-            $this->compensate($state['definition'], $state['context'], $state['completed_steps'], $run, $store);
+            $this->compensate($state->definition, $state->context, $state->completedSteps, $run, $store);
         } catch (Throwable $e) {
             $this->persistRunFinishedBestEffort($store, $run, 'failed');
 
@@ -1350,28 +1303,11 @@ class FlowEngine
         return $runs;
     }
 
-    /**
-     * @return array{
-     *     approval_index: int,
-     *     approval_step: FlowStep,
-     *     approval_step_record: FlowStepRecord,
-     *     completed_steps: list<FlowStep>,
-     *     context: FlowContext,
-     *     definition: FlowDefinition,
-     *     paused_downstream_step: string|null,
-     *     retry_completed_steps: list<FlowStep>,
-     *     retry_context: FlowContext,
-     *     retry_sequence: int,
-     *     retry_start_index: int,
-     *     run: FlowRun,
-     *     run_record: FlowRunRecord
-     * }
-     */
     private function approvalExecutionState(
         FlowApprovalRecord $approval,
         FlowStore $store,
         ?FlowRunRecord $runRecord = null,
-    ): array {
+    ): ApprovalRecoveryState {
         $runRecord ??= $this->approvalRunRecord($approval, $store);
 
         $definition = $this->definition($runRecord->definition_name);
@@ -1507,21 +1443,21 @@ class FlowEngine
             ));
         }
 
-        return [
-            'approval_index' => $approvalIndex,
-            'approval_step' => $approvalStep,
-            'approval_step_record' => $approvalStepRecord,
-            'completed_steps' => $completedSteps,
-            'context' => $context,
-            'definition' => $definition,
-            'paused_downstream_step' => $pausedDownstreamStep,
-            'retry_completed_steps' => $retryCompletedSteps,
-            'retry_context' => $retryContext,
-            'retry_sequence' => $retrySequence,
-            'retry_start_index' => $retryStartIndex,
-            'run' => $run,
-            'run_record' => $runRecord,
-        ];
+        return new ApprovalRecoveryState(
+            approvalIndex: $approvalIndex,
+            approvalStep: $approvalStep,
+            approvalStepRecord: $approvalStepRecord,
+            completedSteps: $completedSteps,
+            context: $context,
+            definition: $definition,
+            pausedDownstreamStep: $pausedDownstreamStep,
+            retryCompletedSteps: $retryCompletedSteps,
+            retryContext: $retryContext,
+            retrySequence: $retrySequence,
+            retryStartIndex: $retryStartIndex,
+            run: $run,
+            runRecord: $runRecord,
+        );
     }
 
     private function approvalRunRecord(FlowApprovalRecord $approval, FlowStore $store): FlowRunRecord

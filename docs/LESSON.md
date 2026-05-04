@@ -233,8 +233,8 @@
 - New persistence operations needed only by approval decisions should live behind optional extension contracts, not new required methods on the existing public repository contracts; otherwise custom stores break on upgrade before they can opt into the new feature.
 - Pending approval resume/reject should validate the current definition against the persisted step order before consuming the token; definition drift must not burn an otherwise valid pending decision handle.
 - Approval resume definition drift checks should compare both persisted step names/order and handler classes; same-name handler swaps can otherwise continue a paused run under a different implementation.
-- Resume retries must rebuild context through any already-persisted downstream successes and start after the last contiguous successful step; otherwise a crash after downstream persistence can duplicate side effects.
-- If a retry sees a downstream step row stuck in `running` after `FlowStepStarted` persisted, resume from that step instead of throwing forever; the approval token has already been consumed and must remain a recovery handle.
+- Resume retries must rebuild context through any already-persisted downstream successes and start after the last contiguous successful step only while no handler execution is required; otherwise a crash after downstream persistence can duplicate side effects.
+- Without a durable per-step lease or heartbeat, a retry that sees the run already `running` must not re-enter downstream handlers. A cache lock TTL can expire during a slow active handler, so automatic recovery of `running` step rows would duplicate side effects.
 - Approval resume/reject locks must be keyed by run id, not token hash. Multi-gate flows can retry an already-decided older token while a later gate is resuming the same run; per-token locks would let both requests recover/execute downstream state concurrently.
 - Approval lock-contention fallbacks must treat `expired` approval records the same as missing records. `ApprovalTokenManager::find()` can expire and return the stale record, and that must still surface as an invalid/expired token instead of returning the run state.
 - If token expiry cleanup loses a race to a concurrent approve/reject, re-read the token before reporting invalid/expired so duplicate resume/reject calls preserve the already-decided state.
@@ -256,3 +256,4 @@
 - Public conditional run compare-and-set updates should hydrate a model before query-builder `update()` so JSON and date casts match normal repository writes.
 - Do not retry rejected-approval compensation without durable per-compensator progress; returning the current failed run is safer than duplicating undo side effects.
 - Approval custom backends must keep the approval decision repository and run repository inside one durable storage/transaction boundary; separate stores can satisfy PHP interfaces while breaking atomic token-consume plus paused-run-claim guarantees.
+- Approval recovery state should be a typed value object instead of duplicated associative-array PHPDoc; recovery code is too concurrency-sensitive for shape drift between producer and consumer.

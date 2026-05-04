@@ -1143,7 +1143,7 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
             ->status);
     }
 
-    public function test_resume_can_continue_after_approval_step_was_persisted_before_crash(): void
+    public function test_resume_does_not_reenter_downstream_when_run_is_already_running(): void
     {
         $this->migrateFlowTables();
         $engine = $this->engineWithPersistence();
@@ -1177,12 +1177,15 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
 
         $resumedRun = $engine->resume($token);
 
-        $this->assertSame(FlowRun::STATUS_SUCCEEDED, $resumedRun->status);
-        $this->assertSame(1, ApprovalPayloadCapturingHandler::$callCount);
-        $this->assertSame('ship', ApprovalPayloadCapturingHandler::$lastStepOutputs['manager']['approval_payload']['decision']);
+        $this->assertSame(FlowRun::STATUS_RUNNING, $resumedRun->status);
+        $this->assertSame(0, ApprovalPayloadCapturingHandler::$callCount);
+        $this->assertSame(0, (int) FlowStepRecord::query()
+            ->where('run_id', $pausedRun->id)
+            ->where('step_name', 'publish')
+            ->count());
     }
 
-    public function test_resume_retries_downstream_step_left_running_after_start_was_persisted(): void
+    public function test_resume_does_not_retry_downstream_step_left_running_after_lock_expiry(): void
     {
         $this->migrateFlowTables();
         $engine = $this->engineWithPersistence();
@@ -1227,10 +1230,9 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
 
         $resumedRun = $engine->resume($token);
 
-        $this->assertSame(FlowRun::STATUS_SUCCEEDED, $resumedRun->status);
-        $this->assertSame(1, ApprovalPayloadCapturingHandler::$callCount);
-        $this->assertSame('ship', ApprovalPayloadCapturingHandler::$lastStepOutputs['manager']['approval_payload']['decision']);
-        $this->assertSame('succeeded', FlowStepRecord::query()
+        $this->assertSame(FlowRun::STATUS_RUNNING, $resumedRun->status);
+        $this->assertSame(0, ApprovalPayloadCapturingHandler::$callCount);
+        $this->assertSame('running', FlowStepRecord::query()
             ->where('run_id', $pausedRun->id)
             ->where('step_name', 'publish')
             ->firstOrFail()

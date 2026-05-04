@@ -6,6 +6,7 @@ $queueLockSeconds = env('LARAVEL_FLOW_QUEUE_LOCK_SECONDS', 3600);
 $queueLockRetrySeconds = env('LARAVEL_FLOW_QUEUE_LOCK_RETRY_SECONDS', 30);
 $queueTries = env('LARAVEL_FLOW_QUEUE_TRIES', null);
 $queueBackoffSeconds = env('LARAVEL_FLOW_QUEUE_BACKOFF_SECONDS', null);
+$approvalTokenTtlMinutes = env('LARAVEL_FLOW_APPROVAL_TOKEN_TTL_MINUTES', 1440);
 
 return [
 
@@ -72,6 +73,21 @@ return [
             : 30,
         'tries' => $queueTries,
         'backoff_seconds' => $queueBackoffSeconds,
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Approval gates
+    |--------------------------------------------------------------------------
+    |
+    | Approval resume/reject tokens are generated as high-entropy one-time
+    | secrets. Only their SHA-256 hashes are persisted in flow_approvals.
+    |
+    */
+    'approval' => [
+        'token_ttl_minutes' => is_numeric($approvalTokenTtlMinutes) && (int) $approvalTokenTtlMinutes >= 1
+            ? (int) $approvalTokenTtlMinutes
+            : 1440,
     ],
 
     /*

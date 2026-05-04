@@ -1,0 +1,169 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Padosoft\LaravelFlow;
+
+use DateTimeImmutable;
+use DateTimeInterface;
+use InvalidArgumentException;
+use Padosoft\LaravelFlow\Contracts\ApprovalRepository;
+use Padosoft\LaravelFlow\Models\FlowApprovalRecord;
+
+final class ApprovalTokenManager
+{
+    private const DEFAULT_TTL_MINUTES = 1440;
+
+    public function __construct(
+        private readonly ApprovalRepository $approvals,
+        private readonly int $tokenTtlMinutes = self::DEFAULT_TTL_MINUTES,
+        private readonly mixed $clock = null,
+    ) {}
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    public function issue(string $runId, string $stepName, array $payload = []): IssuedApprovalToken
+    {
+        $plainTextToken = $this->generatePlainTextToken();
+        $tokenHash = self::hashToken($plainTextToken);
+        $expiresAt = $this->now()->modify(sprintf('+%d minutes', $this->ttlMinutes()));
+        $approvalId = $this->generateId();
+
+        $record = $this->approvals->createPending(
+            id: $approvalId,
+            runId: $runId,
+            stepName: $stepName,
+            tokenHash: $tokenHash,
+            expiresAt: $expiresAt,
+            payload: $payload,
+        );
+
+        return new IssuedApprovalToken(
+            approvalId: $record->id,
+            runId: $record->run_id,
+            stepName: $record->step_name,
+            plainTextToken: $plainTextToken,
+            tokenHash: $record->token_hash,
+            expiresAt: $this->immutableDate($record->expires_at) ?? $expiresAt,
+        );
+    }
+
+    public function pending(string $plainTextToken): ?FlowApprovalRecord
+    {
+        $tokenHash = self::hashToken($plainTextToken);
+        $record = $this->approvals->findPendingByTokenHash($tokenHash);
+
+        if (! $record instanceof FlowApprovalRecord) {
+            return null;
+        }
+
+        $expiresAt = $this->immutableDate($record->expires_at);
+
+        if ($expiresAt instanceof DateTimeImmutable && $expiresAt <= $this->now()) {
+            $this->approvals->expirePending($tokenHash, $this->now());
+
+            return null;
+        }
+
+        return $record;
+    }
+
+    /**
+     * @param  array<string, mixed>  $actor
+     * @param  array<string, mixed>  $payload
+     */
+    public function approve(string $plainTextToken, array $actor = [], array $payload = []): ?FlowApprovalRecord
+    {
+        return $this->consume($plainTextToken, FlowApprovalRecord::STATUS_APPROVED, $actor, $payload);
+    }
+
+    /**
+     * @param  array<string, mixed>  $actor
+     * @param  array<string, mixed>  $payload
+     */
+    public function reject(string $plainTextToken, array $actor = [], array $payload = []): ?FlowApprovalRecord
+    {
+        return $this->consume($plainTextToken, FlowApprovalRecord::STATUS_REJECTED, $actor, $payload);
+    }
+
+    public static function hashToken(string $plainTextToken): string
+    {
+        return hash('sha256', $plainTextToken);
+    }
+
+    /**
+     * @param  array<string, mixed>  $actor
+     * @param  array<string, mixed>  $payload
+     */
+    private function consume(
+        string $plainTextToken,
+        string $status,
+        array $actor,
+        array $payload,
+    ): ?FlowApprovalRecord {
+        if (! in_array($status, [FlowApprovalRecord::STATUS_APPROVED, FlowApprovalRecord::STATUS_REJECTED], true)) {
+            throw new InvalidArgumentException(sprintf('Unsupported approval decision status [%s].', $status));
+        }
+
+        if (! $this->pending($plainTextToken) instanceof FlowApprovalRecord) {
+            return null;
+        }
+
+        return $this->approvals->consumePending(
+            tokenHash: self::hashToken($plainTextToken),
+            status: $status,
+            actor: $actor,
+            payload: $payload,
+            decidedAt: $this->now(),
+        );
+    }
+
+    private function ttlMinutes(): int
+    {
+        return $this->tokenTtlMinutes >= 1 ? $this->tokenTtlMinutes : self::DEFAULT_TTL_MINUTES;
+    }
+
+    private function now(): DateTimeImmutable
+    {
+        if (is_callable($this->clock)) {
+            /** @var DateTimeImmutable $now */
+            $now = ($this->clock)();
+
+            return $now;
+        }
+
+        return new DateTimeImmutable;
+    }
+
+    private function immutableDate(mixed $value): ?DateTimeImmutable
+    {
+        if ($value instanceof DateTimeImmutable) {
+            return $value;
+        }
+
+        if ($value instanceof DateTimeInterface) {
+            return DateTimeImmutable::createFromInterface($value);
+        }
+
+        if (is_string($value) && $value !== '') {
+            return new DateTimeImmutable($value);
+        }
+
+        return null;
+    }
+
+    private function generatePlainTextToken(): string
+    {
+        return rtrim(strtr(base64_encode(random_bytes(32)), '+/', '-_'), '=');
+    }
+
+    private function generateId(): string
+    {
+        $data = random_bytes(16);
+        $data[6] = chr((ord($data[6]) & 0x0F) | 0x40);
+        $data[8] = chr((ord($data[8]) & 0x3F) | 0x80);
+
+        return vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split(bin2hex($data), 4));
+    }
+}

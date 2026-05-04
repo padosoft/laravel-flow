@@ -9,6 +9,8 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
 use LogicException;
+use Padosoft\LaravelFlow\ApprovalTokenManager;
+use Padosoft\LaravelFlow\Contracts\ApprovalRepository;
 use Padosoft\LaravelFlow\Contracts\AuditRepository;
 use Padosoft\LaravelFlow\Contracts\CurrentPayloadRedactorProvider;
 use Padosoft\LaravelFlow\Contracts\FlowStore;
@@ -16,6 +18,7 @@ use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
 use Padosoft\LaravelFlow\Contracts\RunRepository;
 use Padosoft\LaravelFlow\Contracts\StepRunRepository;
 use Padosoft\LaravelFlow\FlowRun;
+use Padosoft\LaravelFlow\Models\FlowApprovalRecord;
 use Padosoft\LaravelFlow\Models\FlowAuditRecord;
 use Padosoft\LaravelFlow\Persistence\EloquentAuditRepository;
 use Padosoft\LaravelFlow\Persistence\EloquentRunRepository;
@@ -25,6 +28,106 @@ use RuntimeException;
 
 final class PersistenceRepositoryTest extends PersistenceTestCase
 {
+    public function test_approval_repository_stores_hashes_and_redacts_metadata(): void
+    {
+        $this->migrateFlowTables();
+        $this->createAuditRun('00000000-0000-4000-8000-000000000101');
+
+        $approvals = $this->app->make(ApprovalRepository::class);
+        $record = $approvals->createPending(
+            id: '00000000-0000-4000-8000-000000000102',
+            runId: '00000000-0000-4000-8000-000000000101',
+            stepName: 'manager',
+            tokenHash: str_repeat('a', 64),
+            expiresAt: new DateTimeImmutable('2026-05-04 12:00:00'),
+            payload: ['token' => 'plain-secret', 'safe' => 'visible'],
+        );
+
+        $this->assertSame(FlowApprovalRecord::STATUS_PENDING, $record->status);
+        $this->assertSame(str_repeat('a', 64), $record->token_hash);
+        $this->assertSame('[redacted]', $record->payload['token']);
+        $this->assertSame('visible', $record->payload['safe']);
+        $this->assertSame($record->id, $approvals->findPendingByTokenHash(str_repeat('a', 64))?->id);
+        $this->assertSame(0, DB::table('flow_approvals')->where('token_hash', 'plain-secret')->count());
+    }
+
+    public function test_approval_token_manager_issues_and_consumes_one_time_tokens(): void
+    {
+        $this->migrateFlowTables();
+        $this->createAuditRun('00000000-0000-4000-8000-000000000111');
+
+        $manager = new ApprovalTokenManager(
+            approvals: $this->app->make(ApprovalRepository::class),
+            tokenTtlMinutes: 30,
+            clock: static fn (): DateTimeImmutable => new DateTimeImmutable('2026-05-04 10:00:00'),
+        );
+
+        $issued = $manager->issue(
+            runId: '00000000-0000-4000-8000-000000000111',
+            stepName: 'manager',
+            payload: ['secret' => 'issue-secret', 'reason' => 'discount'],
+        );
+
+        $this->assertSame(43, strlen($issued->plainTextToken));
+        $this->assertSame(64, strlen($issued->tokenHash));
+        $this->assertSame(ApprovalTokenManager::hashToken($issued->plainTextToken), $issued->tokenHash);
+        $this->assertNotSame($issued->plainTextToken, $issued->tokenHash);
+        $this->assertSame('2026-05-04 10:30:00', $issued->expiresAt->format('Y-m-d H:i:s'));
+
+        $pending = $manager->pending($issued->plainTextToken);
+        $this->assertInstanceOf(FlowApprovalRecord::class, $pending);
+        $this->assertSame('[redacted]', $pending->payload['secret']);
+
+        $approved = $manager->approve(
+            plainTextToken: $issued->plainTextToken,
+            actor: ['email' => 'approver@example.test', 'token' => 'actor-secret'],
+            payload: ['decision' => 'ok', 'secret' => 'approval-secret'],
+        );
+
+        $this->assertInstanceOf(FlowApprovalRecord::class, $approved);
+        $this->assertSame(FlowApprovalRecord::STATUS_APPROVED, $approved->status);
+        $this->assertSame('approver@example.test', $approved->actor['email']);
+        $this->assertSame('[redacted]', $approved->actor['token']);
+        $this->assertSame('[redacted]', $approved->payload['secret']);
+        $this->assertNotNull($approved->consumed_at);
+        $this->assertNotNull($approved->decided_at);
+        $this->assertNull($manager->approve($issued->plainTextToken));
+        $this->assertNull($manager->pending($issued->plainTextToken));
+    }
+
+    public function test_approval_token_manager_expires_pending_tokens(): void
+    {
+        $this->migrateFlowTables();
+        $this->createAuditRun('00000000-0000-4000-8000-000000000121');
+
+        $clock = new class
+        {
+            public DateTimeImmutable $now;
+        };
+        $clock->now = new DateTimeImmutable('2026-05-04 10:00:00');
+
+        $manager = new ApprovalTokenManager(
+            approvals: $this->app->make(ApprovalRepository::class),
+            tokenTtlMinutes: 1,
+            clock: static fn (): DateTimeImmutable => $clock->now,
+        );
+
+        $issued = $manager->issue(
+            runId: '00000000-0000-4000-8000-000000000121',
+            stepName: 'manager',
+        );
+
+        $clock->now = new DateTimeImmutable('2026-05-04 10:02:00');
+
+        $this->assertNull($manager->pending($issued->plainTextToken));
+
+        $record = FlowApprovalRecord::query()->find($issued->approvalId);
+        $this->assertInstanceOf(FlowApprovalRecord::class, $record);
+        $this->assertSame(FlowApprovalRecord::STATUS_EXPIRED, $record->status);
+        $this->assertNotNull($record->decided_at);
+        $this->assertNull($manager->reject($issued->plainTextToken));
+    }
+
     public function test_repositories_store_redacted_run_step_and_audit_records(): void
     {
         $this->migrateFlowTables();

@@ -209,3 +209,6 @@
 - A paused approval step needs a matching Laravel event after `FlowStepStarted`; otherwise event subscribers observe a permanently running step.
 - Approval gates should opt into dry-run execution by default so dry-runs stop at the same control-plane boundary as real executions.
 - `FlowStepResult::paused()` is a control-plane result, not a business success result; document that custom handlers returning it must be side-effect-free because the paused step is not added to the compensation list.
+- Approval token issuance should return the plain token only at issuance time and persist only its fixed-width hash; repository lookup/consume paths must operate on hashes so clear tokens are not recoverable from storage.
+- Approval approve/reject consumption should update by `token_hash` plus `pending` status in a single write, so repeated submissions cannot consume the same token twice.
+- Approval actor and decision payloads are operator-provided data and must pass through the same payload redaction path as run, step, and audit JSON before persistence.

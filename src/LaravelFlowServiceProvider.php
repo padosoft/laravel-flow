@@ -12,11 +12,13 @@ use Illuminate\Support\Facades\Date;
 use Illuminate\Support\ServiceProvider;
 use Padosoft\LaravelFlow\Console\PruneFlowRunsCommand;
 use Padosoft\LaravelFlow\Console\ReplayFlowRunCommand;
+use Padosoft\LaravelFlow\Contracts\ApprovalRepository;
 use Padosoft\LaravelFlow\Contracts\AuditRepository;
 use Padosoft\LaravelFlow\Contracts\FlowStore;
 use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
 use Padosoft\LaravelFlow\Contracts\RunRepository;
 use Padosoft\LaravelFlow\Contracts\StepRunRepository;
+use Padosoft\LaravelFlow\Persistence\EloquentApprovalRepository;
 use Padosoft\LaravelFlow\Persistence\EloquentFlowStore;
 use Padosoft\LaravelFlow\Persistence\ExecutionScopedPayloadRedactor;
 use Padosoft\LaravelFlow\Persistence\KeyBasedPayloadRedactor;
@@ -78,6 +80,25 @@ final class LaravelFlowServiceProvider extends ServiceProvider
         $this->app->bind(RunRepository::class, fn (Container $app): RunRepository => $app->make(FlowStore::class)->runs());
         $this->app->bind(StepRunRepository::class, fn (Container $app): StepRunRepository => $app->make(FlowStore::class)->steps());
         $this->app->bind(AuditRepository::class, fn (Container $app): AuditRepository => $app->make(FlowStore::class)->audit());
+        $this->app->bind(ApprovalRepository::class, function (Container $app): ApprovalRepository {
+            /** @var string|null $connection */
+            $connection = $app['config']->get('laravel-flow.default_storage');
+
+            return new EloquentApprovalRepository(
+                connection: $connection,
+                redactor: $app->make(ExecutionScopedPayloadRedactor::class),
+            );
+        });
+        $this->app->singleton(ApprovalTokenManager::class, function (Container $app): ApprovalTokenManager {
+            /** @var mixed $ttlMinutes */
+            $ttlMinutes = $app['config']->get('laravel-flow.approval.token_ttl_minutes', 1440);
+
+            return new ApprovalTokenManager(
+                approvals: $app->make(ApprovalRepository::class),
+                tokenTtlMinutes: is_numeric($ttlMinutes) && (int) $ttlMinutes >= 1 ? (int) $ttlMinutes : 1440,
+                clock: static fn (): \DateTimeImmutable => Date::now()->toDateTimeImmutable(),
+            );
+        });
     }
 
     public function boot(): void

@@ -544,6 +544,39 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
             ->status);
     }
 
+    public function test_resume_does_not_consume_pending_token_for_non_paused_run(): void
+    {
+        $this->migrateFlowTables();
+        $engine = $this->engineWithPersistence();
+
+        $engine->define('flow.persist.approval-resume-stale-token')
+            ->step('create', AlwaysSucceedsHandler::class)
+            ->approvalGate('manager')
+            ->step('publish', ApprovalPayloadCapturingHandler::class)
+            ->register();
+
+        $pausedRun = $engine->execute('flow.persist.approval-resume-stale-token', []);
+        $token = $pausedRun->approvalTokens['manager']->plainTextToken;
+        FlowRunRecord::query()
+            ->whereKey($pausedRun->id)
+            ->update([
+                'failed_step' => 'manager',
+                'finished_at' => now(),
+                'status' => FlowRun::STATUS_FAILED,
+            ]);
+
+        $returnedRun = $engine->resume($token, ['decision' => 'ship']);
+
+        $this->assertSame($pausedRun->id, $returnedRun->id);
+        $this->assertSame(FlowRun::STATUS_FAILED, $returnedRun->status);
+        $this->assertSame(0, ApprovalPayloadCapturingHandler::$callCount);
+        $this->assertSame(FlowApprovalRecord::STATUS_PENDING, FlowApprovalRecord::query()
+            ->where('run_id', $pausedRun->id)
+            ->where('step_name', 'manager')
+            ->firstOrFail()
+            ->status);
+    }
+
     public function test_reject_approval_token_fails_run_and_compensates_prior_steps(): void
     {
         $this->migrateFlowTables();

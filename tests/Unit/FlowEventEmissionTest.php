@@ -6,6 +6,7 @@ namespace Padosoft\LaravelFlow\Tests\Unit;
 
 use Illuminate\Support\Facades\Event;
 use Padosoft\LaravelFlow\Events\FlowCompensated;
+use Padosoft\LaravelFlow\Events\FlowPaused;
 use Padosoft\LaravelFlow\Events\FlowStepCompleted;
 use Padosoft\LaravelFlow\Events\FlowStepFailed;
 use Padosoft\LaravelFlow\Events\FlowStepStarted;
@@ -86,6 +87,24 @@ final class FlowEventEmissionTest extends TestCase
         $engine->execute('flow.silent', []);
 
         Event::assertNotDispatched(FlowStepStarted::class);
+        Event::assertNotDispatched(FlowStepCompleted::class);
+    }
+
+    public function test_approval_gate_emits_paused_event_after_started_event(): void
+    {
+        Event::fake([FlowStepStarted::class, FlowStepCompleted::class, FlowPaused::class]);
+
+        /** @var FlowEngine $engine */
+        $engine = $this->app->make(FlowEngine::class);
+
+        $engine->define('flow.events.approval')
+            ->approvalGate('manager')
+            ->register();
+
+        $run = $engine->execute('flow.events.approval', []);
+
+        Event::assertDispatched(FlowStepStarted::class, fn (FlowStepStarted $e): bool => $e->stepName === 'manager');
+        Event::assertDispatched(FlowPaused::class, fn (FlowPaused $e): bool => $e->stepName === 'manager' && $e->flowRunId === $run->id);
         Event::assertNotDispatched(FlowStepCompleted::class);
     }
 

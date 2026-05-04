@@ -203,3 +203,9 @@
 - Approval resume tokens must be represented as fixed-width hashes in persistence from the first schema slice; do not add a clear-text token column even temporarily.
 - Webhook outbox rows should be state records, not delivery logs only: keep event, status, attempt counters, next-available time, terminal timestamps, and last error separate so retry workers can be idempotent.
 - Approval/webhook tables should be additive to the persisted run schema and cascade with `flow_runs`; deleting retained/pruned runs must not leave orphan approval tokens or outbox rows.
+- Approval pause state is not terminal: keep `finished_at` and `duration_ms` null while status is `paused`, and do not run compensation or downstream steps.
+- A paused approval step should not contribute to aggregate run output/business impact; it is control-plane state, not a completed business step.
+- If persisting a paused transition fails, runtime-abort recovery must persist the approval step as failed; a failed run with a paused step row is inconsistent for replay and operators.
+- A paused approval step needs a matching Laravel event after `FlowStepStarted`; otherwise event subscribers observe a permanently running step.
+- Approval gates should opt into dry-run execution by default so dry-runs stop at the same control-plane boundary as real executions.
+- `FlowStepResult::paused()` is a control-plane result, not a business success result; document that custom handlers returning it must be side-effect-free because the paused step is not added to the compensation list.

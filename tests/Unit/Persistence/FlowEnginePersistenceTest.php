@@ -345,6 +345,44 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         ], FlowAuditRecord::query()->where('run_id', $run->id)->orderBy('id')->pluck('event')->all());
     }
 
+    public function test_approval_gate_persists_paused_run_and_step_state(): void
+    {
+        $this->migrateFlowTables();
+        $engine = $this->engineWithPersistence();
+
+        $engine->define('flow.persist.approval-paused')
+            ->step('create', AlwaysSucceedsHandler::class)
+            ->approvalGate('manager')
+            ->step('publish', DryRunAwareHandler::class)
+            ->register();
+
+        $run = $engine->execute('flow.persist.approval-paused', []);
+
+        $runRecord = FlowRunRecord::query()->find($run->id);
+        $this->assertInstanceOf(FlowRunRecord::class, $runRecord);
+        $this->assertSame(FlowRun::STATUS_PAUSED, $runRecord->status);
+        $this->assertNull($runRecord->finished_at);
+        $this->assertNull($runRecord->duration_ms);
+        $this->assertArrayHasKey('create', $runRecord->output);
+        $this->assertArrayNotHasKey('manager', $runRecord->output);
+
+        $approvalStep = FlowStepRecord::query()
+            ->where('run_id', $run->id)
+            ->where('step_name', 'manager')
+            ->first();
+
+        $this->assertInstanceOf(FlowStepRecord::class, $approvalStep);
+        $this->assertSame('paused', $approvalStep->status);
+        $this->assertSame(['approval_required' => true], $approvalStep->output);
+
+        $this->assertSame([
+            'FlowStepStarted',
+            'FlowStepCompleted',
+            'FlowStepStarted',
+            'FlowPaused',
+        ], FlowAuditRecord::query()->where('run_id', $run->id)->orderBy('id')->pluck('event')->all());
+    }
+
     public function test_parallel_compensation_strategy_persists_each_successful_compensation(): void
     {
         $this->migrateFlowTables();
@@ -1393,6 +1431,39 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
             AlwaysSucceedsHandler::class,
             RecordingCompensator::$invocations[0]['stepOutputs']['create']['handler'],
         );
+    }
+
+    public function test_paused_transition_persistence_failure_records_failed_step_state(): void
+    {
+        $this->migrateFlowTables();
+        $engine = $this->engineWithFailingAudit('FlowPaused');
+
+        $engine->define('flow.persist.paused-audit-down')
+            ->step('create', AlwaysSucceedsHandler::class)
+            ->compensateWith(RecordingCompensator::class)
+            ->approvalGate('manager')
+            ->register();
+
+        try {
+            $engine->execute('flow.persist.paused-audit-down', []);
+            $this->fail('The failing paused audit repository should abort execution.');
+        } catch (RuntimeException $exception) {
+            $this->assertSame('audit down for FlowPaused', $exception->getMessage());
+        }
+
+        $runRecord = FlowRunRecord::query()
+            ->where('definition_name', 'flow.persist.paused-audit-down')
+            ->first();
+        $approvalStep = FlowStepRecord::query()
+            ->where('step_name', 'manager')
+            ->first();
+
+        $this->assertInstanceOf(FlowRunRecord::class, $runRecord);
+        $this->assertSame(FlowRun::STATUS_COMPENSATED, $runRecord->status);
+        $this->assertInstanceOf(FlowStepRecord::class, $approvalStep);
+        $this->assertSame('failed', $approvalStep->status);
+        $this->assertSame(RuntimeException::class, $approvalStep->error_class);
+        $this->assertCount(1, RecordingCompensator::$invocations);
     }
 
     public function test_failed_transition_persistence_failure_still_compensates_completed_steps(): void

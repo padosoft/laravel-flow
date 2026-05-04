@@ -13,7 +13,7 @@ Known workstreams:
 | Macro Task 2 - v0.2 persistence layer | Completed after merge of the macro PR to `main`; the package has opt-in DB persistence for runs, steps, audit rows, redaction, retention pruning, correlation IDs, and idempotency keys. |
 | Macro Task 2 macro review hardening | Centralizes execution-scoped redactor provider resolution, aligns prune transaction callback usage, explicitly deletes pruned child rows, and keeps persistence model PHPDoc aligned with stored timestamp columns so Macro Task 2 review feedback remains folded into the durable implementation. |
 | Macro Task 3 - v0.2 queues/replay | Completed after merge of the macro PR to `main`: `Flow::dispatch()` validates and queues an after-commit `RunFlowJob` carrying flow name, input, execution options, per-dispatch lock metadata, and optional guarded Laravel-native tries/backoff metadata; queued jobs release lock-held duplicates after a configurable short delay, no-op completed duplicates, reject process-local `array` locks outside the `sync` queue driver, and have sync/database queue coverage. `flow:replay {runId}` creates new linked terminal-run replays with additive lineage metadata and partial-schema failures. `compensation_strategy=parallel` batches independent compensators while preserving `reverse-order` as the default. |
-| Macro Task 4 - v0.3 approval gates/webhooks | In progress on macro branch `task/v03-approval-webhooks`. Active subtask branch `task/approval-persistence-foundation` adds additive persistence foundation for hashed approval resume tokens and webhook outbox rows before wiring public pause/resume APIs. |
+| Macro Task 4 - v0.3 approval gates/webhooks | In progress on macro branch `task/v03-approval-webhooks`. PR #25 added additive persistence foundation for hashed approval resume tokens and webhook outbox rows. Active subtask branch `task/approval-gate-step-state` adds the public `approvalGate($name)` pause primitive and persisted `paused` run/step/audit state before resume/reject token consumption. |
 
 Concurrent subtasks should add rows here instead of replacing existing workstreams.
 
@@ -53,8 +53,8 @@ Completed in Macro Task 2 (v0.2 persistence layer):
 Current validation baseline:
 
 - `composer validate --strict --no-check-publish`
-- `composer quality` => Pint format test, PHPStan, Unit 151 tests / 630 assertions, Architecture 2 tests / 7 assertions
+- `composer quality` => Pint format test, PHPStan, Unit 157 tests / 667 assertions, Architecture 2 tests / 7 assertions
 
 Next active macro:
 
-- Continue Macro Task 4 from `docs/ENTERPRISE_PLAN.md`: finish the approval persistence foundation PR loop, then wire pauseable approval steps and resume/reject APIs in follow-up subtasks.
+- Continue Macro Task 4 from `docs/ENTERPRISE_PLAN.md`: finish the approval gate pause-state PR loop, then wire hashed token issue/consume plus resume/reject APIs in follow-up subtasks.

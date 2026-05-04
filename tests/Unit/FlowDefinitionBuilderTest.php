@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Padosoft\LaravelFlow\Tests\Unit;
 
+use Padosoft\LaravelFlow\ApprovalGate;
 use Padosoft\LaravelFlow\Exceptions\FlowExecutionException;
 use Padosoft\LaravelFlow\FlowEngine;
 use Padosoft\LaravelFlow\Tests\TestCase;
@@ -75,6 +76,22 @@ final class FlowDefinitionBuilderTest extends TestCase
         $steps = $engine->definition('flow.cw')->steps;
         $this->assertNull($steps[0]->compensatorFqcn);
         $this->assertSame(FirstStepCompensator::class, $steps[1]->compensatorFqcn);
+    }
+
+    public function test_approval_gate_adds_built_in_approval_step(): void
+    {
+        /** @var FlowEngine $engine */
+        $engine = $this->app->make(FlowEngine::class);
+
+        $engine->define('flow.approval')
+            ->step('first', AlwaysSucceedsHandler::class)
+            ->approvalGate('manager')
+            ->register();
+
+        $steps = $engine->definition('flow.approval')->steps;
+        $this->assertSame('manager', $steps[1]->name);
+        $this->assertSame(ApprovalGate::class, $steps[1]->handlerFqcn);
+        $this->assertTrue($steps[1]->supportsDryRun);
     }
 
     public function test_register_without_steps_throws(): void

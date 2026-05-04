@@ -232,4 +232,6 @@
 - Approval resume/reject must use a real shared Laravel cache lock. The `array` store implements the lock provider contract but is process-local, so approval decisions should reject it instead of running unlocked.
 - New persistence operations needed only by approval decisions should live behind optional extension contracts, not new required methods on the existing public repository contracts; otherwise custom stores break on upgrade before they can opt into the new feature.
 - Pending approval resume/reject should validate the current definition against the persisted step order before consuming the token; definition drift must not burn an otherwise valid pending decision handle.
+- Approval resume definition drift checks should compare both persisted step names/order and handler classes; same-name handler swaps can otherwise continue a paused run under a different implementation.
 - Resume retries must rebuild context through any already-persisted downstream successes and start after the last contiguous successful step; otherwise a crash after downstream persistence can duplicate side effects.
+- If a retry sees a downstream step row stuck in `running` after `FlowStepStarted` persisted, resume from that step instead of throwing forever; the approval token has already been consumed and must remain a recovery handle.

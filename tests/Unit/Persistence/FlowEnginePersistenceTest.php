@@ -655,6 +655,61 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         $this->assertSame('ship', ApprovalPayloadCapturingHandler::$lastStepOutputs['manager']['approval_payload']['decision']);
     }
 
+    public function test_resume_retries_downstream_step_left_running_after_start_was_persisted(): void
+    {
+        $this->migrateFlowTables();
+        $engine = $this->engineWithPersistence();
+
+        $engine->define('flow.persist.approval-resume-running-downstream')
+            ->step('create', AlwaysSucceedsHandler::class)
+            ->approvalGate('manager')
+            ->step('publish', ApprovalPayloadCapturingHandler::class)
+            ->register();
+
+        $pausedRun = $engine->execute('flow.persist.approval-resume-running-downstream', []);
+        $token = $pausedRun->approvalTokens['manager']->plainTextToken;
+        $approval = $this->app->make(ApprovalTokenManager::class)
+            ->approveForRunStatus($token, FlowRun::STATUS_PAUSED, payload: ['decision' => 'ship']);
+        $this->assertInstanceOf(FlowApprovalRecord::class, $approval);
+
+        FlowRunRecord::query()
+            ->whereKey($pausedRun->id)
+            ->update(['status' => FlowRun::STATUS_RUNNING]);
+
+        $approvalStep = FlowStepRecord::query()
+            ->where('run_id', $pausedRun->id)
+            ->where('step_name', 'manager')
+            ->firstOrFail();
+        $approvalStep->forceFill([
+            'duration_ms' => 0,
+            'finished_at' => now(),
+            'output' => ['approval_id' => $approval->id, 'approval_payload' => $approval->payload, 'approval_status' => FlowApprovalRecord::STATUS_APPROVED],
+            'status' => 'succeeded',
+        ])->save();
+
+        (new FlowStepRecord)->forceFill([
+            'dry_run_skipped' => false,
+            'handler' => ApprovalPayloadCapturingHandler::class,
+            'input' => ['flow_input_keys' => [], 'step_output_keys' => ['create', 'manager']],
+            'run_id' => $pausedRun->id,
+            'sequence' => 3,
+            'started_at' => now(),
+            'status' => 'running',
+            'step_name' => 'publish',
+        ])->save();
+
+        $resumedRun = $engine->resume($token);
+
+        $this->assertSame(FlowRun::STATUS_SUCCEEDED, $resumedRun->status);
+        $this->assertSame(1, ApprovalPayloadCapturingHandler::$callCount);
+        $this->assertSame('ship', ApprovalPayloadCapturingHandler::$lastStepOutputs['manager']['approval_payload']['decision']);
+        $this->assertSame('succeeded', FlowStepRecord::query()
+            ->where('run_id', $pausedRun->id)
+            ->where('step_name', 'publish')
+            ->firstOrFail()
+            ->status);
+    }
+
     public function test_resume_skips_downstream_steps_already_persisted_before_retry(): void
     {
         $this->migrateFlowTables();
@@ -736,6 +791,40 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         try {
             $engine->resume($token, ['decision' => 'ship']);
             $this->fail('Definition drift should abort approval resume.');
+        } catch (FlowExecutionException $exception) {
+            $this->assertStringContainsString('does not match the current flow definition', $exception->getMessage());
+        }
+
+        $this->assertSame(FlowApprovalRecord::STATUS_PENDING, FlowApprovalRecord::query()
+            ->where('run_id', $pausedRun->id)
+            ->where('step_name', 'manager')
+            ->firstOrFail()
+            ->status);
+    }
+
+    public function test_resume_detects_handler_drift_before_consuming_token(): void
+    {
+        $this->migrateFlowTables();
+        $engine = $this->engineWithPersistence();
+
+        $engine->define('flow.persist.approval-handler-drift')
+            ->step('create', AlwaysSucceedsHandler::class)
+            ->approvalGate('manager')
+            ->step('publish', ApprovalPayloadCapturingHandler::class)
+            ->register();
+
+        $pausedRun = $engine->execute('flow.persist.approval-handler-drift', []);
+        $token = $pausedRun->approvalTokens['manager']->plainTextToken;
+
+        $engine->define('flow.persist.approval-handler-drift')
+            ->step('create', SecondHandler::class)
+            ->approvalGate('manager')
+            ->step('publish', ApprovalPayloadCapturingHandler::class)
+            ->register();
+
+        try {
+            $engine->resume($token, ['decision' => 'ship']);
+            $this->fail('Handler drift should abort approval resume.');
         } catch (FlowExecutionException $exception) {
             $this->assertStringContainsString('does not match the current flow definition', $exception->getMessage());
         }

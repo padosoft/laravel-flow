@@ -423,6 +423,21 @@ final class PersistenceRepositoryTest extends PersistenceTestCase
         $this->assertInstanceOf(FlowRunRecord::class, $matched);
         $this->assertSame($run->id, $matched->id);
         $this->assertSame(FlowRun::STATUS_RUNNING, $matched->status);
+
+        $claimedAt = Carbon::parse('2026-05-04 12:00:00');
+        Date::setTestNow($claimedAt);
+
+        try {
+            $claimed = $runs->updateWhereStatus($run->id, FlowRun::STATUS_RUNNING, [
+                'status' => FlowRun::STATUS_PAUSED,
+            ]);
+        } finally {
+            Date::setTestNow();
+        }
+
+        $this->assertInstanceOf(FlowRunRecord::class, $claimed);
+        $this->assertSame(FlowRun::STATUS_PAUSED, $claimed->status);
+        $this->assertSame($claimedAt->getTimestamp(), $claimed->updated_at->getTimestamp());
     }
 
     public function test_public_step_repository_write_uses_one_payload_redactor_instance_for_multiple_json_fields(): void

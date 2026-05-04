@@ -1261,6 +1261,13 @@ class FlowEngine
                 ));
             }
 
+            if ($stepRecord->handler !== $definition->steps[$stepIndex]->handlerFqcn) {
+                throw new FlowExecutionException(sprintf(
+                    'Cannot resume approval because persisted step [%s] does not match the current flow definition.',
+                    $stepRecord->step_name,
+                ));
+            }
+
             if ($stepIndex < $approvalIndex && ! in_array($stepRecord->status, ['succeeded', 'skipped'], true)) {
                 throw new FlowExecutionException(sprintf(
                     'Cannot resume approval because prior step [%s] is [%s].',
@@ -1317,6 +1324,14 @@ class FlowEngine
 
             if ($stepRecord->status === 'paused' && $runRecord->status === FlowRun::STATUS_PAUSED) {
                 $pausedDownstreamStep = $stepRecord->step_name;
+                $expectedIndex++;
+
+                continue;
+            }
+
+            if ($stepRecord->status === 'running' && $runRecord->status === FlowRun::STATUS_RUNNING) {
+                $retrySequence = max(0, $stepRecord->sequence - 1);
+                $retryStartIndex = $stepIndex;
                 $expectedIndex++;
 
                 continue;

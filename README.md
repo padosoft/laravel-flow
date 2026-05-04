@@ -64,7 +64,7 @@ The Laravel ecosystem has plenty of tools for *some* of these — `Bus::chain()`
 
 `laravel-flow` is that surface.
 
-It is **deliberately small**. v0.1 is in-memory, synchronous, container-resolved. The current v0.2 foundation adds opt-in DB persistence for runs, steps, and audit rows plus a queued-dispatch slice with per-dispatch locking, database queue coverage, and guarded Laravel-native retry/backoff metadata; replay and compensation strategy expansion remain planned v0.2 slices, with v0.3 human checkpoint/webhook support and the companion dashboard in later macros.
+It is **deliberately small**. v0.1 is in-memory, synchronous, container-resolved. The current v0.2 foundation adds opt-in DB persistence for runs, steps, and audit rows plus queued dispatch, guarded retry metadata, database queue coverage, and terminal-run replay; compensation strategy expansion remains a planned v0.2 slice, with v0.3 human checkpoint/webhook support and the companion dashboard in later macros.
 
 ---
 
@@ -102,7 +102,8 @@ When `audit_trail_enabled` is enabled, normal-case step and compensation transit
 - **Audit events and persisted audit rows** — normal-case transitions dispatch matching `FlowStep*` / `FlowCompensated` events when `audit_trail_enabled=true`; persisted `flow_audit` rows are written only for non-dry-run executions with both `persistence.enabled=true` and `audit_trail_enabled=true`, and those rows are append-only during normal runtime but retention-prunable with `flow:prune`.
 - **Business-impact projection** — handlers return `businessImpact: [...]` alongside output, surfaced on every step result.
 - **Opt-in persisted execution** — `flow_runs`, `flow_steps`, and `flow_audit` migrations, Eloquent repositories, immutable run identity updates, correlation/idempotency keys, transaction-scoped step transitions, atomic step upserts, compensate-first runtime-abort recovery, sanitized listener/error storage, clock-aware audit timestamps, redacted JSON payload storage, and retention pruning.
-- **Queued dispatch foundation** — `Flow::dispatch($name, $input, $options)` validates the flow and queues an after-commit `RunFlowJob` with a per-dispatch cache lock plus guarded Laravel-native tries/backoff metadata; sync and database queue paths have package coverage, while replay and parallel compensation remain follow-up v0.2 slices.
+- **Queued dispatch foundation** — `Flow::dispatch($name, $input, $options)` validates the flow and queues an after-commit `RunFlowJob` with a per-dispatch cache lock plus guarded Laravel-native tries/backoff metadata; sync and database queue paths have package coverage, while parallel compensation remains a follow-up v0.2 slice.
+- **Terminal-run replay** — `php artisan flow:replay {runId}` creates a new persisted run linked to the original via `replayed_from_run_id` and warns when the current registered definition drifted from stored step metadata.
 - **Container-resolved handlers** — full DI, type hints, and stack traces.
 - **Strict input validation** — `withInput(['a','b'])` throws `FlowInputException` if a key is missing.
 - **Reserved compensation strategy metadata** — `compensation_strategy` is present for future Macro 3 work; the current engine ignores the value and always walks compensators in reverse order.
@@ -131,8 +132,8 @@ Legend: `✅ YES` means the capability is first-class in the current product, `�
 | Runtime-abort recovery before surfacing infrastructure failures | ✅ YES - best-effort failure state plus compensation before rethrow | ⚠️ PARTIAL - retries/error handling, recovery policy is workflow-defined | ⚠️ PARTIAL - app-defined | ✅ YES - durable execution/retry recovery | ⚠️ PARTIAL - `Retry`, `Catch`, and redrive behavior |
 | Retention pruning for persisted telemetry | ✅ YES - `flow:prune` keeps pending/running rows intact | ❌ NO - not documented as built-in | ❌ NO - app-defined | ⚠️ PARTIAL - service retention configuration, not package command | ⚠️ PARTIAL - managed history/log retention, not app command |
 | Business-impact projection on every result | ✅ YES - `businessImpact` is part of every `FlowStepResult` | ❌ NO - not documented | ❌ NO - not a workflow component concern | ❌ NO - app-defined | ❌ NO - app-defined |
-| Queue-backed workers today | ⚠️ PARTIAL - `Flow::dispatch()` queues an after-commit `RunFlowJob` with per-dispatch locking, configurable lock-held release delay, completed-duplicate no-op handling, guarded Laravel-native tries/backoff metadata, and sync/database queue coverage; replay remains a follow-up v0.2 slice | ✅ YES - Laravel queue/worker support | ❌ NO - not native | ✅ YES - worker-based execution | ✅ YES - managed orchestration |
-| Replay/redrive of failed executions today | ❌ NO - planned v0.2 slice | ⚠️ PARTIAL - durable long-running workflow model; exact replay semantics differ | ❌ NO - not native | ✅ YES - deterministic replay/event history | ✅ YES - Standard Workflow redrive |
+| Queue-backed workers today | ⚠️ PARTIAL - `Flow::dispatch()` queues an after-commit `RunFlowJob` with per-dispatch locking, configurable lock-held release delay, completed-duplicate no-op handling, guarded Laravel-native tries/backoff metadata, and sync/database queue coverage | ✅ YES - Laravel queue/worker support | ❌ NO - not native | ✅ YES - worker-based execution | ✅ YES - managed orchestration |
+| Replay/redrive of failed executions today | ⚠️ PARTIAL - `flow:replay {runId}` creates a new linked run from persisted terminal input and warns on definition drift; deterministic event-history replay is not shipped | ⚠️ PARTIAL - durable long-running workflow model; exact replay semantics differ | ❌ NO - not native | ✅ YES - deterministic replay/event history | ✅ YES - Standard Workflow redrive |
 | Low setup friction | ✅ YES - `composer require` plus optional config/migration publish | ⚠️ PARTIAL - Laravel queues/workers and optional Waterline UI | ✅ YES - Composer package and framework config | ❌ NO - service/cluster plus workers | ❌ NO - AWS account, IAM, state-machine definitions |
 | Self-hosted with no external workflow service | ✅ YES - runs inside the Laravel app; DB optional | ✅ YES - Laravel app/queue infrastructure | ✅ YES - application component | ❌ NO - requires Temporal service/cluster | ❌ NO - AWS-managed service |
 | Open-source package/license | ✅ YES - Apache-2.0 | ✅ YES - MIT | ✅ YES - MIT | ✅ YES - MIT core/server and SDKs | ❌ NO - proprietary managed service |
@@ -170,6 +171,14 @@ php artisan flow:prune --days=90
 ```
 
 `flow:prune` deletes only terminal runs (`succeeded`, `failed`, `compensated`, `aborted`) with `finished_at` older than the cutoff. Matching `flow_steps` and `flow_audit` rows are deleted in the same batch transaction; running and pending rows are left untouched. Use `LARAVEL_FLOW_RETENTION_DAYS=90` to make `--days` optional, and `--force` for non-interactive production runs.
+
+Replay a terminal persisted run as a new linked run:
+
+```bash
+php artisan flow:replay 00000000-0000-4000-8000-000000000001
+```
+
+`flow:replay` reads the original persisted input and current registered definition, then creates a fresh persisted run with `replayed_from_run_id` pointing at the original. It does not mutate the original run and refuses to replay pending/running rows. If the stored step names/handlers differ from the current definition, the command warns and still uses the current definition. Redacted persisted input stays redacted during replay.
 
 > **Requirements**
 > - PHP 8.3+
@@ -251,7 +260,7 @@ Flow::dispatch(
 );
 ```
 
-`Flow::dispatch()` validates the registered definition and required input before queuing `RunFlowJob`. The job dispatches after the current database transaction commits and takes a per-dispatch cache lock before execution; duplicate deliveries that find the lock held are released after the smaller of `queue.lock_retry_seconds` and `queue.lock_seconds`, while duplicates that arrive after the dispatch completed are acknowledged as no-ops. Configure `queue.tries` and `queue.backoff_seconds` to stamp Laravel-native retry metadata into the queued job payload for workers and Horizon. Because async Laravel workers retry the whole `RunFlowJob` from the beginning, policies that can re-run a flow are rejected until step-level retry or replay semantics are available. The `sync` queue driver ignores worker retry metadata and remains allowed for local/test dispatches. The worker resolves the current `FlowEngine` and executes the same definition with the serialized input and execution options. Replay and parallel compensation are still planned v0.2 follow-up slices.
+`Flow::dispatch()` validates the registered definition and required input before queuing `RunFlowJob`. The job dispatches after the current database transaction commits and takes a per-dispatch cache lock before execution; duplicate deliveries that find the lock held are released after the smaller of `queue.lock_retry_seconds` and `queue.lock_seconds`, while duplicates that arrive after the dispatch completed are acknowledged as no-ops. Configure `queue.tries` and `queue.backoff_seconds` to stamp Laravel-native retry metadata into the queued job payload for workers and Horizon. Because async Laravel workers retry the whole `RunFlowJob` from the beginning, policies that can re-run a flow are rejected until step-level retry semantics are available. The `sync` queue driver ignores worker retry metadata and remains allowed for local/test dispatches. The worker resolves the current `FlowEngine` and executes the same definition with the serialized input and execution options. Parallel compensation is still a planned v0.2 follow-up slice.
 
 ### Compensation chain (saga rollback)
 
@@ -430,7 +439,7 @@ Custom `FlowStore` implementations that need the same per-execution `PayloadReda
                                                    └─────────────────────┘
 ```
 
-Every box is one PHP class under `src/`. The engine path is still synchronous and in-memory by default; when persistence is enabled, runtime runs and steps are written to `flow_runs` and `flow_steps` for non-dry-run executions. Audit transitions are written to `flow_audit` only for non-dry-run executions while persistence and `audit_trail_enabled` are both enabled. Dry-runs never write audit rows. `Flow::dispatch()` now queues an after-commit `RunFlowJob` with per-dispatch locking, database queue coverage, and guarded Laravel retry/backoff metadata; the next v0.2 slices add replay and compensation strategy expansion.
+Every box is one PHP class under `src/`. The engine path is still synchronous and in-memory by default; when persistence is enabled, runtime runs and steps are written to `flow_runs` and `flow_steps` for non-dry-run executions. Audit transitions are written to `flow_audit` only for non-dry-run executions while persistence and `audit_trail_enabled` are both enabled. Dry-runs never write audit rows. `Flow::dispatch()` queues an after-commit `RunFlowJob` with per-dispatch locking, database queue coverage, and guarded Laravel retry/backoff metadata. `flow:replay` creates new linked runs from terminal persisted input; the next v0.2 slice adds compensation strategy expansion.
 
 ---
 
@@ -475,7 +484,7 @@ CI runs Pint (style), PHPStan (level 6), and the Unit + Architecture suites thro
 | Version | Scope                                                                                                                                                                                                                                                              | Target            |
 | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
 | v0.1    | In-memory engine, fluent builder, dry-run, reverse-order compensation, four audit event classes, business-impact field on results, Facade. Architecture test enforces standalone-agnostic.                                                                            | code complete     |
-| v0.2    | Persistence core: `flow_runs` / `flow_steps` / `flow_audit` tables, synchronous engine writes, redacted payload storage, correlation/idempotency keys, terminal-run retention pruning, and queued dispatch foundation with per-dispatch locking, database queue coverage, and guarded Laravel-native retry/backoff metadata. Replay command and parallel compensation strategy remain next. | Q3 2026           |
+| v0.2    | Persistence core: `flow_runs` / `flow_steps` / `flow_audit` tables, synchronous engine writes, redacted payload storage, correlation/idempotency keys, terminal-run retention pruning, queued dispatch foundation with per-dispatch locking, database queue coverage, guarded Laravel-native retry/backoff metadata, and `flow:replay` for terminal persisted runs. Parallel compensation strategy remains next. | Q3 2026           |
 | v0.3    | Approval-gate primitive (a step type that pauses until an external token is presented), webhooks for resume.                                                                                                                                                         | Q4 2026           |
 | v1.0    | Stable API, semver guarantee, full migration helpers from Durable Workflow / Symfony Workflow.                                                                                                                                                                       | 2027              |
 

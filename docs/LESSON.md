@@ -177,3 +177,16 @@
 - Run-level Laravel retries can repeat a whole flow after an infrastructure/listener exception; reject async retry policies that can re-run a flow until step-level queued retries or replay semantics exist.
 - Keep queue retry normalization centralized so env-string config, dispatch-time job payloads, and legacy job metadata cannot drift.
 - Queue retry metadata must parse only integer strings; accepting generic `is_numeric()` values can turn malformed decimals such as `0.5` into Laravel's special unlimited-retry value `0`.
+- Replay should create a new run with explicit lineage metadata instead of mutating the original persisted run; keep replay lineage immutable on run creation.
+- Replay from persisted JSON input cannot recover secrets that were already redacted before storage. Document that replay uses the stored input exactly as persisted.
+- Definition drift detection should compare stored step names/handlers with the current registered definition and warn without blocking; replay must use the current app definition.
+
+## 2026-05-04
+
+- Replay lineage schema changes need additive migrations once a baseline migration has already been published; keep the original create-table migration stable and publish follow-up columns separately.
+- Optional replay metadata should only be written when present so normal persisted runs can still succeed on installations that have not applied the replay lineage migration yet.
+- Public replay lineage IDs should validate to the database column width, not the generic execution-metadata width.
+- Replay drift warnings should compare the persisted executed-step prefix against the current definition; adding future steps after a failed point should not warn by itself.
+- Replay commands should catch missing or partially migrated persistence tables around both run and step queries and return actionable Artisan failures.
+- Replay execution should catch persistence `QueryException` separately from handler/runtime failures so stale schemas get migration guidance instead of a generic replay failure.
+- Additive migration rollbacks should prefer column-based index drops such as `dropIndex(['column'])` over hard-coded generated index names for database portability.

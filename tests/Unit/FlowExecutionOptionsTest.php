@@ -15,30 +15,37 @@ final class FlowExecutionOptionsTest extends TestCase
         $options = FlowExecutionOptions::make(
             correlationId: '  corr-123  ',
             idempotencyKey: "\tidentity-123\n",
+            replayedFromRunId: ' replay-123 ',
         );
 
         $blankOptions = FlowExecutionOptions::make(
             correlationId: '   ',
             idempotencyKey: "\t\n",
+            replayedFromRunId: ' ',
         );
 
         $this->assertSame('corr-123', $options->correlationId);
         $this->assertSame('identity-123', $options->idempotencyKey);
+        $this->assertSame('replay-123', $options->replayedFromRunId);
         $this->assertNull($blankOptions->correlationId);
         $this->assertNull($blankOptions->idempotencyKey);
+        $this->assertNull($blankOptions->replayedFromRunId);
     }
 
     public function test_accepts_multibyte_identifiers_up_to_schema_character_limit(): void
     {
         $identifier = str_repeat("\u{00E9}", FlowExecutionOptions::MAX_IDENTIFIER_LENGTH);
+        $runId = str_repeat("\u{00E9}", FlowExecutionOptions::MAX_RUN_ID_LENGTH);
 
         $options = FlowExecutionOptions::make(
             correlationId: $identifier,
             idempotencyKey: $identifier,
+            replayedFromRunId: $runId,
         );
 
         $this->assertSame($identifier, $options->correlationId);
         $this->assertSame($identifier, $options->idempotencyKey);
+        $this->assertSame($runId, $options->replayedFromRunId);
     }
 
     public function test_rejects_oversized_correlation_id(): void
@@ -55,5 +62,13 @@ final class FlowExecutionOptionsTest extends TestCase
         $this->expectExceptionMessage('Flow execution idempotency key may not exceed 255 characters.');
 
         FlowExecutionOptions::make(idempotencyKey: str_repeat('i', FlowExecutionOptions::MAX_IDENTIFIER_LENGTH + 1));
+    }
+
+    public function test_rejects_oversized_replayed_from_run_id(): void
+    {
+        $this->expectException(FlowInputException::class);
+        $this->expectExceptionMessage('Flow execution replayed-from run id may not exceed 36 characters.');
+
+        FlowExecutionOptions::make(replayedFromRunId: str_repeat('r', FlowExecutionOptions::MAX_RUN_ID_LENGTH + 1));
     }
 }

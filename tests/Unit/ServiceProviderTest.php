@@ -78,5 +78,9 @@ final class ServiceProviderTest extends TestCase
             realpath($packageRoot.'/database/migrations/2026_05_02_000001_create_laravel_flow_tables.php'),
             $migrationSources,
         );
+        $this->assertContains(
+            realpath($packageRoot.'/database/migrations/2026_05_04_000002_add_replay_lineage_to_laravel_flow_runs.php'),
+            $migrationSources,
+        );
     }
 }

@@ -197,3 +197,9 @@
 - Only use global-container compensation tasks when the injected engine container is the global Laravel container; isolated package/embedded containers must resolve compensators through the injected container.
 - Validate compensation strategy configuration before the first forward step runs; discovering a bad strategy only after side effects have happened can block rollback.
 - Unknown Laravel Concurrency driver names should not make `FlowEngine` resolution fail; return no driver and let the engine use local compensation fallback.
+
+## 2026-05-04 - Approval/Webhook Macro
+
+- Approval resume tokens must be represented as fixed-width hashes in persistence from the first schema slice; do not add a clear-text token column even temporarily.
+- Webhook outbox rows should be state records, not delivery logs only: keep event, status, attempt counters, next-available time, terminal timestamps, and last error separate so retry workers can be idempotent.
+- Approval/webhook tables should be additive to the persisted run schema and cascade with `flow_runs`; deleting retained/pruned runs must not leave orphan approval tokens or outbox rows.

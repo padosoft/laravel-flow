@@ -92,5 +92,9 @@ final class ServiceProviderTest extends TestCase
             realpath($packageRoot.'/database/migrations/2026_05_04_000002_add_replay_lineage_to_laravel_flow_runs.php'),
             $migrationSources,
         );
+        $this->assertContains(
+            realpath($packageRoot.'/database/migrations/2026_05_04_000003_create_laravel_flow_approval_and_webhook_tables.php'),
+            $migrationSources,
+        );
     }
 }

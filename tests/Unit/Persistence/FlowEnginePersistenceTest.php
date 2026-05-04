@@ -445,12 +445,15 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         $this->assertSame(1, ApprovalPayloadCapturingHandler::$callCount);
         $this->assertSame('ship', ApprovalPayloadCapturingHandler::$lastStepOutputs['manager']['approval_payload']['decision']);
         $this->assertSame('[redacted]', ApprovalPayloadCapturingHandler::$lastStepOutputs['manager']['approval_payload']['api_key']);
+        $this->assertSame(123, ApprovalPayloadCapturingHandler::$lastStepOutputs['manager']['approval_actor']['user_id']);
+        $this->assertSame('[redacted]', ApprovalPayloadCapturingHandler::$lastStepOutputs['manager']['approval_actor']['token']);
 
         $runRecord = FlowRunRecord::query()->find($pausedRun->id);
         $this->assertInstanceOf(FlowRunRecord::class, $runRecord);
         $this->assertSame(FlowRun::STATUS_SUCCEEDED, $runRecord->status);
         $this->assertArrayHasKey('manager', $runRecord->output);
         $this->assertSame('[redacted]', $runRecord->output['manager']['approval_payload']['api_key']);
+        $this->assertSame('[redacted]', $runRecord->output['manager']['approval_actor']['token']);
 
         $approvalStep = FlowStepRecord::query()
             ->where('run_id', $pausedRun->id)
@@ -460,6 +463,8 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         $this->assertSame('succeeded', $approvalStep->status);
         $this->assertSame(FlowApprovalRecord::STATUS_APPROVED, $approvalStep->output['approval_status']);
         $this->assertSame('[redacted]', $approvalStep->output['approval_payload']['api_key']);
+        $this->assertSame(123, $approvalStep->output['approval_actor']['user_id']);
+        $this->assertSame('[redacted]', $approvalStep->output['approval_actor']['token']);
 
         $approvalRecord = FlowApprovalRecord::query()
             ->where('run_id', $pausedRun->id)

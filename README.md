@@ -277,6 +277,7 @@ Flow::define('promotion.publish')
     ->step('publish', PublishPromotion::class)
     ->register();
 
+// Enable laravel-flow.persistence.enabled before executing so a persisted approval token is issued.
 $pausedRun = Flow::execute('promotion.publish', $input);
 $token = $pausedRun->approvalTokens['manager']->plainTextToken;
 

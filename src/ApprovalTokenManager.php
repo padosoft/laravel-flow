@@ -219,7 +219,7 @@ final class ApprovalTokenManager
     private function expirePendingIfExpired(string $tokenHash, DateTimeImmutable $now): ?FlowApprovalRecord
     {
         if (! ($this->approvals instanceof ApprovalDecisionRepository)) {
-            return null;
+            return $this->approvals->expirePending($tokenHash, $now);
         }
 
         $current = $this->approvals->findByTokenHash($tokenHash);

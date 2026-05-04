@@ -22,13 +22,6 @@ interface RunRepository
      */
     public function update(string $runId, array $attributes): FlowRunRecord;
 
-    /**
-     * Update mutable runtime fields only when the run still has the expected status.
-     *
-     * @param  array<string, mixed>  $attributes
-     */
-    public function updateWhereStatus(string $runId, string $expectedStatus, array $attributes): ?FlowRunRecord;
-
     public function find(string $runId): ?FlowRunRecord;
 
     public function findByIdempotencyKey(string $idempotencyKey): ?FlowRunRecord;

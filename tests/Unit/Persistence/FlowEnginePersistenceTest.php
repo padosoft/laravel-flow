@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\Event;
 use Padosoft\LaravelFlow\ApprovalTokenManager;
 use Padosoft\LaravelFlow\Contracts\AuditRepository;
+use Padosoft\LaravelFlow\Contracts\ConditionalRunRepository;
 use Padosoft\LaravelFlow\Contracts\CurrentPayloadRedactorProvider;
 use Padosoft\LaravelFlow\Contracts\FlowStore;
 use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
@@ -191,7 +192,7 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
 
             public function runs(): RunRepository
             {
-                return new class($this->inner->runs(), $this->state) implements RunRepository
+                return new class($this->inner->runs(), $this->state) implements ConditionalRunRepository, RunRepository
                 {
                     public function __construct(
                         private readonly RunRepository $inner,
@@ -220,6 +221,10 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
 
                     public function updateWhereStatus(string $runId, string $expectedStatus, array $attributes): ?FlowRunRecord
                     {
+                        if (! $this->inner instanceof ConditionalRunRepository) {
+                            throw new RuntimeException('run repository does not support conditional updates');
+                        }
+
                         return $this->inner->updateWhereStatus($runId, $expectedStatus, $attributes);
                     }
 
@@ -616,6 +621,98 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         $this->assertSame('ship', ApprovalPayloadCapturingHandler::$lastStepOutputs['manager']['approval_payload']['decision']);
     }
 
+    public function test_resume_skips_downstream_steps_already_persisted_before_retry(): void
+    {
+        $this->migrateFlowTables();
+        $engine = $this->engineWithPersistence();
+
+        $engine->define('flow.persist.approval-resume-after-downstream')
+            ->step('create', AlwaysSucceedsHandler::class)
+            ->approvalGate('manager')
+            ->step('publish', ApprovalPayloadCapturingHandler::class)
+            ->register();
+
+        $pausedRun = $engine->execute('flow.persist.approval-resume-after-downstream', []);
+        $token = $pausedRun->approvalTokens['manager']->plainTextToken;
+        $approval = $this->app->make(ApprovalTokenManager::class)
+            ->approveForRunStatus($token, FlowRun::STATUS_PAUSED, payload: ['decision' => 'ship']);
+        $this->assertInstanceOf(FlowApprovalRecord::class, $approval);
+
+        FlowRunRecord::query()
+            ->whereKey($pausedRun->id)
+            ->update(['status' => FlowRun::STATUS_RUNNING]);
+
+        $approvalStep = FlowStepRecord::query()
+            ->where('run_id', $pausedRun->id)
+            ->where('step_name', 'manager')
+            ->firstOrFail();
+        $approvalStep->forceFill([
+            'duration_ms' => 0,
+            'finished_at' => now(),
+            'output' => ['approval_id' => $approval->id, 'approval_payload' => $approval->payload, 'approval_status' => FlowApprovalRecord::STATUS_APPROVED],
+            'status' => 'succeeded',
+        ])->save();
+
+        (new FlowStepRecord)->forceFill([
+            'dry_run_skipped' => false,
+            'duration_ms' => 0,
+            'finished_at' => now(),
+            'handler' => ApprovalPayloadCapturingHandler::class,
+            'input' => ['flow_input_keys' => [], 'step_output_keys' => ['create', 'manager']],
+            'output' => ['already' => 'persisted'],
+            'run_id' => $pausedRun->id,
+            'sequence' => 3,
+            'started_at' => now(),
+            'status' => 'succeeded',
+            'step_name' => 'publish',
+        ])->save();
+
+        $resumedRun = $engine->resume($token);
+
+        $this->assertSame(FlowRun::STATUS_SUCCEEDED, $resumedRun->status);
+        $this->assertSame(0, ApprovalPayloadCapturingHandler::$callCount);
+        $this->assertSame(['already' => 'persisted'], $resumedRun->stepResults['publish']->output);
+        $this->assertSame(1, (int) FlowStepRecord::query()
+            ->where('run_id', $pausedRun->id)
+            ->where('step_name', 'publish')
+            ->count());
+    }
+
+    public function test_resume_detects_definition_drift_before_consuming_token(): void
+    {
+        $this->migrateFlowTables();
+        $engine = $this->engineWithPersistence();
+
+        $engine->define('flow.persist.approval-definition-drift')
+            ->step('create', AlwaysSucceedsHandler::class)
+            ->approvalGate('manager')
+            ->step('publish', ApprovalPayloadCapturingHandler::class)
+            ->register();
+
+        $pausedRun = $engine->execute('flow.persist.approval-definition-drift', []);
+        $token = $pausedRun->approvalTokens['manager']->plainTextToken;
+
+        $engine->define('flow.persist.approval-definition-drift')
+            ->step('create', AlwaysSucceedsHandler::class)
+            ->step('inserted', AlwaysSucceedsHandler::class)
+            ->approvalGate('manager')
+            ->step('publish', ApprovalPayloadCapturingHandler::class)
+            ->register();
+
+        try {
+            $engine->resume($token, ['decision' => 'ship']);
+            $this->fail('Definition drift should abort approval resume.');
+        } catch (FlowExecutionException $exception) {
+            $this->assertStringContainsString('does not match the current flow definition', $exception->getMessage());
+        }
+
+        $this->assertSame(FlowApprovalRecord::STATUS_PENDING, FlowApprovalRecord::query()
+            ->where('run_id', $pausedRun->id)
+            ->where('step_name', 'manager')
+            ->firstOrFail()
+            ->status);
+    }
+
     public function test_reject_approval_token_fails_run_and_compensates_prior_steps(): void
     {
         $this->migrateFlowTables();
@@ -759,6 +856,45 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         $this->expectExceptionMessage('Approval token is invalid or expired.');
 
         $engine->resume('missing-token');
+    }
+
+    public function test_resume_requires_shared_cache_lock_store(): void
+    {
+        $this->migrateFlowTables();
+        $engine = $this->engineWithPersistence();
+
+        $engine->define('flow.persist.approval-lock-store')
+            ->step('create', AlwaysSucceedsHandler::class)
+            ->approvalGate('manager')
+            ->step('publish', ApprovalPayloadCapturingHandler::class)
+            ->register();
+
+        $pausedRun = $engine->execute('flow.persist.approval-lock-store', []);
+        $token = $pausedRun->approvalTokens['manager']->plainTextToken;
+
+        $this->app['config']->set('laravel-flow.queue.lock_store', 'array');
+        $this->app->forgetInstance(FlowEngine::class);
+
+        /** @var FlowEngine $resumeEngine */
+        $resumeEngine = $this->app->make(FlowEngine::class);
+        $resumeEngine->define('flow.persist.approval-lock-store')
+            ->step('create', AlwaysSucceedsHandler::class)
+            ->approvalGate('manager')
+            ->step('publish', ApprovalPayloadCapturingHandler::class)
+            ->register();
+
+        try {
+            $resumeEngine->resume($token, ['decision' => 'ship']);
+            $this->fail('Array cache locks should not guard approval resume.');
+        } catch (FlowExecutionException $exception) {
+            $this->assertStringContainsString('shared cache lock store', $exception->getMessage());
+        }
+
+        $this->assertSame(FlowApprovalRecord::STATUS_PENDING, FlowApprovalRecord::query()
+            ->where('run_id', $pausedRun->id)
+            ->where('step_name', 'manager')
+            ->firstOrFail()
+            ->status);
     }
 
     public function test_parallel_compensation_strategy_persists_each_successful_compensation(): void
@@ -1406,7 +1542,7 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
                         $this->recordWrite();
                     };
 
-                    return new class($this->inner->runs(), $recordWrite) implements RunRepository
+                    return new class($this->inner->runs(), $recordWrite) implements ConditionalRunRepository, RunRepository
                     {
                         public function __construct(
                             private readonly RunRepository $inner,
@@ -1429,6 +1565,10 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
 
                         public function updateWhereStatus(string $runId, string $expectedStatus, array $attributes): ?FlowRunRecord
                         {
+                            if (! $this->inner instanceof ConditionalRunRepository) {
+                                throw new RuntimeException('run repository does not support conditional updates');
+                            }
+
                             $this->recordWrite();
 
                             return $this->inner->updateWhereStatus($runId, $expectedStatus, $attributes);
@@ -2098,6 +2238,7 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
     private function engineWithPersistence(): FlowEngine
     {
         $this->app['config']->set('laravel-flow.persistence.enabled', true);
+        $this->app['config']->set('laravel-flow.queue.lock_store', 'file');
         $this->app->forgetInstance(FlowEngine::class);
 
         /** @var FlowEngine $engine */
@@ -2194,7 +2335,7 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
 
             public function runs(): RunRepository
             {
-                return new class($this->inner->runs(), $this->status) implements RunRepository
+                return new class($this->inner->runs(), $this->status) implements ConditionalRunRepository, RunRepository
                 {
                     public function __construct(
                         private readonly RunRepository $inner,
@@ -2217,6 +2358,10 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
 
                     public function updateWhereStatus(string $runId, string $expectedStatus, array $attributes): ?FlowRunRecord
                     {
+                        if (! $this->inner instanceof ConditionalRunRepository) {
+                            throw new RuntimeException('run repository does not support conditional updates');
+                        }
+
                         if (($attributes['status'] ?? null) === $this->status) {
                             throw new RuntimeException('run update down for '.$this->status);
                         }
@@ -2264,7 +2409,7 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
 
         /** @var FlowStore $inner */
         $inner = $this->app->make(FlowStore::class);
-        $runRepository = new class($inner->runs(), $status, $attempt) implements RunRepository
+        $runRepository = new class($inner->runs(), $status, $attempt) implements ConditionalRunRepository, RunRepository
         {
             private int $seen = 0;
 
@@ -2294,6 +2439,10 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
 
             public function updateWhereStatus(string $runId, string $expectedStatus, array $attributes): ?FlowRunRecord
             {
+                if (! $this->inner instanceof ConditionalRunRepository) {
+                    throw new RuntimeException('run repository does not support conditional updates');
+                }
+
                 if (($attributes['status'] ?? null) === $this->status) {
                     $this->seen++;
 
@@ -2356,7 +2505,7 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
 
         /** @var FlowStore $inner */
         $inner = $this->app->make(FlowStore::class);
-        $runRepository = new class($inner->runs()) implements RunRepository
+        $runRepository = new class($inner->runs()) implements ConditionalRunRepository, RunRepository
         {
             public function __construct(
                 private readonly RunRepository $inner,
@@ -2374,6 +2523,10 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
 
             public function updateWhereStatus(string $runId, string $expectedStatus, array $attributes): ?FlowRunRecord
             {
+                if (! $this->inner instanceof ConditionalRunRepository) {
+                    throw new RuntimeException('run repository does not support conditional updates');
+                }
+
                 if ($expectedStatus === FlowRun::STATUS_PAUSED
                     && ($attributes['status'] ?? null) === FlowRun::STATUS_RUNNING
                 ) {

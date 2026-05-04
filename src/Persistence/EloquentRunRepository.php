@@ -4,12 +4,13 @@ declare(strict_types=1);
 
 namespace Padosoft\LaravelFlow\Persistence;
 
+use Padosoft\LaravelFlow\Contracts\ConditionalRunRepository;
 use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
 use Padosoft\LaravelFlow\Contracts\RunRepository;
 use Padosoft\LaravelFlow\Models\FlowRunRecord;
 use RuntimeException;
 
-final class EloquentRunRepository implements RunRepository
+final class EloquentRunRepository implements ConditionalRunRepository, RunRepository
 {
     /**
      * @var list<string>

@@ -23,8 +23,6 @@ interface ApprovalRepository
 
     public function findPendingByTokenHash(string $tokenHash): ?FlowApprovalRecord;
 
-    public function findByTokenHash(string $tokenHash): ?FlowApprovalRecord;
-
     /**
      * @param  array<string, mixed>  $actor
      * @param  array<string, mixed>  $payload
@@ -32,19 +30,6 @@ interface ApprovalRepository
     public function consumePending(
         string $tokenHash,
         string $status,
-        array $actor = [],
-        array $payload = [],
-        ?DateTimeInterface $decidedAt = null,
-    ): ?FlowApprovalRecord;
-
-    /**
-     * @param  array<string, mixed>  $actor
-     * @param  array<string, mixed>  $payload
-     */
-    public function consumePendingForRunStatus(
-        string $tokenHash,
-        string $status,
-        string $runStatus,
         array $actor = [],
         array $payload = [],
         ?DateTimeInterface $decidedAt = null,

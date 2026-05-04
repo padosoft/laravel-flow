@@ -6,12 +6,13 @@ namespace Padosoft\LaravelFlow\Persistence;
 
 use DateTimeInterface;
 use InvalidArgumentException;
+use Padosoft\LaravelFlow\Contracts\ApprovalDecisionRepository;
 use Padosoft\LaravelFlow\Contracts\ApprovalRepository;
 use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
 use Padosoft\LaravelFlow\Models\FlowApprovalRecord;
 use Padosoft\LaravelFlow\Models\FlowRunRecord;
 
-final class EloquentApprovalRepository implements ApprovalRepository
+final class EloquentApprovalRepository implements ApprovalDecisionRepository, ApprovalRepository
 {
     public function __construct(
         private readonly ?string $connection,

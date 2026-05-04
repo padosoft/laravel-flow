@@ -7,12 +7,14 @@ namespace Padosoft\LaravelFlow;
 use Closure;
 use DateTimeImmutable;
 use DateTimeInterface;
+use Illuminate\Cache\ArrayStore;
 use Illuminate\Contracts\Bus\Dispatcher as BusDispatcher;
 use Illuminate\Contracts\Cache\Factory as CacheFactory;
 use Illuminate\Contracts\Cache\LockProvider;
 use Illuminate\Contracts\Concurrency\Driver as ConcurrencyDriver;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Contracts\Events\Dispatcher;
+use Padosoft\LaravelFlow\Contracts\ConditionalRunRepository;
 use Padosoft\LaravelFlow\Contracts\FlowStore;
 use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
 use Padosoft\LaravelFlow\Contracts\RedactorAwareFlowStore;
@@ -641,9 +643,11 @@ class FlowEngine
             if ($preDecisionRunRecord->status !== FlowRun::STATUS_PAUSED) {
                 return $this->flowRunFromRecord($preDecisionRunRecord, $store);
             }
+
+            $this->approvalExecutionState($preDecisionApproval, $store, $preDecisionRunRecord);
         }
 
-        [$approval, $consumedNow] = $this->consumeApprovalDecision($token, $decision, $payload, $actor);
+        [$approval, $consumedNow] = $this->consumeApprovalDecisionForPausedRun($token, $decision, $payload, $actor);
         $decisionPayload = $approval->payload ?? [];
         $decisionActor = $approval->actor ?? [];
 
@@ -664,8 +668,12 @@ class FlowEngine
         $repository = $cache->store($this->queueLockStore());
         $cacheStore = $repository->getStore();
 
+        if ($cacheStore instanceof ArrayStore) {
+            throw new FlowExecutionException('Approval resume/reject requires a shared cache lock store; the array store is process-local.');
+        }
+
         if (! $cacheStore instanceof LockProvider) {
-            return $callback();
+            throw new FlowExecutionException('Approval resume/reject requires a cache store that supports atomic locks.');
         }
 
         $lock = $cacheStore->lock(
@@ -722,7 +730,7 @@ class FlowEngine
      * @param  array<string, mixed>  $actor
      * @return array{0: FlowApprovalRecord, 1: bool}
      */
-    private function consumeApprovalDecision(
+    private function consumeApprovalDecisionForPausedRun(
         string $token,
         string $decision,
         array $payload,
@@ -784,10 +792,10 @@ class FlowEngine
                 return $this->executeFromIndex(
                     $state['definition'],
                     $run,
-                    $state['context']->withStepOutput($approval->step_name, $state['approval_step_record']->output ?? []),
-                    [...$state['completed_steps'], $state['approval_step']],
-                    $state['approval_index'] + 1,
-                    $state['approval_step_record']->sequence,
+                    $state['retry_context'],
+                    $state['retry_completed_steps'],
+                    $state['retry_start_index'],
+                    $state['retry_sequence'],
                     $store,
                     $redactor,
                 );
@@ -805,10 +813,10 @@ class FlowEngine
             return $this->executeFromIndex(
                 $state['definition'],
                 $run,
-                $state['context']->withStepOutput($approval->step_name, $approvalStepRecord->output ?? []),
-                [...$state['completed_steps'], $state['approval_step']],
-                $state['approval_index'] + 1,
-                $approvalStepRecord->sequence,
+                $state['retry_context'],
+                $state['retry_completed_steps'],
+                $state['retry_start_index'],
+                $state['retry_sequence'],
                 $store,
                 $redactor,
             );
@@ -839,7 +847,7 @@ class FlowEngine
                 $redactor,
                 &$claimedRunRecord,
             ): void {
-                $claimedRunRecord = $store->runs()->updateWhereStatus($run->id, FlowRun::STATUS_PAUSED, [
+                $claimedRunRecord = $this->conditionalRuns($store)->updateWhereStatus($run->id, FlowRun::STATUS_PAUSED, [
                     'duration_ms' => null,
                     'finished_at' => null,
                     'status' => FlowRun::STATUS_RUNNING,
@@ -945,6 +953,14 @@ class FlowEngine
                 }
             }
 
+            if ($runRecord->status === FlowRun::STATUS_RUNNING) {
+                $state = $this->approvalExecutionState($approval, $store, $runRecord);
+
+                if ($state['approval_step_record']->status === 'failed') {
+                    return $this->retryRejectedApprovalCompensation($state, $state['run'], $store);
+                }
+            }
+
             return $this->flowRunFromRecord($runRecord, $store);
         }
 
@@ -972,6 +988,10 @@ class FlowEngine
      *     completed_steps: list<FlowStep>,
      *     context: FlowContext,
      *     definition: FlowDefinition,
+     *     retry_completed_steps: list<FlowStep>,
+     *     retry_context: FlowContext,
+     *     retry_sequence: int,
+     *     retry_start_index: int,
      *     run: FlowRun,
      *     run_record: FlowRunRecord
      * }  $state
@@ -1000,7 +1020,7 @@ class FlowEngine
                 $redactor,
                 &$claimedRunRecord,
             ): void {
-                $claimedRunRecord = $store->runs()->updateWhereStatus($run->id, FlowRun::STATUS_PAUSED, [
+                $claimedRunRecord = $this->conditionalRuns($store)->updateWhereStatus($run->id, FlowRun::STATUS_PAUSED, [
                     'duration_ms' => null,
                     'finished_at' => null,
                     'status' => FlowRun::STATUS_RUNNING,
@@ -1101,12 +1121,23 @@ class FlowEngine
      *     completed_steps: list<FlowStep>,
      *     context: FlowContext,
      *     definition: FlowDefinition,
+     *     retry_completed_steps: list<FlowStep>,
+     *     retry_context: FlowContext,
+     *     retry_sequence: int,
+     *     retry_start_index: int,
      *     run: FlowRun,
      *     run_record: FlowRunRecord
      * }  $state
      */
     private function retryRejectedApprovalCompensation(array $state, FlowRun $run, FlowStore $store): FlowRun
     {
+        if ($run->status !== FlowRun::STATUS_FAILED) {
+            $run->markFailed(
+                $state['approval_step']->name,
+                $this->immutableDate($state['approval_step_record']->finished_at) ?? $this->now(),
+            );
+        }
+
         try {
             $this->compensate($state['definition'], $state['context'], $state['completed_steps'], $run, $store);
         } catch (Throwable $e) {
@@ -1161,6 +1192,20 @@ class FlowEngine
         return FlowStepResult::success($output);
     }
 
+    private function conditionalRuns(FlowStore $store): ConditionalRunRepository
+    {
+        $runs = $store->runs();
+
+        if (! $runs instanceof ConditionalRunRepository) {
+            throw new FlowExecutionException(sprintf(
+                'Approval resume/reject requires the run repository to implement %s.',
+                ConditionalRunRepository::class,
+            ));
+        }
+
+        return $runs;
+    }
+
     /**
      * @return array{
      *     approval_index: int,
@@ -1169,6 +1214,10 @@ class FlowEngine
      *     completed_steps: list<FlowStep>,
      *     context: FlowContext,
      *     definition: FlowDefinition,
+     *     retry_completed_steps: list<FlowStep>,
+     *     retry_context: FlowContext,
+     *     retry_sequence: int,
+     *     retry_start_index: int,
      *     run: FlowRun,
      *     run_record: FlowRunRecord
      * }
@@ -1188,24 +1237,23 @@ class FlowEngine
         $context = new FlowContext($runRecord->id, $definition->name, $input, [], (bool) $runRecord->dry_run);
         $completedSteps = [];
         $approvalStepRecord = null;
+        $expectedIndex = 0;
+        $retryCompletedSteps = [];
+        $retryContext = $context;
+        $retrySequence = max(0, $approvalIndex);
+        $retryStartIndex = $approvalIndex;
 
         foreach ($store->steps()->forRun($runRecord->id) as $stepRecord) {
-            if ($stepRecord->step_name === $approval->step_name) {
-                $approvalStepRecord = $stepRecord;
-
-                break;
-            }
-
             $stepIndex = $this->stepIndex($definition, $stepRecord->step_name);
 
-            if ($stepIndex === null || $stepIndex >= $approvalIndex) {
+            if ($stepIndex === null || $stepIndex !== $expectedIndex) {
                 throw new FlowExecutionException(sprintf(
                     'Cannot resume approval because persisted step [%s] does not match the current flow definition.',
                     $stepRecord->step_name,
                 ));
             }
 
-            if (! in_array($stepRecord->status, ['succeeded', 'skipped'], true)) {
+            if ($stepIndex < $approvalIndex && ! in_array($stepRecord->status, ['succeeded', 'skipped'], true)) {
                 throw new FlowExecutionException(sprintf(
                     'Cannot resume approval because prior step [%s] is [%s].',
                     $stepRecord->step_name,
@@ -1213,11 +1261,68 @@ class FlowEngine
                 ));
             }
 
-            if ($stepRecord->status === 'succeeded' && ! $stepRecord->dry_run_skipped) {
+            if ($stepIndex < $approvalIndex
+                && $stepRecord->status === 'succeeded'
+                && ! $stepRecord->dry_run_skipped
+            ) {
                 $context = $context->withStepOutput($stepRecord->step_name, $stepRecord->output ?? []);
             }
 
-            $completedSteps[] = $definition->steps[$stepIndex];
+            if ($stepIndex < $approvalIndex) {
+                $completedSteps[] = $definition->steps[$stepIndex];
+                $retryCompletedSteps = $completedSteps;
+                $retryContext = $context;
+                $retrySequence = $stepRecord->sequence;
+                $retryStartIndex = $stepIndex + 1;
+                $expectedIndex++;
+
+                continue;
+            }
+
+            if ($stepIndex === $approvalIndex) {
+                $approvalStepRecord = $stepRecord;
+
+                if ($stepRecord->status === 'succeeded') {
+                    $retryContext = $context->withStepOutput($stepRecord->step_name, $stepRecord->output ?? []);
+                    $retryCompletedSteps = [...$completedSteps, $approvalStep];
+                    $retrySequence = $stepRecord->sequence;
+                    $retryStartIndex = $approvalIndex + 1;
+                } elseif (! in_array($stepRecord->status, ['paused', 'failed'], true)) {
+                    throw new FlowExecutionException(sprintf(
+                        'Cannot resume approval because approval step [%s] is [%s].',
+                        $stepRecord->step_name,
+                        $stepRecord->status,
+                    ));
+                }
+
+                $expectedIndex++;
+
+                continue;
+            }
+
+            if (! $approvalStepRecord instanceof FlowStepRecord || $approvalStepRecord->status !== 'succeeded') {
+                throw new FlowExecutionException(sprintf(
+                    'Cannot resume approval because downstream step [%s] was persisted before the approval gate succeeded.',
+                    $stepRecord->step_name,
+                ));
+            }
+
+            if (! in_array($stepRecord->status, ['succeeded', 'skipped'], true)) {
+                throw new FlowExecutionException(sprintf(
+                    'Cannot resume approval because downstream step [%s] is [%s].',
+                    $stepRecord->step_name,
+                    $stepRecord->status,
+                ));
+            }
+
+            if ($stepRecord->status === 'succeeded' && ! $stepRecord->dry_run_skipped) {
+                $retryContext = $retryContext->withStepOutput($stepRecord->step_name, $stepRecord->output ?? []);
+            }
+
+            $retryCompletedSteps[] = $definition->steps[$stepIndex];
+            $retrySequence = $stepRecord->sequence;
+            $retryStartIndex = $stepIndex + 1;
+            $expectedIndex++;
         }
 
         if (! $approvalStepRecord instanceof FlowStepRecord) {
@@ -1235,6 +1340,10 @@ class FlowEngine
             'completed_steps' => $completedSteps,
             'context' => $context,
             'definition' => $definition,
+            'retry_completed_steps' => $retryCompletedSteps,
+            'retry_context' => $retryContext,
+            'retry_sequence' => $retrySequence,
+            'retry_start_index' => $retryStartIndex,
             'run' => $run,
             'run_record' => $runRecord,
         ];

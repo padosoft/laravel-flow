@@ -7,7 +7,9 @@ namespace Padosoft\LaravelFlow;
 use DateTimeImmutable;
 use DateTimeInterface;
 use InvalidArgumentException;
+use Padosoft\LaravelFlow\Contracts\ApprovalDecisionRepository;
 use Padosoft\LaravelFlow\Contracts\ApprovalRepository;
+use Padosoft\LaravelFlow\Exceptions\FlowExecutionException;
 use Padosoft\LaravelFlow\Models\FlowApprovalRecord;
 
 final class ApprovalTokenManager
@@ -65,7 +67,7 @@ final class ApprovalTokenManager
     {
         $now = $this->now();
         $tokenHash = self::hashToken($plainTextToken);
-        $record = $this->approvals->findByTokenHash($tokenHash);
+        $record = $this->approvalDecisions()->findByTokenHash($tokenHash);
 
         if (! $record instanceof FlowApprovalRecord) {
             return null;
@@ -186,7 +188,7 @@ final class ApprovalTokenManager
                 payload: $payload,
                 decidedAt: $now,
             )
-            : $this->approvals->consumePendingForRunStatus(
+            : $this->approvalDecisions()->consumePendingForRunStatus(
                 tokenHash: $tokenHash,
                 status: $status,
                 runStatus: $runStatus,
@@ -196,6 +198,18 @@ final class ApprovalTokenManager
             );
 
         return $record;
+    }
+
+    private function approvalDecisions(): ApprovalDecisionRepository
+    {
+        if (! $this->approvals instanceof ApprovalDecisionRepository) {
+            throw new FlowExecutionException(sprintf(
+                'Approval resume/reject requires the approval repository to implement %s.',
+                ApprovalDecisionRepository::class,
+            ));
+        }
+
+        return $this->approvals;
     }
 
     private function ttlMinutes(): int

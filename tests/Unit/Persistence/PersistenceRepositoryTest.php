@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
 use LogicException;
 use Padosoft\LaravelFlow\ApprovalTokenManager;
+use Padosoft\LaravelFlow\Contracts\ApprovalDecisionRepository;
 use Padosoft\LaravelFlow\Contracts\ApprovalRepository;
 use Padosoft\LaravelFlow\Contracts\AuditRepository;
 use Padosoft\LaravelFlow\Contracts\CurrentPayloadRedactorProvider;
@@ -130,6 +131,8 @@ final class PersistenceRepositoryTest extends PersistenceTestCase
         $this->createAuditRun('00000000-0000-4000-8000-000000000136');
 
         $approvals = $this->app->make(ApprovalRepository::class);
+        $this->assertInstanceOf(ApprovalDecisionRepository::class, $approvals);
+        /** @var ApprovalRepository&ApprovalDecisionRepository $approvals */
         $tokenHash = str_repeat('f', 64);
         $approvals->createPending(
             id: '00000000-0000-4000-8000-000000000137',

@@ -13,7 +13,7 @@ use Throwable;
 abstract class ApprovalDecisionCommand extends Command
 {
     /**
-     * @return array<string, mixed>
+     * @return array<int|string, mixed>
      */
     protected function jsonOption(string $option): array
     {
@@ -56,8 +56,8 @@ abstract class ApprovalDecisionCommand extends Command
         } catch (JsonException $e) {
             $this->error($e->getMessage());
 
-            if ($this->getOutput()->isVerbose()) {
-                $this->line($this->verboseFailureDetails($e));
+            if ($this->getOutput()->isVerbose() && ($details = $this->verboseFailureDetails($e)) !== null) {
+                $this->line($details);
             }
 
             return self::FAILURE;
@@ -70,16 +70,16 @@ abstract class ApprovalDecisionCommand extends Command
         } catch (FlowExecutionException $e) {
             $this->error($e->getMessage());
 
-            if ($this->getOutput()->isVerbose()) {
-                $this->line($this->verboseFailureDetails($e));
+            if ($this->getOutput()->isVerbose() && ($details = $this->verboseFailureDetails($e)) !== null) {
+                $this->line($details);
             }
 
             return self::FAILURE;
         } catch (Throwable $e) {
             $this->error(sprintf('Flow approval command [%s] failed unexpectedly.', $this->getName() ?? 'flow:approval'));
 
-            if ($this->getOutput()->isVerbose()) {
-                $this->line($this->verboseFailureDetails($e));
+            if ($this->getOutput()->isVerbose() && ($details = $this->verboseFailureDetails($e)) !== null) {
+                $this->line($details);
             }
 
             return self::FAILURE;
@@ -97,7 +97,7 @@ abstract class ApprovalDecisionCommand extends Command
 
     abstract protected function resultVerb(): string;
 
-    private function verboseFailureDetails(Throwable $exception): string
+    private function verboseFailureDetails(Throwable $exception): ?string
     {
         $previous = $exception->getPrevious();
 
@@ -105,6 +105,6 @@ abstract class ApprovalDecisionCommand extends Command
             return sprintf('%s: %s', $previous::class, $previous->getMessage());
         }
 
-        return sprintf('%s: %s', $exception::class, $exception->getMessage());
+        return null;
     }
 }

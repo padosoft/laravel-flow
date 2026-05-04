@@ -50,6 +50,7 @@ final class FlowRun
         public readonly DateTimeImmutable $startedAt,
         public readonly ?string $correlationId = null,
         public readonly ?string $idempotencyKey = null,
+        public readonly ?string $replayedFromRunId = null,
     ) {}
 
     public function recordStepResult(string $stepName, FlowStepResult $result): void

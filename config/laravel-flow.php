@@ -2,6 +2,11 @@
 
 declare(strict_types=1);
 
+$queueLockSeconds = env('LARAVEL_FLOW_QUEUE_LOCK_SECONDS', 3600);
+$queueLockRetrySeconds = env('LARAVEL_FLOW_QUEUE_LOCK_RETRY_SECONDS', 30);
+$queueTries = env('LARAVEL_FLOW_QUEUE_TRIES', null);
+$queueBackoffSeconds = env('LARAVEL_FLOW_QUEUE_BACKOFF_SECONDS', null);
+
 return [
 
     /*
@@ -35,6 +40,38 @@ return [
         'retention' => [
             'days' => env('LARAVEL_FLOW_RETENTION_DAYS', null),
         ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Queue execution
+    |--------------------------------------------------------------------------
+    |
+    | Flow::dispatch() queues a RunFlowJob. Each queued job uses a per-dispatch
+    | cache lock before executing so duplicate delivery cannot run the same
+    | queued flow concurrently. Duplicate deliveries that find the lock held
+    | are released for another attempt; duplicates that arrive after a run has
+    | completed are acknowledged as no-ops. Set the lock TTL longer than the
+    | expected maximum flow runtime; Laravel's portable lock contract cannot
+    | renew it. The store must support shared Laravel atomic locks; the
+    | process-local array store is accepted only when the queue driver is sync.
+    | Optional tries/backoff values are normalized at dispatch time and captured
+    | into the job payload so worker retry behavior is explicit and visible to
+    | Laravel queue tooling. Because async workers retry the whole wrapper job,
+    | retry policies that can re-run a flow are rejected until step-level retry
+    | or replay semantics are available.
+    |
+    */
+    'queue' => [
+        'lock_store' => env('LARAVEL_FLOW_QUEUE_LOCK_STORE', null),
+        'lock_seconds' => is_numeric($queueLockSeconds) && (int) $queueLockSeconds >= 1
+            ? (int) $queueLockSeconds
+            : 3600,
+        'lock_retry_seconds' => is_numeric($queueLockRetrySeconds) && (int) $queueLockRetrySeconds >= 1
+            ? (int) $queueLockRetrySeconds
+            : 30,
+        'tries' => $queueTries,
+        'backoff_seconds' => $queueBackoffSeconds,
     ],
 
     /*
@@ -78,11 +115,26 @@ return [
     | Compensation strategy metadata
     |--------------------------------------------------------------------------
     |
-    | Reserved for future concurrent compensation work. The current engine
-    | does not read this setting: every compensation walk is in reverse order
-    | regardless of the configured value.
+    | Supported values:
+    | - reverse-order: default saga rollback, newest completed step first.
+    | - parallel: batch independent compensators through Laravel Concurrency.
+    |
+    | Only use parallel when compensators are independent, idempotent, and safe
+    | to run without reverse-order dependencies.
     |
     */
     'compensation_strategy' => env('LARAVEL_FLOW_COMPENSATION', 'reverse-order'),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Parallel compensation driver
+    |--------------------------------------------------------------------------
+    |
+    | Used only when compensation_strategy is "parallel". Laravel's process
+    | driver gives actual process-level parallelism; set "sync" in local tests
+    | or when compensators must stay in the current PHP process.
+    |
+    */
+    'compensation_parallel_driver' => env('LARAVEL_FLOW_COMPENSATION_PARALLEL_DRIVER', 'process'),
 
 ];

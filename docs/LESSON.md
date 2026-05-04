@@ -161,3 +161,39 @@
 - `ExecutionScopedPayloadRedactor` must delegate provider-chain cycle/depth handling to `PayloadRedactorResolution`; keep only the scope-specific self fallback outside the shared resolver so JSON and execution-scoped redaction cannot drift.
 - Laravel transaction callbacks should accept the connection argument even when unused, matching `EloquentFlowStore::transaction()` and avoiding arity drift across connection implementations.
 - When a transaction callback receives the connection instance, use that callback parameter for the enclosed queries instead of capturing the outer connection; it keeps all statements tied to the exact transactional connection.
+- Queue dispatch should validate flow definition/input before enqueuing and should serialize only portable execution data: flow name, input, execution options, and queue lock metadata such as dispatch id, lock store, lock TTL, and lock retry delay. Worker processes must resolve the current `FlowEngine` so definitions and host bindings come from the running app.
+- When `queue.lock_store` is null, capture the current `cache.default` store name into `RunFlowJob` at dispatch time; do not leave queued jobs to resolve a potentially different default cache backend at worker execution time.
+- Queue job classes need property defaults, not only promoted readonly constructor properties, when adding serialized fields; in-flight jobs created before deployment must deserialize with sane defaults instead of uninitialized typed properties, and missing dispatch ids should get a fresh legacy id rather than a payload-derived id that can collapse independent dispatches.
+- Queue-dispatched flow jobs should use after-commit dispatch semantics so workers cannot observe uncommitted or rolled-back application state when `Flow::dispatch()` is called inside a database transaction.
+- Queued flow jobs should lock by a stable per-dispatch identifier, not by definition name alone, so duplicate delivery of the same queued job is blocked without serializing unrelated runs of the same flow definition.
+- Queued flow jobs that encounter an already-held per-dispatch lock should release the job for a later attempt instead of throwing; after a run completes, write a dispatch completion marker so late duplicate deliveries can be acknowledged without running handlers.
+- Check the queued dispatch completion marker both before and after acquiring the per-dispatch lock; a duplicate can observe no marker, then wait while the original finishes and releases the lock.
+- If a queued flow run completes but the dispatch completion marker cannot be written or the cache backend throws while writing it, keep the per-dispatch lock until TTL instead of releasing it immediately; mark the queue job failed when a queue job context exists, then throw the marker error so sync dispatch surfaces the operational failure too.
+- Laravel's portable cache lock contract has acquire/release but no renewal method, so `queue.lock_seconds` is an operational duplicate-protection window that must be configured longer than the expected maximum flow runtime.
+- Do not accept Laravel's `array` cache store for real queued workers: it implements the lock provider contract, but the lock is process-local and cannot protect multiple queue workers. Check the actual job connection when Laravel provides one, falling back to the default connection driver, and keep it allowed only for sync-driver inline dispatch.
+- In this lock-ignored package repo, a `composer.json` dependency change can make `composer validate --strict --no-check-publish` fail against the local ignored lock file; run `composer update --lock` locally to refresh the content hash, but do not stage `composer.lock`.
+- Queue retry/backoff policy should use Laravel-native job metadata (`tries` and `backoff()`) instead of package-only retry loops, and `Flow::dispatch()` should capture the sanitized policy into `RunFlowJob` so serialized queue payloads are stable across worker config changes.
+- Preserve Laravel queue semantics when normalizing retry metadata: `tries=0` means unlimited attempts, while `null` means defer to the worker or connection default.
+- Run-level Laravel retries can repeat a whole flow after an infrastructure/listener exception; reject async retry policies that can re-run a flow until step-level queued retries or replay semantics exist.
+- Keep queue retry normalization centralized so env-string config, dispatch-time job payloads, and legacy job metadata cannot drift.
+- Queue retry metadata must parse only integer strings; accepting generic `is_numeric()` values can turn malformed decimals such as `0.5` into Laravel's special unlimited-retry value `0`.
+- Replay should create a new run with explicit lineage metadata instead of mutating the original persisted run; keep replay lineage immutable on run creation.
+- Replay from persisted JSON input cannot recover secrets that were already redacted before storage. Document that replay uses the stored input exactly as persisted.
+- Definition drift detection should compare stored step names/handlers with the current registered definition and warn without blocking; replay must use the current app definition.
+
+## 2026-05-04
+
+- Replay lineage schema changes need additive migrations once a baseline migration has already been published; keep the original create-table migration stable and publish follow-up columns separately.
+- Optional replay metadata should only be written when present so normal persisted runs can still succeed on installations that have not applied the replay lineage migration yet.
+- Public replay lineage IDs should validate to the database column width, not the generic execution-metadata width.
+- Replay drift warnings should compare the persisted executed-step prefix against the current definition; adding future steps after a failed point should not warn by itself.
+- Replay commands should catch missing or partially migrated persistence tables around both run and step queries and return actionable Artisan failures.
+- Replay execution should catch persistence `QueryException` separately from handler/runtime failures so stale schemas get migration guidance instead of a generic replay failure.
+- Additive migration rollbacks should prefer column-based index drops such as `dropIndex(['column'])` over hard-coded generated index names for database portability.
+- Keep `reverse-order` as the default compensation strategy; `parallel` must be a deliberate opt-in because many saga compensators depend on newest-side-effect-first rollback.
+- Parallel compensation should execute compensator side effects as a batch but keep audit/event recording in the parent engine process so durable `FlowCompensated` rows still gate emitted events.
+- Laravel Concurrency process/fork drivers require serializable compensation context and outputs; expose a driver setting and use `sync` in local tests when deterministic in-process execution matters.
+- If the parallel compensation driver fails before running the batch, fall back to injected-container local compensation so rollback still attempts every prior side effect.
+- Only use global-container compensation tasks when the injected engine container is the global Laravel container; isolated package/embedded containers must resolve compensators through the injected container.
+- Validate compensation strategy configuration before the first forward step runs; discovering a bad strategy only after side effects have happened can block rollback.
+- Unknown Laravel Concurrency driver names should not make `FlowEngine` resolution fail; return no driver and let the engine use local compensation fallback.

@@ -11,6 +11,7 @@ use Padosoft\LaravelFlow\Contracts\FlowStore;
 use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
 use Padosoft\LaravelFlow\Contracts\RunRepository;
 use Padosoft\LaravelFlow\Contracts\StepRunRepository;
+use Padosoft\LaravelFlow\FlowEngine;
 use Padosoft\LaravelFlow\LaravelFlowServiceProvider;
 
 /**
@@ -58,6 +59,15 @@ final class ServiceProviderTest extends TestCase
         $this->assertTrue($this->app->bound(PayloadRedactor::class));
     }
 
+    public function test_parallel_compensation_unknown_driver_falls_back_to_engine_resolution(): void
+    {
+        $this->app['config']->set('laravel-flow.compensation_strategy', 'parallel');
+        $this->app['config']->set('laravel-flow.compensation_parallel_driver', 'missing-driver');
+        $this->app->forgetInstance(FlowEngine::class);
+
+        $this->assertInstanceOf(FlowEngine::class, $this->app->make(FlowEngine::class));
+    }
+
     public function test_config_and_migrations_are_publishable(): void
     {
         $packageRoot = dirname(__DIR__, 2);
@@ -76,6 +86,10 @@ final class ServiceProviderTest extends TestCase
         $this->assertContains(realpath($packageRoot.'/config/laravel-flow.php'), $configSources);
         $this->assertContains(
             realpath($packageRoot.'/database/migrations/2026_05_02_000001_create_laravel_flow_tables.php'),
+            $migrationSources,
+        );
+        $this->assertContains(
+            realpath($packageRoot.'/database/migrations/2026_05_04_000002_add_replay_lineage_to_laravel_flow_runs.php'),
             $migrationSources,
         );
     }

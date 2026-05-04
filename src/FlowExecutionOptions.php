@@ -10,22 +10,37 @@ final readonly class FlowExecutionOptions
 {
     public const MAX_IDENTIFIER_LENGTH = 255;
 
+    public const MAX_RUN_ID_LENGTH = 36;
+
     public ?string $correlationId;
 
     public ?string $idempotencyKey;
 
-    public function __construct(?string $correlationId = null, ?string $idempotencyKey = null)
-    {
+    public ?string $replayedFromRunId;
+
+    public function __construct(
+        ?string $correlationId = null,
+        ?string $idempotencyKey = null,
+        ?string $replayedFromRunId = null,
+    ) {
         $this->correlationId = $this->normalize($correlationId, 'correlation id');
         $this->idempotencyKey = $this->normalize($idempotencyKey, 'idempotency key');
+        $this->replayedFromRunId = $this->normalize(
+            $replayedFromRunId,
+            'replayed-from run id',
+            self::MAX_RUN_ID_LENGTH,
+        );
     }
 
-    public static function make(?string $correlationId = null, ?string $idempotencyKey = null): self
-    {
-        return new self($correlationId, $idempotencyKey);
+    public static function make(
+        ?string $correlationId = null,
+        ?string $idempotencyKey = null,
+        ?string $replayedFromRunId = null,
+    ): self {
+        return new self($correlationId, $idempotencyKey, $replayedFromRunId);
     }
 
-    private function normalize(?string $value, string $field): ?string
+    private function normalize(?string $value, string $field, int $maxLength = self::MAX_IDENTIFIER_LENGTH): ?string
     {
         if ($value === null) {
             return null;
@@ -37,11 +52,11 @@ final readonly class FlowExecutionOptions
             return null;
         }
 
-        if ($this->characterLength($value) > self::MAX_IDENTIFIER_LENGTH) {
+        if ($this->characterLength($value) > $maxLength) {
             throw new FlowInputException(sprintf(
                 'Flow execution %s may not exceed %d characters.',
                 $field,
-                self::MAX_IDENTIFIER_LENGTH,
+                $maxLength,
             ));
         }
 

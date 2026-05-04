@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Padosoft\LaravelFlow\Tests\Unit\Persistence;
 
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
@@ -29,6 +30,7 @@ final class PersistenceMigrationTest extends PersistenceTestCase
             'compensation_status',
             'correlation_id',
             'idempotency_key',
+            'replayed_from_run_id',
         ]));
         $this->assertTrue(Schema::hasColumns('flow_steps', [
             'run_id',
@@ -77,5 +79,22 @@ final class PersistenceMigrationTest extends PersistenceTestCase
             ->delete();
 
         $this->assertSame(0, DB::table('flow_audit')->where('run_id', '00000000-0000-4000-8000-000000000099')->count());
+    }
+
+    public function test_replay_lineage_migration_adds_column_to_existing_flow_runs_table(): void
+    {
+        Schema::create('flow_runs', function (Blueprint $table): void {
+            $table->string('id', 36)->primary();
+            $table->string('idempotency_key')->nullable();
+        });
+
+        $migration = require __DIR__.'/../../../database/migrations/2026_05_04_000002_add_replay_lineage_to_laravel_flow_runs.php';
+        $migration->up();
+
+        $this->assertTrue(Schema::hasColumn('flow_runs', 'replayed_from_run_id'));
+
+        $migration->down();
+
+        $this->assertFalse(Schema::hasColumn('flow_runs', 'replayed_from_run_id'));
     }
 }

@@ -9,11 +9,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ### Added
 
 - **Persistence foundation** — publishable `flow_runs`, `flow_steps`, and `flow_audit` migrations; public `FlowStore`, `RedactorAwareFlowStore`, `CurrentPayloadRedactorProvider`, `RunRepository`, `StepRunRepository`, and `AuditRepository` contracts; `FlowExecutionOptions` for trimmed and length-validated correlation/idempotency keys; Eloquent-backed records/repositories; opt-in synchronous engine writes; immutable run identity updates; idempotency reuse of existing persisted runs; transaction-scoped run/step/audit transitions; compensate-first handling for persistence/listener failures after side effects; timestamped atomic step upserts with bounded input snapshots; sanitized error and listener-failure storage; clock-aware audit timestamps; append-only audit record guard; configurable payload redaction for stored JSON payloads; and `flow:prune` retention cleanup for old terminal runs.
+- **Queued dispatch foundation** — public `Flow::dispatch()` API plus queueable after-commit `RunFlowJob` that carries the flow name, input, and `FlowExecutionOptions` into a worker-resolved `FlowEngine` under a shared per-dispatch cache lock. Duplicate deliveries that find the lock held are released after the configurable lock retry delay; duplicates that arrive after the dispatch completed are acknowledged as no-ops. The process-local `array` cache store is accepted only with Laravel's `sync` queue driver. This is an early Macro Task 3 slice; retry/backoff policy, database queue integration, replay, and parallel compensation remain follow-up work.
 
 ### Changed
 
 - **Baseline compatibility policy** — Composer constraints and CI now target Laravel 13 only, with PHP 8.3 and 8.4 as stable hard gates. Package quality commands are exposed through Composer scripts: `format:test`, `analyse`, `test`, and `quality`.
-- **Runtime dependencies** — `illuminate/database` and `illuminate/console` are now production dependencies because v0.2 persistence repositories and console commands are part of the package runtime surface.
+- **Runtime dependencies** — `illuminate/database`, `illuminate/console`, `illuminate/cache`, and `illuminate/queue` are now production dependencies because v0.2 persistence repositories, console commands, queued dispatch, and run locks are part of the package runtime surface.
 
 ## [0.1.0] - 2026-05-02
 

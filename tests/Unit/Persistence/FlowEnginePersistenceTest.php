@@ -37,6 +37,8 @@ use Padosoft\LaravelFlow\Tests\Unit\Stubs\DryRunAwareHandler;
 use Padosoft\LaravelFlow\Tests\Unit\Stubs\EmptyOutputHandler;
 use Padosoft\LaravelFlow\Tests\Unit\Stubs\FirstStepCompensator;
 use Padosoft\LaravelFlow\Tests\Unit\Stubs\RecordingCompensator;
+use Padosoft\LaravelFlow\Tests\Unit\Stubs\SecondHandler;
+use Padosoft\LaravelFlow\Tests\Unit\Stubs\SecondStepCompensator;
 use Padosoft\LaravelFlow\Tests\Unit\Stubs\SecretFailsHandler;
 use Padosoft\LaravelFlow\Tests\Unit\Stubs\ThrowingCompensator;
 use RuntimeException;
@@ -341,6 +343,34 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
             'FlowStepFailed',
             'FlowCompensated',
         ], FlowAuditRecord::query()->where('run_id', $run->id)->orderBy('id')->pluck('event')->all());
+    }
+
+    public function test_parallel_compensation_strategy_persists_each_successful_compensation(): void
+    {
+        $this->migrateFlowTables();
+        $this->app['config']->set('laravel-flow.compensation_strategy', 'parallel');
+        $this->app['config']->set('laravel-flow.compensation_parallel_driver', 'sync');
+        $engine = $this->engineWithPersistence();
+
+        $engine->define('flow.persist.parallel-compensation')
+            ->step('create', AlwaysSucceedsHandler::class)
+            ->compensateWith(FirstStepCompensator::class)
+            ->step('reserve', SecondHandler::class)
+            ->compensateWith(SecondStepCompensator::class)
+            ->step('charge', AlwaysFailsHandler::class)
+            ->register();
+
+        $run = $engine->execute('flow.persist.parallel-compensation', []);
+
+        $runRecord = FlowRunRecord::query()->find($run->id);
+        $this->assertInstanceOf(FlowRunRecord::class, $runRecord);
+        $this->assertSame(FlowRun::STATUS_COMPENSATED, $runRecord->status);
+        $this->assertTrue($runRecord->compensated);
+        $this->assertSame('succeeded', $runRecord->compensation_status);
+        $this->assertSame(2, FlowAuditRecord::query()
+            ->where('run_id', $run->id)
+            ->where('event', 'FlowCompensated')
+            ->count());
     }
 
     public function test_compensated_run_finished_at_includes_compensation_time(): void

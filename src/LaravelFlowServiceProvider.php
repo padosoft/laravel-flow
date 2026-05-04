@@ -4,11 +4,14 @@ declare(strict_types=1);
 
 namespace Padosoft\LaravelFlow;
 
+use Illuminate\Concurrency\ConcurrencyManager;
+use Illuminate\Contracts\Concurrency\Driver as ConcurrencyDriver;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\ServiceProvider;
 use Padosoft\LaravelFlow\Console\PruneFlowRunsCommand;
+use Padosoft\LaravelFlow\Console\ReplayFlowRunCommand;
 use Padosoft\LaravelFlow\Contracts\AuditRepository;
 use Padosoft\LaravelFlow\Contracts\FlowStore;
 use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
@@ -17,6 +20,7 @@ use Padosoft\LaravelFlow\Contracts\StepRunRepository;
 use Padosoft\LaravelFlow\Persistence\EloquentFlowStore;
 use Padosoft\LaravelFlow\Persistence\ExecutionScopedPayloadRedactor;
 use Padosoft\LaravelFlow\Persistence\KeyBasedPayloadRedactor;
+use Throwable;
 
 /**
  * Service provider for padosoft/laravel-flow.
@@ -44,6 +48,7 @@ final class LaravelFlowServiceProvider extends ServiceProvider
                 $events,
                 $config,
                 clock: static fn (): \DateTimeImmutable => Date::now()->toDateTimeImmutable(),
+                compensationConcurrencyDriver: $this->compensationConcurrencyDriver($app, $config),
             );
         });
 
@@ -87,10 +92,12 @@ final class LaravelFlowServiceProvider extends ServiceProvider
 
         $this->publishesMigrations([
             __DIR__.'/../database/migrations/2026_05_02_000001_create_laravel_flow_tables.php' => $this->app->databasePath('migrations/2026_05_02_000001_create_laravel_flow_tables.php'),
+            __DIR__.'/../database/migrations/2026_05_04_000002_add_replay_lineage_to_laravel_flow_runs.php' => $this->app->databasePath('migrations/2026_05_04_000002_add_replay_lineage_to_laravel_flow_runs.php'),
         ], 'laravel-flow-migrations');
 
         $this->commands([
             PruneFlowRunsCommand::class,
+            ReplayFlowRunCommand::class,
         ]);
     }
 
@@ -100,5 +107,29 @@ final class LaravelFlowServiceProvider extends ServiceProvider
         return function_exists('config_path')
             ? config_path($file)
             : $this->app->basePath('config/'.$file);
+    }
+
+    /**
+     * @param  array<string, mixed>  $config
+     */
+    private function compensationConcurrencyDriver(Container $app, array $config): ?ConcurrencyDriver
+    {
+        if (($config['compensation_strategy'] ?? 'reverse-order') !== 'parallel') {
+            return null;
+        }
+
+        if (! class_exists(ConcurrencyManager::class)) {
+            return null;
+        }
+
+        $driverName = (string) ($config['compensation_parallel_driver'] ?? 'process');
+
+        try {
+            $driver = $app->make(ConcurrencyManager::class)->driver($driverName);
+        } catch (Throwable) {
+            return null;
+        }
+
+        return $driver instanceof ConcurrencyDriver ? $driver : null;
     }
 }

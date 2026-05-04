@@ -321,7 +321,7 @@ class FlowEngine
                     }
 
                     $this->dispatchOrCaptureListenerFailure(
-                        new FlowPaused($run->id, $definition->name, $step->name, $result, $dryRun, $issuedApprovalToken),
+                        new FlowPaused($run->id, $definition->name, $step->name, $result, $dryRun),
                         $listenerFailureEvent,
                     );
                 } catch (Throwable $e) {

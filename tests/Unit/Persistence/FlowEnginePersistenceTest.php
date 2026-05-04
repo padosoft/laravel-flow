@@ -396,7 +396,8 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         $this->assertSame(ApprovalTokenManager::hashToken($issuedToken->plainTextToken), $approvalRecord->token_hash);
         $this->assertNotSame($issuedToken->plainTextToken, $approvalRecord->token_hash);
 
-        Event::assertDispatched(FlowPaused::class, fn (FlowPaused $event): bool => $event->approvalToken?->approvalId === $issuedToken->approvalId);
+        Event::assertDispatched(FlowPaused::class, fn (FlowPaused $event): bool => $event->result->output['approval_id'] === $issuedToken->approvalId
+            && ! array_key_exists('token', $event->result->output));
 
         $this->assertSame([
             'FlowStepStarted',

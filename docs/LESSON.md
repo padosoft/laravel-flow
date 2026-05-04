@@ -217,5 +217,5 @@
 - Public clock hooks should accept common `DateTimeInterface` implementations such as Carbon and normalize to immutable internals instead of assuming callers return `DateTimeImmutable`.
 - Within one approval-token decision, capture the current clock value once and reuse it for comparisons and persisted decision timestamps; repeated clock reads can create flaky boundary behavior.
 - Approval `updated_at` should reuse the same decision timestamp as `consumed_at` / `decided_at` during approve, reject, and expiry writes; mixed clocks make operational timelines harder to reason about.
-- Approval-gate token issuance should enrich persisted step/audit output only with non-secret metadata such as approval id and expiry; the plain token belongs only on the immediate returned run/event path and must not be persisted.
+- Approval-gate token issuance should enrich persisted step/audit/event output only with non-secret metadata such as approval id and expiry; the plain token belongs only on the immediate returned run path and must not be persisted or carried by queued/serialized events.
 - If a paused transition later aborts because a `FlowPaused` listener throws, expire the newly issued approval token best-effort before compensation so a failed/compensated run cannot retain a pending usable token.

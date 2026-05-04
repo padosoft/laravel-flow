@@ -11,6 +11,7 @@ use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\ServiceProvider;
 use Padosoft\LaravelFlow\Console\ApproveFlowCommand;
+use Padosoft\LaravelFlow\Console\DeliverWebhookOutboxCommand;
 use Padosoft\LaravelFlow\Console\PruneFlowRunsCommand;
 use Padosoft\LaravelFlow\Console\RejectFlowCommand;
 use Padosoft\LaravelFlow\Console\ReplayFlowRunCommand;
@@ -92,6 +93,17 @@ final class LaravelFlowServiceProvider extends ServiceProvider
                 redactor: $app->make(ExecutionScopedPayloadRedactor::class),
             );
         });
+        $this->app->singleton(WebhookDeliveryClient::class, function (Container $app): WebhookDeliveryClient {
+            /** @var mixed $secret */
+            $secret = $app['config']->get('laravel-flow.webhook.secret');
+            /** @var mixed $timeoutSeconds */
+            $timeoutSeconds = $app['config']->get('laravel-flow.webhook.timeout_seconds', 5);
+
+            return new WebhookDeliveryClient(
+                timeoutSeconds: is_numeric($timeoutSeconds) && (int) $timeoutSeconds >= 1 ? (int) $timeoutSeconds : 5,
+                secret: is_string($secret) && $secret !== '' ? $secret : null,
+            );
+        });
         $this->app->bind(ApprovalRepository::class, function (Container $app): ApprovalRepository {
             /** @var string|null $connection */
             $connection = $app['config']->get('laravel-flow.default_storage');
@@ -133,6 +145,7 @@ final class LaravelFlowServiceProvider extends ServiceProvider
         $this->commands([
             ApproveFlowCommand::class,
             RejectFlowCommand::class,
+            DeliverWebhookOutboxCommand::class,
             PruneFlowRunsCommand::class,
             ReplayFlowRunCommand::class,
         ]);

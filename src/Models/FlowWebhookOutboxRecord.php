@@ -25,6 +25,8 @@ final class FlowWebhookOutboxRecord extends Model
 {
     public const STATUS_PENDING = 'pending';
 
+    public const STATUS_DELIVERING = 'delivering';
+
     public const STATUS_DELIVERED = 'delivered';
 
     public const STATUS_FAILED = 'failed';

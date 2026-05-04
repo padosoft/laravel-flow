@@ -7,6 +7,9 @@ $queueLockRetrySeconds = env('LARAVEL_FLOW_QUEUE_LOCK_RETRY_SECONDS', 30);
 $queueTries = env('LARAVEL_FLOW_QUEUE_TRIES', null);
 $queueBackoffSeconds = env('LARAVEL_FLOW_QUEUE_BACKOFF_SECONDS', null);
 $approvalTokenTtlMinutes = env('LARAVEL_FLOW_APPROVAL_TOKEN_TTL_MINUTES', 1440);
+$webhookTimeoutSeconds = env('LARAVEL_FLOW_WEBHOOK_TIMEOUT_SECONDS', 5);
+$webhookRetryBaseDelaySeconds = env('LARAVEL_FLOW_WEBHOOK_RETRY_BASE_DELAY_SECONDS', 30);
+$webhookMaxAttempts = env('LARAVEL_FLOW_WEBHOOK_MAX_ATTEMPTS', 3);
 
 return [
 
@@ -114,6 +117,30 @@ return [
     |
     */
     'dry_run_default' => env('LARAVEL_FLOW_DRY_RUN_DEFAULT', false),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Webhook delivery outbox
+    |--------------------------------------------------------------------------
+    |
+    | Signed webhook delivery is optional. Enable it when you want Laravel Flow
+    | lifecycle events to be delivered outside the package boundary.
+    |
+    */
+    'webhook' => [
+        'enabled' => env('LARAVEL_FLOW_WEBHOOK_ENABLED', false),
+        'url' => env('LARAVEL_FLOW_WEBHOOK_URL', ''),
+        'secret' => env('LARAVEL_FLOW_WEBHOOK_SECRET', null),
+        'retry_base_delay_seconds' => is_numeric($webhookRetryBaseDelaySeconds) && (int) $webhookRetryBaseDelaySeconds > 0
+            ? (int) $webhookRetryBaseDelaySeconds
+            : 30,
+        'max_attempts' => is_numeric($webhookMaxAttempts) && (int) $webhookMaxAttempts > 0
+            ? (int) $webhookMaxAttempts
+            : 3,
+        'timeout_seconds' => is_numeric($webhookTimeoutSeconds) && (int) $webhookTimeoutSeconds > 0
+            ? (int) $webhookTimeoutSeconds
+            : 5,
+    ],
 
     /*
     |--------------------------------------------------------------------------

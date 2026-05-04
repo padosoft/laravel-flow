@@ -19,6 +19,7 @@ use Padosoft\LaravelFlow\Contracts\StepRunRepository;
 use Padosoft\LaravelFlow\FlowEngine;
 use Padosoft\LaravelFlow\LaravelFlowServiceProvider;
 use Padosoft\LaravelFlow\Persistence\EloquentWebhookOutboxRepository;
+use Padosoft\LaravelFlow\WebhookDeliveryClient;
 
 /**
  * Smoke coverage for service-provider auto-discovery and package bindings.
@@ -66,6 +67,7 @@ final class ServiceProviderTest extends TestCase
         $this->assertTrue($this->app->bound(EloquentWebhookOutboxRepository::class));
         $this->assertTrue($this->app->bound(PayloadRedactor::class));
         $this->assertTrue($this->app->bound(ApprovalTokenManager::class));
+        $this->assertTrue($this->app->bound(WebhookDeliveryClient::class));
         $this->assertFalse($this->app->bound(ConditionalRunRepository::class));
         $this->assertFalse($this->app->bound(ApprovalDecisionRepository::class));
         $this->assertInstanceOf(ConditionalRunRepository::class, $this->app->make(FlowStore::class)->runs());
@@ -114,5 +116,12 @@ final class ServiceProviderTest extends TestCase
             realpath($packageRoot.'/database/migrations/2026_05_04_000004_add_previous_token_hash_to_flow_approvals.php'),
             $migrationSources,
         );
+    }
+
+    public function test_deliver_webhook_outbox_command_is_registered(): void
+    {
+        $this->artisan('flow:deliver-webhooks')
+            ->expectsOutputToContain('Enable laravel-flow.webhook.enabled before delivering webhook outbox rows.')
+            ->assertExitCode(1);
     }
 }

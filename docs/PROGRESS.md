@@ -16,6 +16,7 @@ Known workstreams:
 | Macro Task 4 - v0.3 approval gates/webhooks | In progress on macro branch `task/v03-approval-webhooks`. PR #25 added additive persistence foundation for hashed approval resume tokens and webhook outbox rows. PR #26 added the public `approvalGate($name)` pause primitive and persisted `paused` run/step/audit state. PR #27 added the approval repository and `ApprovalTokenManager` for hashed, expiring, one-time approve/reject token records. PR #28 wired persisted `approvalGate()` pauses to issue pending approval records while keeping plain tokens only on the returned run. The approval-resume API slice adds persisted `Flow::resume()` / `Flow::reject()` APIs before CLI approval commands and webhook delivery; local hardening keeps approval decision/run-claim operations behind optional repository extensions, rejects process-local approval locks, serializes approval decisions by run, forces pending lock losers to retry, validates definition drift before consuming pending tokens, preserves decided-token state around expiry races, rejects expired-token lock fallbacks, treats older gate tokens as read-only once later approval gates exist while allowing one fresh token reissue for a later paused approval gate without invalidating the previous hash, surfaces package-level schema/cache diagnostics, applies execution-frozen redaction to approval decisions, atomically claims paused runs before recovering already-succeeded approval steps, returns current `running` state instead of re-entering downstream handlers after lock expiry, and skips already-persisted downstream successes on retry when no handler execution is required. The new webhook-outbox slice now persists `flow.paused` rows in the same pause transaction; signed delivery remains the next step. |
 | Macro Task 4 - approval resume/reject API hardening | Completed and merged into `task/v03-approval-webhooks` via PR #29 (merge commit `a0eb54cc9c45e81f3350de3dd0336b52202f2c75`). The slice hardened approval resume/reject against downstream token reissue write failures, preserved running duplicates while downstream work is still in flight, kept persisted completed downstream steps finishable, and aligned `docs/LESSON.md` / README comparison wording. |
 | Macro Task 4 - CLI approval/reject commands | Completed and merged into `task/v03-approval-webhooks` via PR #30 (merge commit `0dfee4a272f34c94ec6718f2d2fce56c05de17f9`). The slice added `flow:approve` / `flow:reject` commands, shared approval-decision command plumbing, service-provider registration, and persistence-backed CLI tests. |
+| Macro Task 4 - signed webhook outbox delivery | In progress on subtask branch `task/v03-webhook-delivery`. Adds the `flow:deliver-webhooks` Artisan command, `WebhookDeliveryClient` (HMAC-SHA256 `X-Laravel-Flow-Signature: t=...,v1=...` header, configurable timeout, validated URL), exponential backoff retries up to `webhook.max_attempts`, lease-style claim of pending/stale `delivering` rows, and persisted `flow.completed`/`flow.failed`/`flow.resumed` outbox rows alongside the previously persisted `flow.paused` rows. Repository keeps an optional default `PayloadRedactor` binding so direct resolvers still get JSON redaction while engine writes pass an execution-frozen redactor per call. |
 
 Concurrent subtasks should add rows here instead of replacing existing workstreams.
 
@@ -57,13 +58,12 @@ Current validation baseline:
 - `composer validate --strict --no-check-publish`
 - `composer format:test`
 - `composer analyse`
-- `composer test` => Unit 213 tests / 973 assertions, Architecture 2 tests / 7 assertions
+- `composer test` => Unit 234 tests / 1054 assertions, Architecture 2 tests / 7 assertions
 
 Current Macro Task 4 subtask:
 
-- Approval resume/reject API hardening and CLI approval/reject commands are merged. Continue with the webhook outbox delivery slice on `task/v03-approval-webhooks`; the current subtask now persists `flow.paused` rows and the next step is signed delivery.
-- The remaining Macro Task 4 slice after the current enqueue work is signed webhook outbox delivery.
+- Signed webhook outbox delivery is in progress on subtask branch `task/v03-webhook-delivery`. The slice persists `flow.completed`, `flow.failed`, `flow.paused`, and `flow.resumed` rows in `flow_webhook_outbox` and ships `flow:deliver-webhooks` for HMAC-signed delivery with exponential backoff and stale-lease recovery.
 
 Next active macro:
 
-- Continue Macro Task 4 from `docs/ENTERPRISE_PLAN.md`: after the approval resume API slice lands, add CLI approval/reject commands and signed webhook outbox delivery in follow-up subtasks.
+- Continue Macro Task 4 from `docs/ENTERPRISE_PLAN.md`: open the webhook delivery subtask PR into `task/v03-approval-webhooks`, run the Copilot/CI loop, then progress to the macro PR into `main` once all subtasks are merged.

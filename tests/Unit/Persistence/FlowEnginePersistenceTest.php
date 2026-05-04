@@ -549,6 +549,42 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
             ->count());
     }
 
+    public function test_resume_old_approval_token_returns_current_downstream_pause_after_definition_drift(): void
+    {
+        $this->migrateFlowTables();
+        $engine = $this->engineWithPersistence();
+
+        $engine->define('flow.persist.approval-resume-old-token-downstream-drift')
+            ->step('create', AlwaysSucceedsHandler::class)
+            ->approvalGate('manager')
+            ->step('publish', ApprovalPayloadCapturingHandler::class)
+            ->approvalGate('director')
+            ->step('finalize', AlwaysSucceedsHandler::class)
+            ->register();
+
+        $managerPausedRun = $engine->execute('flow.persist.approval-resume-old-token-downstream-drift', []);
+        $managerToken = $managerPausedRun->approvalTokens['manager']->plainTextToken;
+        $directorPausedRun = $engine->resume($managerToken, ['decision' => 'ship']);
+
+        $engine->define('flow.persist.approval-resume-old-token-downstream-drift')
+            ->step('create', SecondHandler::class)
+            ->approvalGate('manager')
+            ->step('publish', ApprovalPayloadCapturingHandler::class)
+            ->approvalGate('director')
+            ->step('finalize', AlwaysSucceedsHandler::class)
+            ->register();
+
+        $oldTokenRetry = $engine->resume($managerToken, ['decision' => 'ignored']);
+
+        $this->assertSame($directorPausedRun->id, $oldTokenRetry->id);
+        $this->assertSame(FlowRun::STATUS_PAUSED, $oldTokenRetry->status);
+        $this->assertSame(1, ApprovalPayloadCapturingHandler::$callCount);
+        $this->assertSame(0, (int) FlowStepRecord::query()
+            ->where('run_id', $directorPausedRun->id)
+            ->where('step_name', 'finalize')
+            ->count());
+    }
+
     public function test_resume_old_approval_token_is_serialized_by_run_lock_while_later_gate_is_running(): void
     {
         $this->migrateFlowTables();
@@ -622,6 +658,45 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
             ->where('step_name', 'finalize')
             ->firstOrFail()
             ->status);
+    }
+
+    public function test_reject_old_approved_token_reports_conflict_when_run_lock_is_held(): void
+    {
+        $this->migrateFlowTables();
+        $engine = $this->engineWithPersistence();
+
+        $engine->define('flow.persist.approval-reject-old-token-lock-conflict')
+            ->step('create', AlwaysSucceedsHandler::class)
+            ->approvalGate('manager')
+            ->step('publish', ApprovalPayloadCapturingHandler::class)
+            ->approvalGate('director')
+            ->step('finalize', AlwaysSucceedsHandler::class)
+            ->register();
+
+        $managerPausedRun = $engine->execute('flow.persist.approval-reject-old-token-lock-conflict', []);
+        $managerToken = $managerPausedRun->approvalTokens['manager']->plainTextToken;
+        $directorPausedRun = $engine->resume($managerToken, ['decision' => 'ship']);
+
+        $lock = Cache::store('file')->getStore()->lock('laravel-flow:approval-run:'.$directorPausedRun->id, 60);
+        $this->assertTrue($lock->get());
+
+        try {
+            $engine->reject($managerToken, ['reason' => 'changed']);
+            $this->fail('Conflicting decisions should not return the current run under lock contention.');
+        } catch (FlowExecutionException $exception) {
+            $this->assertSame('Approval token was already decided as [approved].', $exception->getMessage());
+        } finally {
+            $lock->release();
+        }
+
+        $this->assertSame(FlowRun::STATUS_PAUSED, FlowRunRecord::query()
+            ->whereKey($directorPausedRun->id)
+            ->firstOrFail()
+            ->status);
+        $this->assertSame(0, (int) FlowStepRecord::query()
+            ->where('run_id', $directorPausedRun->id)
+            ->where('step_name', 'finalize')
+            ->count());
     }
 
     public function test_resume_does_not_continue_when_paused_run_claim_was_lost(): void
@@ -1080,6 +1155,39 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
 
         try {
             $engine->resume($token);
+            $this->fail('Expired approval tokens should be rejected.');
+        } catch (FlowExecutionException $exception) {
+            $this->assertSame('Approval token is invalid or expired.', $exception->getMessage());
+        }
+
+        $this->assertSame(FlowApprovalRecord::STATUS_EXPIRED, FlowApprovalRecord::query()
+            ->where('run_id', $pausedRun->id)
+            ->where('step_name', 'manager')
+            ->firstOrFail()
+            ->status);
+    }
+
+    public function test_reject_rejects_expired_approval_token(): void
+    {
+        $this->migrateFlowTables();
+        $engine = $this->engineWithPersistence();
+
+        $engine->define('flow.persist.approval-reject-expired-token')
+            ->step('create', AlwaysSucceedsHandler::class)
+            ->approvalGate('manager')
+            ->step('publish', ApprovalPayloadCapturingHandler::class)
+            ->register();
+
+        $pausedRun = $engine->execute('flow.persist.approval-reject-expired-token', []);
+        $token = $pausedRun->approvalTokens['manager']->plainTextToken;
+
+        FlowApprovalRecord::query()
+            ->where('run_id', $pausedRun->id)
+            ->where('step_name', 'manager')
+            ->update(['expires_at' => now()->subMinute()]);
+
+        try {
+            $engine->reject($token);
             $this->fail('Expired approval tokens should be rejected.');
         } catch (FlowExecutionException $exception) {
             $this->assertSame('Approval token is invalid or expired.', $exception->getMessage());

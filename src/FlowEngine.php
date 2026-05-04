@@ -615,7 +615,7 @@ class FlowEngine
         [$store, $redactor] = $this->approvalDecisionStore();
         $approval = $this->approvalDecisionRecord($token);
 
-        return $this->withApprovalDecisionLock($token, $approval, $store, function () use ($token, $decision, $payload, $actor, $store, $redactor): FlowRun {
+        return $this->withApprovalDecisionLock($token, $decision, $approval, $store, function () use ($token, $decision, $payload, $actor, $store, $redactor): FlowRun {
             return $this->decideApprovalWithLock($token, $decision, $payload, $actor, $store, $redactor);
         });
     }
@@ -669,7 +669,7 @@ class FlowEngine
         $decisionActor = $approval->actor ?? [];
 
         if ($decision === FlowApprovalRecord::STATUS_APPROVED) {
-            return $this->resumeApprovedApproval($approval, $decisionPayload, $decisionActor, $store, $redactor);
+            return $this->resumeApprovedApproval($approval, $consumedNow, $decisionPayload, $decisionActor, $store, $redactor);
         }
 
         return $this->rejectApprovalDecision($approval, $decisionPayload, $decisionActor, $store, $redactor);
@@ -680,6 +680,7 @@ class FlowEngine
      */
     private function withApprovalDecisionLock(
         string $token,
+        string $decision,
         FlowApprovalRecord $approval,
         FlowStore $store,
         callable $callback,
@@ -703,7 +704,7 @@ class FlowEngine
         );
 
         if (! $lock->get()) {
-            return $this->approvalRunStateForToken($token, $store);
+            return $this->approvalRunStateForToken($token, $decision, $store);
         }
 
         try {
@@ -713,9 +714,18 @@ class FlowEngine
         }
     }
 
-    private function approvalRunStateForToken(string $token, FlowStore $store): FlowRun
+    private function approvalRunStateForToken(string $token, string $decision, FlowStore $store): FlowRun
     {
         $approval = $this->approvalDecisionRecord($token);
+
+        if (in_array($approval->status, [FlowApprovalRecord::STATUS_APPROVED, FlowApprovalRecord::STATUS_REJECTED], true)
+            && $approval->status !== $decision
+        ) {
+            throw new FlowExecutionException(sprintf(
+                'Approval token was already decided as [%s].',
+                $approval->status,
+            ));
+        }
 
         $runRecord = $store->runs()->find($approval->run_id);
 
@@ -724,6 +734,41 @@ class FlowEngine
         }
 
         return $this->flowRunFromRecord($runRecord, $store);
+    }
+
+    private function hasPersistedDownstreamPause(
+        FlowApprovalRecord $approval,
+        FlowStore $store,
+        FlowRunRecord $runRecord,
+    ): bool {
+        if ($runRecord->status !== FlowRun::STATUS_PAUSED
+            || $approval->status !== FlowApprovalRecord::STATUS_APPROVED
+        ) {
+            return false;
+        }
+
+        $approvalSequence = null;
+
+        foreach ($store->steps()->forRun($runRecord->id) as $stepRecord) {
+            if ($stepRecord->step_name === $approval->step_name) {
+                if ($stepRecord->status !== 'succeeded') {
+                    return false;
+                }
+
+                $approvalSequence = $stepRecord->sequence;
+
+                continue;
+            }
+
+            if ($approvalSequence !== null
+                && $stepRecord->sequence > $approvalSequence
+                && $stepRecord->status === 'paused'
+            ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -788,6 +833,7 @@ class FlowEngine
      */
     private function resumeApprovedApproval(
         FlowApprovalRecord $approval,
+        bool $consumedNow,
         array $payload,
         array $actor,
         FlowStore $store,
@@ -796,6 +842,10 @@ class FlowEngine
         $runRecord = $this->approvalRunRecord($approval, $store);
 
         if (! in_array($runRecord->status, [FlowRun::STATUS_PAUSED, FlowRun::STATUS_RUNNING], true)) {
+            return $this->flowRunFromRecord($runRecord, $store);
+        }
+
+        if (! $consumedNow && $this->hasPersistedDownstreamPause($approval, $store, $runRecord)) {
             return $this->flowRunFromRecord($runRecord, $store);
         }
 
@@ -1256,7 +1306,7 @@ class FlowEngine
         $definition = $this->definition($runRecord->definition_name);
         $approvalIndex = $this->approvalStepIndex($definition, $approval->step_name);
         $approvalStep = $definition->steps[$approvalIndex];
-        $run = $this->flowRunFromRecord($runRecord, $store);
+        $run = $this->flowRunShellFromRecord($runRecord);
         $input = is_array($runRecord->input) ? $runRecord->input : [];
         $context = new FlowContext($runRecord->id, $definition->name, $input, [], (bool) $runRecord->dry_run);
         $completedSteps = [];
@@ -1269,6 +1319,12 @@ class FlowEngine
         $pausedDownstreamStep = null;
 
         foreach ($store->steps()->forRun($runRecord->id) as $stepRecord) {
+            $result = $this->flowStepResultFromRecord($stepRecord);
+
+            if ($result instanceof FlowStepResult) {
+                $run->recordStepResult($stepRecord->step_name, $result);
+            }
+
             $stepIndex = $this->stepIndex($definition, $stepRecord->step_name);
 
             if ($stepIndex === null || $stepIndex !== $expectedIndex) {
@@ -2220,6 +2276,23 @@ class FlowEngine
 
     private function flowRunFromRecord(FlowRunRecord $record, ?FlowStore $store = null): FlowRun
     {
+        $run = $this->flowRunShellFromRecord($record);
+
+        if ($store instanceof FlowStore) {
+            foreach ($store->steps()->forRun($record->id) as $stepRecord) {
+                $result = $this->flowStepResultFromRecord($stepRecord);
+
+                if ($result instanceof FlowStepResult) {
+                    $run->recordStepResult($stepRecord->step_name, $result);
+                }
+            }
+        }
+
+        return $run;
+    }
+
+    private function flowRunShellFromRecord(FlowRunRecord $record): FlowRun
+    {
         $run = new FlowRun(
             id: $record->id,
             definitionName: $record->definition_name,
@@ -2233,16 +2306,6 @@ class FlowEngine
         $run->failedStep = $record->failed_step;
         $run->compensated = (bool) $record->compensated;
         $run->finishedAt = $this->immutableDate($record->finished_at);
-
-        if ($store instanceof FlowStore) {
-            foreach ($store->steps()->forRun($record->id) as $stepRecord) {
-                $result = $this->flowStepResultFromRecord($stepRecord);
-
-                if ($result instanceof FlowStepResult) {
-                    $run->recordStepResult($stepRecord->step_name, $result);
-                }
-            }
-        }
 
         return $run;
     }

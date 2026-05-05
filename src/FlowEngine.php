@@ -34,6 +34,7 @@ use Padosoft\LaravelFlow\Jobs\RunFlowJob;
 use Padosoft\LaravelFlow\Models\FlowApprovalRecord;
 use Padosoft\LaravelFlow\Models\FlowRunRecord;
 use Padosoft\LaravelFlow\Models\FlowStepRecord;
+use Padosoft\LaravelFlow\Persistence\EloquentWebhookOutboxRepository;
 use Padosoft\LaravelFlow\Persistence\PayloadRedactorResolution;
 use Padosoft\LaravelFlow\Queue\QueueRetryPolicy;
 use Throwable;
@@ -361,6 +362,25 @@ class FlowEngine
                             'output' => $result->output,
                             'status' => 'paused',
                         ], $result->businessImpact, $stepFinishedAt);
+                        $this->recordWebhookOutbox(
+                            event: 'flow.paused',
+                            runId: $run->id,
+                            approvalId: isset($result->output['approval_id']) && is_string($result->output['approval_id'])
+                                ? $result->output['approval_id']
+                                : null,
+                            payload: [
+                                'definition_name' => $definition->name,
+                                'dry_run' => $dryRun,
+                                'flow_run_id' => $run->id,
+                                'occurred_at' => $stepFinishedAt->format(DateTimeInterface::ATOM),
+                                'output' => $result->output,
+                                'step_name' => $step->name,
+                                'status' => 'paused',
+                            ],
+                            availableAt: $stepFinishedAt,
+                            maxAttempts: $this->webhookMaxAttempts(),
+                            redactor: $redactor,
+                        );
                         $this->persistRunFinished($store, $run);
                     });
 
@@ -484,9 +504,26 @@ class FlowEngine
         }
 
         try {
-            $run->markSucceeded($this->now());
-            $this->persistAtomically($store, function () use ($store, $run): void {
+            $finishedAt = $this->now();
+            $run->markSucceeded($finishedAt);
+            $this->persistAtomically($store, function () use ($store, $definition, $run, $context, $redactor, $finishedAt): void {
                 $this->persistRunFinished($store, $run);
+                $this->recordWebhookOutbox(
+                    event: 'flow.completed',
+                    runId: $run->id,
+                    approvalId: null,
+                    payload: $this->flowWebhookPayload(
+                        definitionName: $definition->name,
+                        runId: $run->id,
+                        dryRun: $context->dryRun,
+                        output: $this->runOutput($run),
+                        status: FlowRun::STATUS_SUCCEEDED,
+                        occurredAt: $finishedAt,
+                    ),
+                    availableAt: $finishedAt,
+                    maxAttempts: $this->webhookMaxAttempts(),
+                    redactor: $redactor,
+                );
             });
         } catch (Throwable $e) {
             $this->compensateAfterRuntimeAbort(
@@ -558,6 +595,25 @@ class FlowEngine
                     'status' => 'failed',
                 ], occurredAt: $stepFinishedAt);
                 $this->persistRunFinished($store, $run);
+                $this->recordWebhookOutbox(
+                    event: 'flow.failed',
+                    runId: $run->id,
+                    approvalId: null,
+                    payload: $this->flowWebhookPayload(
+                        definitionName: $definition->name,
+                        runId: $run->id,
+                        dryRun: $context->dryRun,
+                        output: $this->runOutput($run),
+                        status: FlowRun::STATUS_FAILED,
+                        occurredAt: $stepFinishedAt,
+                        stepName: $step->name,
+                        errorClass: $error instanceof Throwable ? $error::class : null,
+                        errorMessage: $this->safeErrorMessage($error, $redactor),
+                    ),
+                    availableAt: $stepFinishedAt,
+                    maxAttempts: $this->webhookMaxAttempts(),
+                    redactor: $redactor,
+                );
             });
             $this->dispatchOrCaptureListenerFailure(
                 new FlowStepFailed($run->id, $definition->name, $step->name, $result, $context->dryRun),
@@ -1192,6 +1248,23 @@ class FlowEngine
                     'output' => $result->output,
                     'status' => 'succeeded',
                 ], occurredAt: $finishedAt);
+                $this->recordWebhookOutbox(
+                    event: 'flow.resumed',
+                    runId: $run->id,
+                    approvalId: $approval->id,
+                    payload: $this->flowWebhookPayload(
+                        definitionName: $state->definition->name,
+                        runId: $run->id,
+                        dryRun: $state->context->dryRun,
+                        output: $this->runOutput($run),
+                        status: FlowRun::STATUS_RUNNING,
+                        occurredAt: $finishedAt,
+                        stepName: $approval->step_name,
+                    ),
+                    availableAt: $finishedAt,
+                    maxAttempts: $this->webhookMaxAttempts(),
+                    redactor: $redactor,
+                );
                 $this->persistRunFinished($store, $run);
             });
 
@@ -1299,6 +1372,7 @@ class FlowEngine
                 $startedAt,
                 $finishedAt,
                 $redactor,
+                $approval,
                 &$claimedRunRecord,
             ): void {
                 $claimedRunRecord = $this->conditionalRuns($store)->updateWhereStatus($run->id, FlowRun::STATUS_PAUSED, [
@@ -1335,6 +1409,25 @@ class FlowEngine
                     'error_message' => $this->safeErrorMessage($error, $redactor),
                     'status' => 'failed',
                 ], occurredAt: $finishedAt);
+                $this->recordWebhookOutbox(
+                    event: 'flow.failed',
+                    runId: $run->id,
+                    approvalId: $approval->id,
+                    payload: $this->flowWebhookPayload(
+                        definitionName: $state->definition->name,
+                        runId: $run->id,
+                        dryRun: $state->context->dryRun,
+                        output: $this->runOutput($run),
+                        status: FlowRun::STATUS_FAILED,
+                        occurredAt: $finishedAt,
+                        stepName: $state->approvalStep->name,
+                        errorClass: $error instanceof Throwable ? $error::class : null,
+                        errorMessage: $this->safeErrorMessage($error, $redactor),
+                    ),
+                    availableAt: $finishedAt,
+                    maxAttempts: $this->webhookMaxAttempts(),
+                    redactor: $redactor,
+                );
                 $this->persistRunFinished($store, $run);
             });
 
@@ -2376,6 +2469,84 @@ class FlowEngine
 
             throw $e;
         }
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    private function recordWebhookOutbox(
+        string $event,
+        ?string $runId,
+        ?string $approvalId,
+        array $payload,
+        ?DateTimeInterface $availableAt = null,
+        ?int $maxAttempts = null,
+        ?PayloadRedactor $redactor = null,
+    ): void {
+        /** @var EloquentWebhookOutboxRepository $repository */
+        $repository = $this->container->make(EloquentWebhookOutboxRepository::class);
+
+        $repository->createPending(
+            event: $event,
+            runId: $runId,
+            approvalId: $approvalId,
+            payload: $payload,
+            availableAt: $availableAt,
+            maxAttempts: $maxAttempts ?? $this->webhookMaxAttempts(),
+            redactor: $redactor,
+        );
+    }
+
+    private function webhookMaxAttempts(): int
+    {
+        $webhook = $this->config['webhook'] ?? [];
+
+        if (! is_array($webhook)) {
+            return 3;
+        }
+
+        $maxAttempts = $webhook['max_attempts'] ?? 3;
+
+        return is_int($maxAttempts) && $maxAttempts >= 1 ? $maxAttempts : 3;
+    }
+
+    /**
+     * @param  array<string, mixed>|null  $output
+     * @return array<string, mixed>
+     */
+    private function flowWebhookPayload(
+        string $definitionName,
+        string $runId,
+        bool $dryRun,
+        ?array $output,
+        string $status,
+        DateTimeInterface $occurredAt,
+        ?string $stepName = null,
+        ?string $errorClass = null,
+        ?string $errorMessage = null,
+    ): array {
+        $payload = [
+            'definition_name' => $definitionName,
+            'dry_run' => $dryRun,
+            'flow_run_id' => $runId,
+            'occurred_at' => $occurredAt->format(DateTimeInterface::ATOM),
+            'output' => $output,
+            'status' => $status,
+        ];
+
+        if ($stepName !== null) {
+            $payload['step_name'] = $stepName;
+        }
+
+        if ($errorClass !== null) {
+            $payload['error_class'] = $errorClass;
+        }
+
+        if ($errorMessage !== null) {
+            $payload['error_message'] = $errorMessage;
+        }
+
+        return $payload;
     }
 
     private function dispatchCompensatedAndIgnoreListenerFailure(

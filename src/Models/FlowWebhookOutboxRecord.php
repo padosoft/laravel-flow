@@ -23,6 +23,14 @@ use Illuminate\Support\Carbon;
  */
 final class FlowWebhookOutboxRecord extends Model
 {
+    public const STATUS_PENDING = 'pending';
+
+    public const STATUS_DELIVERING = 'delivering';
+
+    public const STATUS_DELIVERED = 'delivered';
+
+    public const STATUS_FAILED = 'failed';
+
     protected $table = 'flow_webhook_outbox';
 
     /**
@@ -37,11 +45,13 @@ final class FlowWebhookOutboxRecord extends Model
     {
         return [
             'attempts' => 'integer',
-            'available_at' => 'datetime',
-            'delivered_at' => 'datetime',
-            'failed_at' => 'datetime',
+            'available_at' => 'immutable_datetime',
+            'created_at' => 'immutable_datetime',
+            'delivered_at' => 'immutable_datetime',
+            'failed_at' => 'immutable_datetime',
             'max_attempts' => 'integer',
             'payload' => 'array',
+            'updated_at' => 'immutable_datetime',
         ];
     }
 }

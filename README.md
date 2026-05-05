@@ -7,6 +7,8 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg?style=flat-square)](LICENSE)
 [![Total Downloads](https://img.shields.io/packagist/dt/padosoft/laravel-flow.svg?style=flat-square)](https://packagist.org/packages/padosoft/laravel-flow)
 
+![Laravel Flow banner](resources/laravel-flow-banner.png)
+
 > **DX-first workflow / saga / compensation engine for Laravel — with native dry-run, configurable compensation strategies, business-impact projection, opt-in persistence, and audit events. Built for Laravel teams that need dry-run, compensation, and persisted run telemetry inside the app they already operate.**
 
 `laravel-flow` is the third deliverable of the [Padosoft v4.0 cycle](https://github.com/lopadova/AskMyDocs) (W5). It is a community Apache-2.0 package, **standalone-agnostic** (zero references to AskMyDocs / sister packages), and ships with the Padosoft AI vibe-coding pack so you can extend it with Claude Code or GitHub Copilot in minutes — not days.

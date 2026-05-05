@@ -8,6 +8,8 @@ use DateTimeImmutable;
 
 /**
  * Stable read DTO representing one append-only audit row for dashboard consumption.
+ *
+ * @api
  */
 final readonly class AuditEntry
 {

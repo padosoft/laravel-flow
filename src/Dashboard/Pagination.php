@@ -10,6 +10,8 @@ use InvalidArgumentException;
  * Pagination request DTO for dashboard list queries. The constructor
  * normalizes invalid input by throwing instead of silently coercing
  * because the dashboard contract treats list pagination as load-bearing.
+ *
+ * @api
  */
 final readonly class Pagination
 {

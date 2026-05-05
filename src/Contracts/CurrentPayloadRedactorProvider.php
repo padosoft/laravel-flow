@@ -7,6 +7,8 @@ namespace Padosoft\LaravelFlow\Contracts;
 /**
  * Implement on PayloadRedactor decorators that can expose one stable inner
  * redactor for a full repository record write.
+ *
+ * @api
  */
 interface CurrentPayloadRedactorProvider extends PayloadRedactor
 {

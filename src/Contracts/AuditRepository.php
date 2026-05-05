@@ -8,6 +8,9 @@ use DateTimeInterface;
 use Illuminate\Database\Eloquent\Collection;
 use Padosoft\LaravelFlow\Models\FlowAuditRecord;
 
+/**
+ * @api
+ */
 interface AuditRepository
 {
     /**

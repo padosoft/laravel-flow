@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Padosoft\LaravelFlow\Contracts;
 
+/**
+ * @api
+ */
 interface FlowStore
 {
     public function runs(): RunRepository;

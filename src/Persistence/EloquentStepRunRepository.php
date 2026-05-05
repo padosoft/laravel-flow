@@ -9,6 +9,9 @@ use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
 use Padosoft\LaravelFlow\Contracts\StepRunRepository;
 use Padosoft\LaravelFlow\Models\FlowStepRecord;
 
+/**
+ * @internal
+ */
 final class EloquentStepRunRepository implements StepRunRepository
 {
     public function __construct(

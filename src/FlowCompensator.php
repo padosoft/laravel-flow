@@ -11,6 +11,8 @@ namespace Padosoft\LaravelFlow;
  * AND the original step's result, so they can rollback what was
  * committed. Compensators MUST be idempotent — the engine may invoke
  * them more than once if the flow is replayed.
+ *
+ * @api
  */
 interface FlowCompensator
 {

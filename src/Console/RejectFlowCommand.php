@@ -7,6 +7,9 @@ namespace Padosoft\LaravelFlow\Console;
 use Padosoft\LaravelFlow\FlowEngine;
 use Padosoft\LaravelFlow\FlowRun;
 
+/**
+ * @internal
+ */
 final class RejectFlowCommand extends ApprovalDecisionCommand
 {
     /**

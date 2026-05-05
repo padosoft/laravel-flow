@@ -16,6 +16,8 @@ use DateTimeImmutable;
  * persistence ONLY when `laravel-flow.persistence.redaction.enabled` is
  * true (the default); host apps that disable that flag must add their own
  * redaction layer before rendering.
+ *
+ * @api
  */
 final readonly class ApprovalSummary
 {

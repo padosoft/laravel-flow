@@ -8,6 +8,8 @@ use DateTimeImmutable;
 
 /**
  * Stable read DTO representing a persisted step row for dashboard consumption.
+ *
+ * @api
  */
 final readonly class StepSummary
 {

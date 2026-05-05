@@ -10,6 +10,9 @@ use InvalidArgumentException;
 use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
 use Padosoft\LaravelFlow\Models\FlowWebhookOutboxRecord;
 
+/**
+ * @internal
+ */
 final class EloquentWebhookOutboxRepository
 {
     public const STATUS_PENDING = 'pending';

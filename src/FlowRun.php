@@ -15,6 +15,8 @@ use DateTimeImmutable;
  * during long-running flows once v0.2 ships queued workers.
  *
  * @phpstan-type StepResultMap array<string, FlowStepResult>
+ *
+ * @api
  */
 final class FlowRun
 {

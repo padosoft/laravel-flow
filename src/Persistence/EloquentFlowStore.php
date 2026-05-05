@@ -12,6 +12,9 @@ use Padosoft\LaravelFlow\Contracts\RedactorAwareFlowStore;
 use Padosoft\LaravelFlow\Contracts\RunRepository;
 use Padosoft\LaravelFlow\Contracts\StepRunRepository;
 
+/**
+ * @internal
+ */
 final class EloquentFlowStore implements FlowStore, RedactorAwareFlowStore
 {
     public function __construct(

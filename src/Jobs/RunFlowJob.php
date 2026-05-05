@@ -18,6 +18,9 @@ use Padosoft\LaravelFlow\Queue\QueueRetryPolicy;
 use RuntimeException;
 use Throwable;
 
+/**
+ * @internal
+ */
 final class RunFlowJob implements ShouldQueueAfterCommit
 {
     use InteractsWithQueue;

@@ -10,6 +10,8 @@ use Padosoft\LaravelFlow\Models\FlowAuditRecord;
 
 /**
  * @extends Builder<FlowAuditRecord>
+ *
+ * @internal
  */
 final class AppendOnlyAuditBuilder extends Builder
 {

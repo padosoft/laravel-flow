@@ -45,6 +45,8 @@ use Throwable;
  * Holds the registry of {@see FlowDefinition}s and exposes execute /
  * dryRun / dispatch. Definitions stay in-memory; v0.2 can optionally
  * persist runtime runs, steps, and audit records when configured.
+ *
+ * @api
  */
 class FlowEngine
 {

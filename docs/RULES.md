@@ -25,6 +25,17 @@
 - Persisted runs and audit rows must never silently lose failure context.
 - Queue/replay behavior must be deterministic enough to debug from stored run records.
 
+## Preflight Rules
+
+Before writing code for a behavioral change or Copilot review fix, run a short local design review and make the patch plan explicit:
+
+- Public contract and backward compatibility: new methods, bindings, optional extension points, default behavior, and upgrade paths.
+- Edge cases and branch coverage: invalid input, stale state, repeated/idempotent calls, drift, missing migrations, and failure paths.
+- Diagnostics and commands: CLI/API failures should be actionable and avoid raw framework internals where package-level guidance is possible.
+- Docs and README: update shipped capability wording, `Comparison vs alternatives`, config examples, and test/assertion counts when behavior changes.
+- Retention and concurrency: locks, transactions, pruning/deletion behavior, retry races, and duplicate delivery/decision paths.
+- Tests: add explicit tests for each meaningful behavior branch instead of relying on Copilot to identify missing coverage.
+
 ## Security Rules
 
 - Do not store approval tokens in clear text.

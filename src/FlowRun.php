@@ -9,7 +9,7 @@ use DateTimeImmutable;
 /**
  * Mutable value object representing one execution of a {@see FlowDefinition}.
  *
- * Lifecycle: pending -> running -> (succeeded | failed | compensated | aborted).
+ * Lifecycle: pending -> running -> (paused | succeeded | failed | compensated | aborted).
  * The engine mutates the run during execution and returns it to the caller.
  * It is intentionally not readonly — callers can introspect intermediate state
  * during long-running flows once v0.2 ships queued workers.
@@ -21,6 +21,8 @@ final class FlowRun
     public const STATUS_PENDING = 'pending';
 
     public const STATUS_RUNNING = 'running';
+
+    public const STATUS_PAUSED = 'paused';
 
     public const STATUS_SUCCEEDED = 'succeeded';
 
@@ -41,6 +43,13 @@ final class FlowRun
      */
     public array $stepResults = [];
 
+    /**
+     * Plain approval tokens are available only immediately after issuance.
+     *
+     * @var array<string, IssuedApprovalToken>
+     */
+    public array $approvalTokens = [];
+
     public ?DateTimeImmutable $finishedAt = null;
 
     public function __construct(
@@ -58,6 +67,11 @@ final class FlowRun
         $this->stepResults[$stepName] = $result;
     }
 
+    public function recordApprovalToken(IssuedApprovalToken $token): void
+    {
+        $this->approvalTokens[$token->stepName] = $token;
+    }
+
     public function markRunning(): void
     {
         $this->status = self::STATUS_RUNNING;
@@ -67,6 +81,12 @@ final class FlowRun
     {
         $this->status = self::STATUS_SUCCEEDED;
         $this->finishedAt = $now;
+    }
+
+    public function markPaused(): void
+    {
+        $this->status = self::STATUS_PAUSED;
+        $this->finishedAt = null;
     }
 
     public function markFailed(string $stepName, DateTimeImmutable $now): void

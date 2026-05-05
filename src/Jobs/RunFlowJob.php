@@ -78,7 +78,7 @@ final class RunFlowJob implements ShouldQueueAfterCommit
             throw new RuntimeException('Laravel Flow queued execution requires a shared cache lock store; the array store is process-local.');
         }
 
-        if (! $store instanceof LockProvider) {
+        if (! ($store instanceof LockProvider)) {
             throw new RuntimeException('Laravel Flow queued execution requires a cache store that supports atomic locks.');
         }
 

@@ -1,5 +1,13 @@
 # Lessons
 
+## 2026-05-04
+
+- Duplicate approval resumes must short-circuit on a persisted `running` run before rebuilding approval recovery state; otherwise a deploy-time definition drift can turn a harmless retry into a definition-mismatch failure.
+- That short-circuit must stay narrow: if a downstream step has already been persisted as completed, the approval resume still has to reconstruct enough state to finish the run instead of freezing it at `running`.
+- When `Flow::resume()` reissues a later paused approval gate token, the downstream `steps()->createOrUpdate()` write must translate DB failures into the package-level persistence exception; raw `QueryException` leaks make the approval path look like an uncaught infrastructure crash.
+- The README `Comparison vs alternatives` table should keep the status prefix format consistent (`✅ YES`, `⚠️ PARTIAL`, `❌ NO`) and the approval-gate row should be updated when reissue or duplicate-resume behavior changes.
+- CLI approval commands should not echo approval tokens back to the operator; success output can stay focused on run id and status, while JSON option validation should name the failing option explicitly.
+
 ## 2026-05-02
 
 - v0.1 is no longer a no-op scaffold. It includes the in-memory Flow engine core, facade, dry-run, compensation, events, business-impact results, README expansion, and architecture tests.
@@ -197,3 +205,81 @@
 - Only use global-container compensation tasks when the injected engine container is the global Laravel container; isolated package/embedded containers must resolve compensators through the injected container.
 - Validate compensation strategy configuration before the first forward step runs; discovering a bad strategy only after side effects have happened can block rollback.
 - Unknown Laravel Concurrency driver names should not make `FlowEngine` resolution fail; return no driver and let the engine use local compensation fallback.
+
+## 2026-05-04 - Approval/Webhook Macro
+
+- Approval resume tokens must be represented as fixed-width hashes in persistence from the first schema slice; do not add a clear-text token column even temporarily.
+- Webhook outbox rows should be state records, not delivery logs only: keep event, status, attempt counters, next-available time, terminal timestamps, and last error separate so retry workers can be idempotent.
+- Approval/webhook tables should be additive to the persisted run schema and cascade with `flow_runs`; deleting retained/pruned runs must not leave orphan approval tokens or outbox rows.
+- The `flow.paused` webhook outbox row belongs in the same pause transaction as the paused step/audit write so the durable event trail stays aligned with the persisted run state.
+- Approval pause state is not terminal: keep `finished_at` and `duration_ms` null while status is `paused`, and do not run compensation or downstream steps.
+- A paused approval step should not contribute to aggregate run output/business impact; it is control-plane state, not a completed business step.
+- If persisting a paused transition fails, runtime-abort recovery must persist the approval step as failed; a failed run with a paused step row is inconsistent for replay and operators.
+- A paused approval step needs a matching Laravel event after `FlowStepStarted`; otherwise event subscribers observe a permanently running step.
+- Approval gates should opt into dry-run execution by default so dry-runs stop at the same control-plane boundary as real executions.
+- `FlowStepResult::paused()` is a control-plane result, not a business success result; document that custom handlers returning it must be side-effect-free because the paused step is not added to the compensation list.
+- Approval token issuance should return the plain token only at issuance time and persist only its fixed-width hash; repository lookup/consume paths must operate on hashes so clear tokens are not recoverable from storage.
+- Approval approve/reject consumption should update by `token_hash` plus `pending` status in a single write, so repeated submissions cannot consume the same token twice.
+- Approval actor and decision payloads are operator-provided data and must pass through the same payload redaction path as run, step, and audit JSON before persistence.
+- Approval token expiry must be enforced in the same conditional consume update as the `pending` status check; checking expiry before the write leaves a race where a token can cross TTL and still be approved.
+- Approval persistence models should use the same `immutable_datetime` cast style as run/step records so operator-facing timestamps behave consistently across stored flow state.
+- Public clock hooks should accept common `DateTimeInterface` implementations such as Carbon and normalize to immutable internals instead of assuming callers return `DateTimeImmutable`.
+- Within one approval-token decision, capture the current clock value once and reuse it for comparisons and persisted decision timestamps; repeated clock reads can create flaky boundary behavior.
+- Approval `updated_at` should reuse the same decision timestamp as `consumed_at` / `decided_at` during approve, reject, and expiry writes; mixed clocks make operational timelines harder to reason about.
+- Approval-gate token issuance should enrich persisted step/audit/event output only with non-secret metadata such as approval id and expiry; the plain token belongs only on the immediate returned run path and must not be persisted or carried by queued/serialized events.
+- If a paused transition later aborts because a `FlowPaused` listener throws, expire the newly issued approval token best-effort before compensation so a failed/compensated run cannot retain a pending usable token.
+- Negated `instanceof` guards should use explicit parentheses, e.g. `! ($value instanceof Type)`, so null-store checks remain clear to reviewers and future refactors.
+- Approval resume/reject must claim a paused run with an atomic expected-status update inside the same transaction that persists the approval-gate decision. Claim losers return the current run instead of replaying downstream side effects.
+- Approval-token consumption for resume/reject must be conditional on the associated `flow_runs.status = paused` in the same database update; a separate pre-check can still race with a terminal run update.
+- Approval resume should pass the stored/redacted approval decision payload into downstream context, even for the caller that originally supplied the raw payload, so duplicate submissions and retries cannot produce different handler inputs.
+- A conditional approval consume that returns `null` must not automatically expire the pending token; `null` can mean the associated run was not in the required state, not that the token crossed its TTL.
+- If an approval consume returns `null` after the pre-read passed, re-read the token before expiring it; expire only when it is still pending and its stored `expires_at` is now crossed.
+- Keep legacy `approve()` / `reject()` expiry cleanup working for custom repositories that implement only `ApprovalRepository`; the stricter re-read path is for repositories that opt into `ApprovalDecisionRepository`.
+- `Flow::resume()` reconstructs context from persisted run input and successful step outputs. Because persistence redacts before storage, redacted values remain redacted after resume; flows that need secrets after an approval gate must fetch them from an application secret store instead of relying on persisted flow payloads.
+- Treat `Flow::reject()` as a failed approval-gate step: persist the gate failure, consume the one-time token as rejected, and compensate prior completed business steps without running downstream steps.
+- Reusing an already-approved token after a later approval gate pauses the same run should return the current paused run; do not treat downstream paused steps as resume drift for the earlier token.
+- Approval resume/reject must use a real shared Laravel cache lock. The `array` store implements the lock provider contract but is process-local, so approval decisions should reject it instead of running unlocked.
+- New persistence operations needed only by approval decisions should live behind optional extension contracts, not new required methods on the existing public repository contracts; otherwise custom stores break on upgrade before they can opt into the new feature.
+- Pending approval resume/reject should validate the current definition against the persisted step order before consuming the token; definition drift must not burn an otherwise valid pending decision handle.
+- Approval resume definition drift checks should compare both persisted step names/order and handler classes; same-name handler swaps can otherwise continue a paused run under a different implementation.
+- Resume retries must rebuild context through any already-persisted downstream successes and start after the last contiguous successful step only while no handler execution is required; otherwise a crash after downstream persistence can duplicate side effects.
+- Without a durable per-step lease or heartbeat, a retry that sees the run already `running` must not re-enter downstream handlers. A cache lock TTL can expire during a slow active handler, so automatic recovery of `running` step rows would duplicate side effects.
+- Approval resume/reject locks must be keyed by run id, not token hash. Multi-gate flows can retry an already-decided older token while a later gate is resuming the same run; per-token locks would let both requests recover/execute downstream state concurrently.
+- Approval lock-contention fallbacks must treat `expired` approval records the same as missing records. `ApprovalTokenManager::find()` can expire and return the stale record, and that must still surface as an invalid/expired token instead of returning the run state.
+- If token expiry cleanup loses a race to a concurrent approve/reject, re-read the token before reporting invalid/expired so duplicate resume/reject calls preserve the already-decided state.
+- Optional persistence contracts required by approval resume/reject should fail before consuming a pending token where possible, and third-party backend failure paths need explicit regression tests because these contracts are public extension points.
+- Optional extension contracts should not be container-bound unconditionally. Binding them to closures that throw for legacy custom stores breaks feature detection; validate capabilities where the feature is invoked instead.
+- Before writing code for enterprise PR fixes, run a local preflight over public contract compatibility, edge cases, diagnostics/CLI behavior, README/comparison updates, retention/concurrency risk, and explicit tests for every behavior branch. The goal is to catch Copilot-class findings before review.
+- Lock-contention fallbacks for idempotent approval decisions still need to reject conflicting operator actions; returning current run state is safe only when the requested decision matches the stored decision.
+- Already-approved old approval tokens should return a downstream paused run without re-validating current definition drift for the original gate. Drift checks belong to pending/current-gate decisions and recovery, not old-token idempotency after the run moved on.
+- Lock-contention fallbacks must not return current run state for still-pending approval tokens; the lock holder may not have written the decision yet, so the loser should retry instead of making conflicting decisions nondeterministic.
+- Already-approved earlier approval tokens are idempotent lookup handles only until a later persisted approval gate exists; after that, they must not recover later-gated running work or restart downstream side effects.
+- New facade methods are public API and need facade-level regression tests in addition to direct engine tests.
+- New public resume/reject APIs should convert common rollout/configuration failures, such as missing published persistence tables or unknown cache lock stores, into package-level exceptions with migration/config guidance.
+- Custom approval persistence is not only a `FlowStore` concern: approval token lookup and decisions resolve through the separate `ApprovalRepository` binding, so custom-backend docs must name that binding plus the optional `ApprovalDecisionRepository` extension.
+- Lock-contention fallback for an already-decided token must also verify the approval step has persisted the decided state; otherwise a retry can observe the old `paused` run while the lock holder is still inside the persist path.
+- Step-list hydration is part of the public resume/reject diagnostic surface; wrap `flow_steps` reads with the same package-level migration/connection guidance as token and run lookups.
+- Approval decision payload/actor persistence must use the same execution-frozen redactor as the resumed step/run writes; default approval repositories should be redactor-aware so transient or request-scoped redactors cannot diverge mid-decision.
+- Redactor-aware approval repositories used by resume/reject must preserve the approval decision capability in their return type; otherwise a backend can opt into redactor injection and still fail the decision consume path.
+- The approval resume/reject pre-consume validation state can be reused after a successful consume while the per-run lock is held, avoiding an extra `flow_steps` scan without widening concurrency risk.
+- Public conditional run compare-and-set updates should hydrate a model before query-builder `update()` so JSON and date casts match normal repository writes.
+- Do not retry rejected-approval compensation without durable per-compensator progress; returning the current failed run is safer than duplicating undo side effects.
+- Approval custom backends must keep the approval decision repository and run repository inside one durable storage boundary so conditional token consumes and paused-run claims observe the same run state; do not document them as a single atomic all-or-nothing transaction unless the engine actually performs both writes inside that transaction.
+- Approval recovery state should be a typed value object instead of duplicated associative-array PHPDoc; recovery code is too concurrency-sensitive for shape drift between producer and consumer.
+- Retrying an older approved token after a later approval gate pauses may need to reissue a fresh plain token, but reissue must not invalidate a token already handed to an operator. Keep the previous hash valid, update displayed expiry metadata, and do not rotate repeatedly on duplicate retries.
+- Downstream approval-gate token reissue must also enforce the current pending token's expiry at the same conditional update. Retrying an older approved token cannot renew an already-expired later approval.
+- If an older approved token retry observes a later paused approval gate while the per-run decision lock is held elsewhere, return a retry diagnostic instead of reissuing without the lock or returning a paused run without a plain token.
+- Every additive migration must be added to `LaravelFlowServiceProvider::publishesMigrations()` and the service-provider publish smoke test in the same PR; package consumers rely on `vendor:publish --tag=laravel-flow-migrations`.
+
+## 2026-05-05 - Webhook Delivery Slice
+
+- Webhook outbox repositories that previously required a `PayloadRedactor` constructor argument should keep an optional default binding via the service provider so direct resolvers still get JSON redaction; the engine layer can override per call with an execution-frozen redactor while the constructor default protects host apps that resolve the repository directly.
+- Webhook outbox claim/lease pattern: pre-read candidates by `attempts < max_attempts` AND (status pending with available_at NULL/<=now OR status delivering with stale lease), then run a status-and-availability-conditional update that bumps attempts and pushes `available_at` into the future; concurrent claimers either lose the conditional update or see a future lease and skip.
+- SQLite test fixtures that bypass Eloquent casts must pass `DateTimeInterface` instances (not ATOM-formatted strings) to query-builder `update()` because Laravel's `prepareBindings` formats `DateTimeInterface` to the grammar's date format (`Y-m-d H:i:s`); ATOM strings break later `WHERE column <= now()` comparisons because SQLite compares TEXT lexically and `T` > space.
+- The webhook signature header follows Stripe-style convention `X-Laravel-Flow-Signature: t=<unix>,v1=<sha256>` where the HMAC signs `t.body` with the shared secret; emit the header only when a non-empty secret is configured so unsigned deliveries do not advertise a stale signature.
+- Webhook outbox lifecycle covers `flow.completed`, `flow.failed`, `flow.paused`, and `flow.resumed`; compensated runs end as `flow.failed` for outbox purposes because the `flow.compensated` event is an internal transition rather than an external lifecycle signal.
+- `flow:deliver-webhooks` retry uses configurable exponential backoff `(base * 2^(attempt-1))` and a configurable attempt cap; transient failures stay `pending` with a future `available_at`, terminal failures move to `failed` with `failed_at`, and successes move to `delivered` with `delivered_at` and cleared `available_at` / `last_error`.
+- CLI delivery command options like `--batch` and `--sleep-ms` should validate as positive/non-negative integers via explicit numeric/regex guards rather than bare `(int)` casts so accidental string config (`--batch=abc`) returns a typed error instead of `Http::timeout(0)`-style silent zero.
+- The default webhook URL config is the empty string, not `null`; aligning the README config block, config-table default cell, and actual `config/laravel-flow.php` keeps the docblock-vs-code contract consistent so reviewers and consumers do not infer a `null` default that the shipped code does not match.
+- `markDeliveryResult` must be conditional on the row still being in `delivering` status so a competing process that already concluded the lease cannot be overwritten; the same conditional shape protects against duplicate command runs against the same record.
+- When passing terminal status to `markDeliveryResult`, normalize the bookkeeping: `delivered` clears `available_at`/`last_error` and stamps `delivered_at`; `failed` stamps `failed_at` while preserving `last_error`; `pending` (retry) stores the next `available_at` and the latest `last_error` so operators can diagnose without re-deriving the cause.

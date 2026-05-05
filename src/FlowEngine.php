@@ -7,24 +7,34 @@ namespace Padosoft\LaravelFlow;
 use Closure;
 use DateTimeImmutable;
 use DateTimeInterface;
+use Illuminate\Cache\ArrayStore;
 use Illuminate\Contracts\Bus\Dispatcher as BusDispatcher;
+use Illuminate\Contracts\Cache\Factory as CacheFactory;
+use Illuminate\Contracts\Cache\LockProvider;
 use Illuminate\Contracts\Concurrency\Driver as ConcurrencyDriver;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Contracts\Events\Dispatcher;
+use Illuminate\Database\QueryException;
+use InvalidArgumentException;
+use Padosoft\LaravelFlow\Contracts\ConditionalRunRepository;
 use Padosoft\LaravelFlow\Contracts\FlowStore;
 use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
 use Padosoft\LaravelFlow\Contracts\RedactorAwareFlowStore;
 use Padosoft\LaravelFlow\Events\FlowCompensated;
+use Padosoft\LaravelFlow\Events\FlowPaused;
 use Padosoft\LaravelFlow\Events\FlowStepCompleted;
 use Padosoft\LaravelFlow\Events\FlowStepFailed;
 use Padosoft\LaravelFlow\Events\FlowStepStarted;
+use Padosoft\LaravelFlow\Exceptions\ApprovalPersistenceException;
 use Padosoft\LaravelFlow\Exceptions\FlowCompensationException;
 use Padosoft\LaravelFlow\Exceptions\FlowExecutionException;
 use Padosoft\LaravelFlow\Exceptions\FlowInputException;
 use Padosoft\LaravelFlow\Exceptions\FlowNotRegisteredException;
 use Padosoft\LaravelFlow\Jobs\RunFlowJob;
+use Padosoft\LaravelFlow\Models\FlowApprovalRecord;
 use Padosoft\LaravelFlow\Models\FlowRunRecord;
 use Padosoft\LaravelFlow\Models\FlowStepRecord;
+use Padosoft\LaravelFlow\Persistence\EloquentWebhookOutboxRepository;
 use Padosoft\LaravelFlow\Persistence\PayloadRedactorResolution;
 use Padosoft\LaravelFlow\Queue\QueueRetryPolicy;
 use Throwable;
@@ -41,6 +51,8 @@ class FlowEngine
     private const COMPENSATION_STRATEGY_REVERSE_ORDER = 'reverse-order';
 
     private const COMPENSATION_STRATEGY_PARALLEL = 'parallel';
+
+    private const APPROVAL_DECISION_LOCK_PREFIX = 'laravel-flow:approval-run:';
 
     /**
      * @var array<string, FlowDefinition>
@@ -74,6 +86,7 @@ class FlowEngine
         private readonly ?PayloadRedactor $redactor = null,
         private readonly mixed $clock = null,
         private readonly ?ConcurrencyDriver $compensationConcurrencyDriver = null,
+        private readonly ?ApprovalTokenManager $approvalTokenManager = null,
     ) {}
 
     public function define(string $name): FlowDefinitionBuilder
@@ -156,6 +169,28 @@ class FlowEngine
     }
 
     /**
+     * Resume a persisted approval gate after approving its one-time token.
+     *
+     * @param  array<string, mixed>  $payload
+     * @param  array<string, mixed>  $actor
+     */
+    public function resume(string $token, array $payload = [], array $actor = []): FlowRun
+    {
+        return $this->decideApproval($token, FlowApprovalRecord::STATUS_APPROVED, $payload, $actor);
+    }
+
+    /**
+     * Reject a persisted approval gate and compensate prior completed steps.
+     *
+     * @param  array<string, mixed>  $payload
+     * @param  array<string, mixed>  $actor
+     */
+    public function reject(string $token, array $payload = [], array $actor = []): FlowRun
+    {
+        return $this->decideApproval($token, FlowApprovalRecord::STATUS_REJECTED, $payload, $actor);
+    }
+
+    /**
      * @param  array<string, mixed>  $input
      */
     private function run(string $name, array $input, bool $dryRun, ?FlowExecutionOptions $options = null): FlowRun
@@ -213,10 +248,26 @@ class FlowEngine
             dryRun: $dryRun,
         );
 
-        $completedSteps = [];
-        $sequence = 0;
+        return $this->executeFromIndex($definition, $run, $context, [], 0, 0, $store, $redactor);
+    }
 
-        foreach ($definition->steps as $step) {
+    /**
+     * @param  list<FlowStep>  $completedSteps
+     */
+    private function executeFromIndex(
+        FlowDefinition $definition,
+        FlowRun $run,
+        FlowContext $context,
+        array $completedSteps,
+        int $startIndex,
+        int $sequence,
+        ?FlowStore $store,
+        ?PayloadRedactor $redactor,
+    ): FlowRun {
+        $dryRun = $context->dryRun;
+
+        for ($index = $startIndex; $index < count($definition->steps); $index++) {
+            $step = $definition->steps[$index];
             $sequence++;
             $stepStartedAt = $this->now();
             $listenerFailureEvent = null;
@@ -267,10 +318,10 @@ class FlowEngine
             $stepFinishedAt = $this->now();
             $run->recordStepResult($step->name, $result);
 
-            if (! $result->success) {
-                $error = $result->error;
-                $run->markFailed($step->name, $stepFinishedAt);
+            if ($result->paused) {
+                $run->markPaused();
                 $listenerFailureEvent = null;
+                $issuedApprovalToken = null;
 
                 try {
                     $this->persistAtomically($store, function () use (
@@ -279,14 +330,21 @@ class FlowEngine
                         $step,
                         $sequence,
                         $context,
-                        $result,
+                        &$result,
+                        &$issuedApprovalToken,
                         $stepStartedAt,
                         $stepFinishedAt,
                         $definition,
                         $dryRun,
-                        $error,
                         $redactor,
                     ): void {
+                        $issuedApprovalToken = $this->issueApprovalTokenForPausedStep($store, $run, $step);
+
+                        if ($issuedApprovalToken instanceof IssuedApprovalToken) {
+                            $result = $this->pausedResultWithApprovalToken($result, $issuedApprovalToken);
+                            $run->recordStepResult($step->name, $result);
+                        }
+
                         $this->persistStepFinished(
                             $store,
                             $run,
@@ -298,20 +356,44 @@ class FlowEngine
                             $stepFinishedAt,
                             $redactor,
                         );
-                        $this->recordAudit($store, 'FlowStepFailed', $run, $step->name, [
+                        $this->recordAudit($store, 'FlowPaused', $run, $step->name, [
                             'definition_name' => $definition->name,
                             'dry_run' => $dryRun,
-                            'error_class' => $error instanceof Throwable ? $error::class : null,
-                            'error_message' => $this->safeErrorMessage($error, $redactor),
-                            'status' => 'failed',
-                        ], occurredAt: $stepFinishedAt);
+                            'output' => $result->output,
+                            'status' => 'paused',
+                        ], $result->businessImpact, $stepFinishedAt);
+                        $this->recordWebhookOutbox(
+                            event: 'flow.paused',
+                            runId: $run->id,
+                            approvalId: isset($result->output['approval_id']) && is_string($result->output['approval_id'])
+                                ? $result->output['approval_id']
+                                : null,
+                            payload: [
+                                'definition_name' => $definition->name,
+                                'dry_run' => $dryRun,
+                                'flow_run_id' => $run->id,
+                                'occurred_at' => $stepFinishedAt->format(DateTimeInterface::ATOM),
+                                'output' => $result->output,
+                                'step_name' => $step->name,
+                                'status' => 'paused',
+                            ],
+                            availableAt: $stepFinishedAt,
+                            maxAttempts: $this->webhookMaxAttempts(),
+                            redactor: $redactor,
+                        );
                         $this->persistRunFinished($store, $run);
                     });
+
+                    if ($issuedApprovalToken instanceof IssuedApprovalToken) {
+                        $run->recordApprovalToken($issuedApprovalToken);
+                    }
+
                     $this->dispatchOrCaptureListenerFailure(
-                        new FlowStepFailed($run->id, $definition->name, $step->name, $result, $dryRun),
+                        new FlowPaused($run->id, $definition->name, $step->name, $result, $dryRun),
                         $listenerFailureEvent,
                     );
                 } catch (Throwable $e) {
+                    $this->expireApprovalTokenBestEffort($issuedApprovalToken, $stepFinishedAt);
                     $this->compensateAfterRuntimeAbort(
                         $definition,
                         $context,
@@ -320,7 +402,7 @@ class FlowEngine
                         $store,
                         $step,
                         $sequence,
-                        $result,
+                        FlowStepResult::failed($e),
                         $stepStartedAt,
                         $stepFinishedAt,
                         $redactor,
@@ -330,25 +412,23 @@ class FlowEngine
                     throw $e;
                 }
 
-                try {
-                    $this->compensate($definition, $context, $completedSteps, $run, $store);
-                } catch (Throwable $e) {
-                    $this->persistRunFinishedBestEffort($store, $run, 'failed');
+                return $run;
+            }
 
-                    throw $e;
-                }
-
-                if ($run->compensated) {
-                    try {
-                        $this->persistAtomically($store, function () use ($store, $run): void {
-                            $this->persistRunFinished($store, $run, 'succeeded');
-                        });
-                    } catch (Throwable $e) {
-                        $this->persistRunFinishedBestEffort($store, $run, 'succeeded');
-
-                        throw $e;
-                    }
-                }
+            if (! $result->success) {
+                $this->recordFailedStepAndCompensate(
+                    $definition,
+                    $context,
+                    $completedSteps,
+                    $run,
+                    $store,
+                    $step,
+                    $sequence,
+                    $result,
+                    $stepStartedAt,
+                    $stepFinishedAt,
+                    $redactor,
+                );
 
                 return $run;
             }
@@ -424,9 +504,26 @@ class FlowEngine
         }
 
         try {
-            $run->markSucceeded($this->now());
-            $this->persistAtomically($store, function () use ($store, $run): void {
+            $finishedAt = $this->now();
+            $run->markSucceeded($finishedAt);
+            $this->persistAtomically($store, function () use ($store, $definition, $run, $context, $redactor, $finishedAt): void {
                 $this->persistRunFinished($store, $run);
+                $this->recordWebhookOutbox(
+                    event: 'flow.completed',
+                    runId: $run->id,
+                    approvalId: null,
+                    payload: $this->flowWebhookPayload(
+                        definitionName: $definition->name,
+                        runId: $run->id,
+                        dryRun: $context->dryRun,
+                        output: $this->runOutput($run),
+                        status: FlowRun::STATUS_SUCCEEDED,
+                        occurredAt: $finishedAt,
+                    ),
+                    availableAt: $finishedAt,
+                    maxAttempts: $this->webhookMaxAttempts(),
+                    redactor: $redactor,
+                );
             });
         } catch (Throwable $e) {
             $this->compensateAfterRuntimeAbort(
@@ -445,6 +542,1243 @@ class FlowEngine
         return $run;
     }
 
+    /**
+     * @param  list<FlowStep>  $completedSteps
+     */
+    private function recordFailedStepAndCompensate(
+        FlowDefinition $definition,
+        FlowContext $context,
+        array $completedSteps,
+        FlowRun $run,
+        ?FlowStore $store,
+        FlowStep $step,
+        int $sequence,
+        FlowStepResult $result,
+        DateTimeInterface $stepStartedAt,
+        DateTimeInterface $stepFinishedAt,
+        ?PayloadRedactor $redactor,
+    ): void {
+        $error = $result->error;
+        $run->markFailed($step->name, $this->immutableDate($stepFinishedAt) ?? $this->now());
+        $listenerFailureEvent = null;
+
+        try {
+            $this->persistAtomically($store, function () use (
+                $store,
+                $run,
+                $step,
+                $sequence,
+                $context,
+                $result,
+                $stepStartedAt,
+                $stepFinishedAt,
+                $definition,
+                $error,
+                $redactor,
+            ): void {
+                $this->persistStepFinished(
+                    $store,
+                    $run,
+                    $step,
+                    $sequence,
+                    $context,
+                    $result,
+                    $stepStartedAt,
+                    $stepFinishedAt,
+                    $redactor,
+                );
+                $this->recordAudit($store, 'FlowStepFailed', $run, $step->name, [
+                    'definition_name' => $definition->name,
+                    'dry_run' => $context->dryRun,
+                    'error_class' => $error instanceof Throwable ? $error::class : null,
+                    'error_message' => $this->safeErrorMessage($error, $redactor),
+                    'status' => 'failed',
+                ], occurredAt: $stepFinishedAt);
+                $this->persistRunFinished($store, $run);
+                $this->recordWebhookOutbox(
+                    event: 'flow.failed',
+                    runId: $run->id,
+                    approvalId: null,
+                    payload: $this->flowWebhookPayload(
+                        definitionName: $definition->name,
+                        runId: $run->id,
+                        dryRun: $context->dryRun,
+                        output: $this->runOutput($run),
+                        status: FlowRun::STATUS_FAILED,
+                        occurredAt: $stepFinishedAt,
+                        stepName: $step->name,
+                        errorClass: $error instanceof Throwable ? $error::class : null,
+                        errorMessage: $this->safeErrorMessage($error, $redactor),
+                    ),
+                    availableAt: $stepFinishedAt,
+                    maxAttempts: $this->webhookMaxAttempts(),
+                    redactor: $redactor,
+                );
+            });
+            $this->dispatchOrCaptureListenerFailure(
+                new FlowStepFailed($run->id, $definition->name, $step->name, $result, $context->dryRun),
+                $listenerFailureEvent,
+            );
+        } catch (Throwable $e) {
+            $this->compensateAfterRuntimeAbort(
+                $definition,
+                $context,
+                $completedSteps,
+                $run,
+                $store,
+                $step,
+                $sequence,
+                $result,
+                $stepStartedAt,
+                $this->immutableDate($stepFinishedAt) ?? $this->now(),
+                $redactor,
+                listenerEvent: $listenerFailureEvent,
+            );
+
+            throw $e;
+        }
+
+        try {
+            $this->compensate($definition, $context, $completedSteps, $run, $store);
+        } catch (Throwable $e) {
+            $this->persistRunFinishedBestEffort($store, $run, 'failed');
+
+            throw $e;
+        }
+
+        if ($run->compensated) {
+            try {
+                $this->persistAtomically($store, function () use ($store, $run): void {
+                    $this->persistRunFinished($store, $run, 'succeeded');
+                });
+            } catch (Throwable $e) {
+                $this->persistRunFinishedBestEffort($store, $run, 'succeeded');
+
+                throw $e;
+            }
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @param  array<string, mixed>  $actor
+     */
+    private function decideApproval(string $token, string $decision, array $payload, array $actor): FlowRun
+    {
+        $token = trim($token);
+
+        if ($token === '') {
+            throw new FlowInputException('Approval token must not be blank.');
+        }
+
+        [$store, $redactor] = $this->approvalDecisionStore();
+        $approval = $this->approvalDecisionRecord($token);
+
+        return $this->withApprovalDecisionLock($token, $decision, $approval, $store, function () use ($token, $decision, $payload, $actor, $store, $redactor): FlowRun {
+            return $this->decideApprovalWithLock($token, $decision, $payload, $actor, $store, $redactor);
+        });
+    }
+
+    private function approvalDecisionRecord(string $token): FlowApprovalRecord
+    {
+        try {
+            $approval = $this->approvalTokenManager()->find($token);
+        } catch (QueryException $e) {
+            throw $this->approvalPersistenceUnavailableException($e);
+        }
+
+        if (! ($approval instanceof FlowApprovalRecord)
+            || $approval->status === FlowApprovalRecord::STATUS_EXPIRED
+        ) {
+            throw new FlowExecutionException('Approval token is invalid or expired.');
+        }
+
+        return $approval;
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @param  array<string, mixed>  $actor
+     */
+    private function decideApprovalWithLock(
+        string $token,
+        string $decision,
+        array $payload,
+        array $actor,
+        FlowStore $store,
+        PayloadRedactor $redactor,
+    ): FlowRun {
+        $preDecisionApproval = $this->approvalDecisionRecord($token);
+
+        $preDecisionState = null;
+
+        if ($preDecisionApproval->status === FlowApprovalRecord::STATUS_PENDING) {
+            $preDecisionRunRecord = $this->approvalRunRecord($preDecisionApproval, $store);
+
+            if ($preDecisionRunRecord->status !== FlowRun::STATUS_PAUSED) {
+                return $this->flowRunFromRecord($preDecisionRunRecord, $store);
+            }
+
+            $preDecisionState = $this->approvalExecutionState($preDecisionApproval, $store, $preDecisionRunRecord);
+            $this->conditionalRuns($store);
+        }
+
+        [$approval, $consumedNow] = $this->consumeApprovalDecisionForPausedRun($token, $decision, $payload, $actor, $redactor);
+        $decisionPayload = $approval->payload ?? [];
+        $decisionActor = $approval->actor ?? [];
+
+        if ($decision === FlowApprovalRecord::STATUS_APPROVED) {
+            return $this->resumeApprovedApproval($approval, $consumedNow, $decisionPayload, $decisionActor, $store, $redactor, $preDecisionState);
+        }
+
+        return $this->rejectApprovalDecision($approval, $decisionPayload, $decisionActor, $store, $redactor, $preDecisionState);
+    }
+
+    /**
+     * @param  callable(): FlowRun  $callback
+     */
+    private function withApprovalDecisionLock(
+        string $token,
+        string $decision,
+        FlowApprovalRecord $approval,
+        FlowStore $store,
+        callable $callback,
+    ): FlowRun {
+        /** @var CacheFactory $cache */
+        $cache = $this->container->make(CacheFactory::class);
+        $lockStoreName = $this->queueLockStore();
+
+        try {
+            $repository = $cache->store($lockStoreName);
+        } catch (InvalidArgumentException $e) {
+            throw new FlowExecutionException(sprintf(
+                'Approval resume/reject requires a configured cache lock store; cache store [%s] is not defined.',
+                $lockStoreName ?? 'default',
+            ), previous: $e);
+        }
+
+        $cacheStore = $repository->getStore();
+
+        if ($cacheStore instanceof ArrayStore) {
+            throw new FlowExecutionException('Approval resume/reject requires a shared cache lock store; the array store is process-local.');
+        }
+
+        if (! ($cacheStore instanceof LockProvider)) {
+            throw new FlowExecutionException('Approval resume/reject requires a cache store that supports atomic locks.');
+        }
+
+        $lock = $cacheStore->lock(
+            self::APPROVAL_DECISION_LOCK_PREFIX.$approval->run_id,
+            $this->queueLockSeconds(),
+        );
+
+        if (! $lock->get()) {
+            return $this->approvalRunStateForToken($token, $decision, $store);
+        }
+
+        try {
+            return $callback();
+        } finally {
+            $lock->release();
+        }
+    }
+
+    private function approvalRunStateForToken(string $token, string $decision, FlowStore $store): FlowRun
+    {
+        $approval = $this->approvalDecisionRecord($token);
+
+        if ($approval->status === FlowApprovalRecord::STATUS_PENDING) {
+            throw new FlowExecutionException('Approval token could not be consumed. Try again.');
+        }
+
+        if (in_array($approval->status, [FlowApprovalRecord::STATUS_APPROVED, FlowApprovalRecord::STATUS_REJECTED], true)
+            && $approval->status !== $decision
+        ) {
+            throw new FlowExecutionException(sprintf(
+                'Approval token was already decided as [%s].',
+                $approval->status,
+            ));
+        }
+
+        $runRecord = $this->approvalRunRecord($approval, $store);
+
+        if ($runRecord->status === FlowRun::STATUS_PAUSED
+            && ! $this->hasPersistedApprovalDecisionStep($approval, $store, $runRecord)
+        ) {
+            throw new FlowExecutionException('Approval token could not be consumed. Try again.');
+        }
+
+        if ($this->persistedDownstreamPausedApprovalGate($approval, $store, $runRecord) instanceof FlowStepRecord) {
+            throw new FlowExecutionException('Approval token could not be consumed. Try again.');
+        }
+
+        return $this->flowRunFromRecord($runRecord, $store);
+    }
+
+    private function hasPersistedApprovalDecisionStep(
+        FlowApprovalRecord $approval,
+        FlowStore $store,
+        FlowRunRecord $runRecord,
+    ): bool {
+        foreach ($this->stepRecordsForRun($store, $runRecord->id) as $stepRecord) {
+            if ($stepRecord->step_name !== $approval->step_name) {
+                continue;
+            }
+
+            return match ($approval->status) {
+                FlowApprovalRecord::STATUS_APPROVED => $stepRecord->status === 'succeeded',
+                FlowApprovalRecord::STATUS_REJECTED => $stepRecord->status === 'failed',
+                default => false,
+            };
+        }
+
+        return false;
+    }
+
+    private function hasPersistedDownstreamPause(
+        FlowApprovalRecord $approval,
+        FlowStore $store,
+        FlowRunRecord $runRecord,
+    ): bool {
+        if ($runRecord->status !== FlowRun::STATUS_PAUSED
+            || $approval->status !== FlowApprovalRecord::STATUS_APPROVED
+        ) {
+            return false;
+        }
+
+        $approvalSequence = null;
+
+        foreach ($this->stepRecordsForRun($store, $runRecord->id) as $stepRecord) {
+            if ($stepRecord->step_name === $approval->step_name) {
+                if ($stepRecord->status !== 'succeeded') {
+                    return false;
+                }
+
+                $approvalSequence = $stepRecord->sequence;
+
+                continue;
+            }
+
+            if ($approvalSequence !== null
+                && $stepRecord->sequence > $approvalSequence
+                && $stepRecord->status === 'paused'
+            ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function persistedDownstreamPausedApprovalGate(
+        FlowApprovalRecord $approval,
+        FlowStore $store,
+        FlowRunRecord $runRecord,
+    ): ?FlowStepRecord {
+        if ($runRecord->status !== FlowRun::STATUS_PAUSED
+            || $approval->status !== FlowApprovalRecord::STATUS_APPROVED
+        ) {
+            return null;
+        }
+
+        $approvalSequence = null;
+
+        foreach ($this->stepRecordsForRun($store, $runRecord->id) as $stepRecord) {
+            if ($stepRecord->step_name === $approval->step_name) {
+                if ($stepRecord->status !== 'succeeded') {
+                    return null;
+                }
+
+                $approvalSequence = $stepRecord->sequence;
+
+                continue;
+            }
+
+            if ($approvalSequence !== null
+                && $stepRecord->sequence > $approvalSequence
+                && $stepRecord->status === 'paused'
+                && $stepRecord->handler === ApprovalGate::class
+            ) {
+                return $stepRecord;
+            }
+        }
+
+        return null;
+    }
+
+    private function flowRunFromRecordWithReissuedApprovalToken(
+        FlowRunRecord $runRecord,
+        FlowStore $store,
+        FlowStepRecord $approvalStepRecord,
+    ): FlowRun {
+        $run = $this->flowRunFromRecord($runRecord, $store);
+
+        try {
+            $token = $this->approvalTokenManager()->reissuePendingForStep($runRecord->id, $approvalStepRecord->step_name);
+        } catch (QueryException $e) {
+            throw $this->approvalPersistenceUnavailableException($e);
+        }
+
+        if ($token instanceof IssuedApprovalToken) {
+            $output = is_array($approvalStepRecord->output) ? $approvalStepRecord->output : [];
+            $output['approval_expires_at'] = $token->expiresAt->format(DateTimeInterface::ATOM);
+            try {
+                $refreshedStep = $store->steps()->createOrUpdate($runRecord->id, $approvalStepRecord->step_name, [
+                    'business_impact' => $approvalStepRecord->business_impact,
+                    'dry_run_skipped' => (bool) $approvalStepRecord->dry_run_skipped,
+                    'duration_ms' => $approvalStepRecord->duration_ms,
+                    'error_class' => $approvalStepRecord->error_class,
+                    'error_message' => $approvalStepRecord->error_message,
+                    'finished_at' => $approvalStepRecord->finished_at,
+                    'handler' => $approvalStepRecord->handler,
+                    'input' => $approvalStepRecord->input,
+                    'output' => $output,
+                    'sequence' => $approvalStepRecord->sequence,
+                    'started_at' => $approvalStepRecord->started_at,
+                    'status' => $approvalStepRecord->status,
+                ]);
+            } catch (QueryException $e) {
+                throw $this->flowPersistenceUnavailableException($e);
+            }
+            $result = $this->flowStepResultFromRecord($refreshedStep);
+
+            if ($result instanceof FlowStepResult) {
+                $run->recordStepResult($refreshedStep->step_name, $result);
+            }
+
+            $run->recordApprovalToken($token);
+        }
+
+        return $run;
+    }
+
+    private function hasPersistedDownstreamApprovalGate(
+        FlowApprovalRecord $approval,
+        FlowStore $store,
+        FlowRunRecord $runRecord,
+    ): bool {
+        if ($approval->status !== FlowApprovalRecord::STATUS_APPROVED) {
+            return false;
+        }
+
+        $approvalSequence = null;
+
+        foreach ($this->stepRecordsForRun($store, $runRecord->id) as $stepRecord) {
+            if ($stepRecord->step_name === $approval->step_name) {
+                if ($stepRecord->status !== 'succeeded') {
+                    return false;
+                }
+
+                $approvalSequence = $stepRecord->sequence;
+
+                continue;
+            }
+
+            if ($approvalSequence !== null
+                && $stepRecord->sequence > $approvalSequence
+                && $stepRecord->handler === ApprovalGate::class
+            ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function hasPersistedDownstreamCompletedStep(
+        FlowApprovalRecord $approval,
+        FlowStore $store,
+        FlowRunRecord $runRecord,
+    ): bool {
+        if ($approval->status !== FlowApprovalRecord::STATUS_APPROVED) {
+            return false;
+        }
+
+        $approvalSequence = null;
+
+        foreach ($this->stepRecordsForRun($store, $runRecord->id) as $stepRecord) {
+            if ($stepRecord->step_name === $approval->step_name) {
+                if ($stepRecord->status !== 'succeeded') {
+                    return false;
+                }
+
+                $approvalSequence = $stepRecord->sequence;
+
+                continue;
+            }
+
+            if ($approvalSequence !== null
+                && $stepRecord->sequence > $approvalSequence
+                && in_array($stepRecord->status, ['succeeded', 'skipped'], true)
+            ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @return array{0: FlowStore, 1: PayloadRedactor}
+     */
+    private function approvalDecisionStore(): array
+    {
+        $store = $this->storeForExecution(false);
+
+        if (! ($store instanceof FlowStore)) {
+            throw new FlowExecutionException('Approval resume/reject requires persistence to be enabled.');
+        }
+
+        $redactor = $this->redactorForExecution();
+
+        return [$this->storeWithExecutionRedactor($store, $redactor), $redactor];
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @param  array<string, mixed>  $actor
+     * @return array{0: FlowApprovalRecord, 1: bool}
+     */
+    private function consumeApprovalDecisionForPausedRun(
+        string $token,
+        string $decision,
+        array $payload,
+        array $actor,
+        PayloadRedactor $redactor,
+    ): array {
+        $manager = $this->approvalTokenManager($redactor);
+
+        try {
+            $approval = $decision === FlowApprovalRecord::STATUS_APPROVED
+                ? $manager->approveForRunStatus($token, FlowRun::STATUS_PAUSED, $actor, $payload)
+                : $manager->rejectForRunStatus($token, FlowRun::STATUS_PAUSED, $actor, $payload);
+        } catch (QueryException $e) {
+            throw $this->approvalPersistenceUnavailableException($e);
+        }
+
+        if ($approval instanceof FlowApprovalRecord) {
+            return [$approval, true];
+        }
+
+        try {
+            $approval = $manager->find($token);
+        } catch (QueryException $e) {
+            throw $this->approvalPersistenceUnavailableException($e);
+        }
+
+        if (! ($approval instanceof FlowApprovalRecord) || $approval->status === FlowApprovalRecord::STATUS_EXPIRED) {
+            throw new FlowExecutionException('Approval token is invalid or expired.');
+        }
+
+        if ($approval->status === FlowApprovalRecord::STATUS_PENDING) {
+            throw new FlowExecutionException('Approval token could not be consumed. Try again.');
+        }
+
+        if ($approval->status !== $decision) {
+            throw new FlowExecutionException(sprintf(
+                'Approval token was already decided as [%s].',
+                $approval->status,
+            ));
+        }
+
+        return [$approval, false];
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @param  array<string, mixed>  $actor
+     */
+    private function resumeApprovedApproval(
+        FlowApprovalRecord $approval,
+        bool $consumedNow,
+        array $payload,
+        array $actor,
+        FlowStore $store,
+        PayloadRedactor $redactor,
+        ?ApprovalRecoveryState $preDecisionState = null,
+    ): FlowRun {
+        $runRecord = $this->approvalRunRecord($approval, $store);
+
+        if (! in_array($runRecord->status, [FlowRun::STATUS_PAUSED, FlowRun::STATUS_RUNNING], true)) {
+            return $this->flowRunFromRecord($runRecord, $store);
+        }
+
+        if (! $consumedNow) {
+            $downstreamPausedApprovalGate = $this->persistedDownstreamPausedApprovalGate($approval, $store, $runRecord);
+
+            if ($downstreamPausedApprovalGate instanceof FlowStepRecord) {
+                return $this->flowRunFromRecordWithReissuedApprovalToken($runRecord, $store, $downstreamPausedApprovalGate);
+            }
+        }
+
+        if (! $consumedNow && $this->hasPersistedDownstreamApprovalGate($approval, $store, $runRecord)) {
+            return $this->flowRunFromRecord($runRecord, $store);
+        }
+
+        if (! $consumedNow && $this->hasPersistedDownstreamPause($approval, $store, $runRecord)) {
+            return $this->flowRunFromRecord($runRecord, $store);
+        }
+
+        if ($runRecord->status === FlowRun::STATUS_RUNNING
+            && ! $this->hasPersistedDownstreamCompletedStep($approval, $store, $runRecord)
+        ) {
+            return $this->flowRunFromRecord($runRecord, $store);
+        }
+
+        $state = $consumedNow && $preDecisionState !== null
+            ? $preDecisionState
+            : $this->approvalExecutionState($approval, $store, $runRecord);
+
+        if ($runRecord->status !== FlowRun::STATUS_PAUSED) {
+            if ($state->approvalStepRecord->status === 'succeeded' && ! $state->wouldExecuteHandlers()) {
+                $run = $state->run;
+                $run->markRunning();
+
+                return $this->executeFromIndex(
+                    $state->definition,
+                    $run,
+                    $state->retryContext,
+                    $state->retryCompletedSteps,
+                    $state->retryStartIndex,
+                    $state->retrySequence,
+                    $store,
+                    $redactor,
+                );
+            }
+
+            return $this->flowRunFromRecord($runRecord, $store);
+        }
+
+        $approvalStepRecord = $state->approvalStepRecord;
+
+        if ($state->pausedDownstreamStep !== null) {
+            return $this->flowRunFromRecord($runRecord, $store);
+        }
+
+        if ($approvalStepRecord->status === 'succeeded') {
+            $run = $state->run;
+            $claimedRunRecord = null;
+
+            $this->persistAtomically($store, function () use ($store, $run, &$claimedRunRecord): void {
+                $claimedRunRecord = $this->conditionalRuns($store)->updateWhereStatus($run->id, FlowRun::STATUS_PAUSED, [
+                    'duration_ms' => null,
+                    'finished_at' => null,
+                    'status' => FlowRun::STATUS_RUNNING,
+                ]);
+            });
+
+            if (! ($claimedRunRecord instanceof FlowRunRecord)) {
+                $currentRunRecord = $this->approvalCurrentRunRecord($store, $run->id);
+
+                if ($currentRunRecord instanceof FlowRunRecord) {
+                    return $this->flowRunFromRecord($currentRunRecord, $store);
+                }
+
+                throw new FlowExecutionException(sprintf('Flow run [%s] was not found while claiming approval resume.', $run->id));
+            }
+
+            $run->markRunning();
+
+            return $this->executeFromIndex(
+                $state->definition,
+                $run,
+                $state->retryContext,
+                $state->retryCompletedSteps,
+                $state->retryStartIndex,
+                $state->retrySequence,
+                $store,
+                $redactor,
+            );
+        }
+
+        if ($approvalStepRecord->status !== 'paused') {
+            return $this->flowRunFromRecord($runRecord, $store);
+        }
+
+        $run = $state->run;
+        $result = $this->approvedApprovalResult($approval, $payload, $actor);
+        $contextAfterStep = $state->context->withStepOutput($approval->step_name, $result->output);
+        $completedSteps = [...$state->completedSteps, $state->approvalStep];
+        $finishedAt = $this->immutableDate($approval->decided_at) ?? $this->now();
+        $startedAt = $this->immutableDate($approvalStepRecord->started_at) ?? $finishedAt;
+        $listenerFailureEvent = null;
+        $claimedRunRecord = null;
+
+        try {
+            $this->persistAtomically($store, function () use (
+                $store,
+                $run,
+                $approval,
+                $result,
+                $state,
+                $startedAt,
+                $finishedAt,
+                $redactor,
+                &$claimedRunRecord,
+            ): void {
+                $claimedRunRecord = $this->conditionalRuns($store)->updateWhereStatus($run->id, FlowRun::STATUS_PAUSED, [
+                    'duration_ms' => null,
+                    'finished_at' => null,
+                    'status' => FlowRun::STATUS_RUNNING,
+                ]);
+
+                if (! ($claimedRunRecord instanceof FlowRunRecord)) {
+                    return;
+                }
+
+                $run->markRunning();
+                $run->recordStepResult($approval->step_name, $result);
+
+                $this->persistStepFinished(
+                    $store,
+                    $run,
+                    $state->approvalStep,
+                    $state->approvalStepRecord->sequence,
+                    $state->context,
+                    $result,
+                    $startedAt,
+                    $finishedAt,
+                    $redactor,
+                );
+                $this->recordAudit($store, 'FlowStepCompleted', $run, $approval->step_name, [
+                    'approval_id' => $approval->id,
+                    'approval_status' => FlowApprovalRecord::STATUS_APPROVED,
+                    'definition_name' => $state->definition->name,
+                    'dry_run' => false,
+                    'output' => $result->output,
+                    'status' => 'succeeded',
+                ], occurredAt: $finishedAt);
+                $this->recordWebhookOutbox(
+                    event: 'flow.resumed',
+                    runId: $run->id,
+                    approvalId: $approval->id,
+                    payload: $this->flowWebhookPayload(
+                        definitionName: $state->definition->name,
+                        runId: $run->id,
+                        dryRun: $state->context->dryRun,
+                        output: $this->runOutput($run),
+                        status: FlowRun::STATUS_RUNNING,
+                        occurredAt: $finishedAt,
+                        stepName: $approval->step_name,
+                    ),
+                    availableAt: $finishedAt,
+                    maxAttempts: $this->webhookMaxAttempts(),
+                    redactor: $redactor,
+                );
+                $this->persistRunFinished($store, $run);
+            });
+
+            if (! ($claimedRunRecord instanceof FlowRunRecord)) {
+                $currentRunRecord = $this->approvalCurrentRunRecord($store, $run->id);
+
+                if ($currentRunRecord instanceof FlowRunRecord) {
+                    return $this->flowRunFromRecord($currentRunRecord, $store);
+                }
+
+                throw new FlowExecutionException(sprintf('Flow run [%s] was not found while claiming approval resume.', $run->id));
+            }
+
+            $this->dispatchOrCaptureListenerFailure(
+                new FlowStepCompleted($run->id, $state->definition->name, $approval->step_name, $result, false),
+                $listenerFailureEvent,
+            );
+        } catch (ApprovalPersistenceException $e) {
+            throw $e;
+        } catch (Throwable $e) {
+            $this->compensateAfterRuntimeAbort(
+                $state->definition,
+                $contextAfterStep,
+                $completedSteps,
+                $run,
+                $store,
+                $state->approvalStep,
+                $state->approvalStepRecord->sequence,
+                FlowStepResult::failed($e),
+                $startedAt,
+                $this->now(),
+                $redactor,
+                listenerEvent: $listenerFailureEvent,
+                failedStepPersistenceContext: $state->context,
+            );
+
+            throw $e;
+        }
+
+        return $this->executeFromIndex(
+            $state->definition,
+            $run,
+            $contextAfterStep,
+            $completedSteps,
+            $state->approvalIndex + 1,
+            $state->approvalStepRecord->sequence,
+            $store,
+            $redactor,
+        );
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @param  array<string, mixed>  $actor
+     */
+    private function rejectApprovalDecision(
+        FlowApprovalRecord $approval,
+        array $payload,
+        array $actor,
+        FlowStore $store,
+        PayloadRedactor $redactor,
+        ?ApprovalRecoveryState $preDecisionState = null,
+    ): FlowRun {
+        $runRecord = $this->approvalRunRecord($approval, $store);
+
+        if ($runRecord->status !== FlowRun::STATUS_PAUSED) {
+            return $this->flowRunFromRecord($runRecord, $store);
+        }
+
+        $state = $preDecisionState ?? $this->approvalExecutionState($approval, $store, $runRecord);
+
+        if ($state->approvalStepRecord->status !== 'paused') {
+            return $this->flowRunFromRecord($runRecord, $store);
+        }
+
+        $run = $state->run;
+        $result = FlowStepResult::failed(new FlowExecutionException(sprintf(
+            'Approval step [%s] was rejected.',
+            $approval->step_name,
+        )));
+        $finishedAt = $this->immutableDate($approval->decided_at) ?? $this->now();
+
+        return $this->recordRejectedApprovalStepAndCompensate($approval, $state, $run, $store, $result, $finishedAt, $redactor);
+    }
+
+    private function recordRejectedApprovalStepAndCompensate(
+        FlowApprovalRecord $approval,
+        ApprovalRecoveryState $state,
+        FlowRun $run,
+        FlowStore $store,
+        FlowStepResult $result,
+        DateTimeImmutable $finishedAt,
+        PayloadRedactor $redactor,
+    ): FlowRun {
+        $startedAt = $this->immutableDate($state->approvalStepRecord->started_at) ?? $finishedAt;
+        $listenerFailureEvent = null;
+        $claimedRunRecord = null;
+
+        try {
+            $this->persistAtomically($store, function () use (
+                $store,
+                $run,
+                $state,
+                $result,
+                $startedAt,
+                $finishedAt,
+                $redactor,
+                $approval,
+                &$claimedRunRecord,
+            ): void {
+                $claimedRunRecord = $this->conditionalRuns($store)->updateWhereStatus($run->id, FlowRun::STATUS_PAUSED, [
+                    'duration_ms' => null,
+                    'finished_at' => null,
+                    'status' => FlowRun::STATUS_RUNNING,
+                ]);
+
+                if (! ($claimedRunRecord instanceof FlowRunRecord)) {
+                    return;
+                }
+
+                $run->markRunning();
+                $run->recordStepResult($state->approvalStep->name, $result);
+                $run->markFailed($state->approvalStep->name, $finishedAt);
+
+                $this->persistStepFinished(
+                    $store,
+                    $run,
+                    $state->approvalStep,
+                    $state->approvalStepRecord->sequence,
+                    $state->context,
+                    $result,
+                    $startedAt,
+                    $finishedAt,
+                    $redactor,
+                );
+
+                $error = $result->error;
+                $this->recordAudit($store, 'FlowStepFailed', $run, $state->approvalStep->name, [
+                    'definition_name' => $state->definition->name,
+                    'dry_run' => false,
+                    'error_class' => $error instanceof Throwable ? $error::class : null,
+                    'error_message' => $this->safeErrorMessage($error, $redactor),
+                    'status' => 'failed',
+                ], occurredAt: $finishedAt);
+                $this->recordWebhookOutbox(
+                    event: 'flow.failed',
+                    runId: $run->id,
+                    approvalId: $approval->id,
+                    payload: $this->flowWebhookPayload(
+                        definitionName: $state->definition->name,
+                        runId: $run->id,
+                        dryRun: $state->context->dryRun,
+                        output: $this->runOutput($run),
+                        status: FlowRun::STATUS_FAILED,
+                        occurredAt: $finishedAt,
+                        stepName: $state->approvalStep->name,
+                        errorClass: $error instanceof Throwable ? $error::class : null,
+                        errorMessage: $this->safeErrorMessage($error, $redactor),
+                    ),
+                    availableAt: $finishedAt,
+                    maxAttempts: $this->webhookMaxAttempts(),
+                    redactor: $redactor,
+                );
+                $this->persistRunFinished($store, $run);
+            });
+
+            if (! ($claimedRunRecord instanceof FlowRunRecord)) {
+                $currentRunRecord = $this->approvalCurrentRunRecord($store, $run->id);
+
+                if ($currentRunRecord instanceof FlowRunRecord) {
+                    return $this->flowRunFromRecord($currentRunRecord, $store);
+                }
+
+                throw new FlowExecutionException(sprintf('Flow run [%s] was not found while claiming approval reject.', $run->id));
+            }
+
+            $this->dispatchOrCaptureListenerFailure(
+                new FlowStepFailed($run->id, $state->definition->name, $state->approvalStep->name, $result, false),
+                $listenerFailureEvent,
+            );
+        } catch (ApprovalPersistenceException $e) {
+            throw $e;
+        } catch (Throwable $e) {
+            $this->compensateAfterRuntimeAbort(
+                $state->definition,
+                $state->context,
+                $state->completedSteps,
+                $run,
+                $store,
+                $state->approvalStep,
+                $state->approvalStepRecord->sequence,
+                $result,
+                $startedAt,
+                $finishedAt,
+                $redactor,
+                listenerEvent: $listenerFailureEvent,
+            );
+
+            throw $e;
+        }
+
+        try {
+            $this->compensate($state->definition, $state->context, $state->completedSteps, $run, $store);
+        } catch (Throwable $e) {
+            $this->persistRunFinishedBestEffort($store, $run, 'failed');
+
+            throw $e;
+        }
+
+        if ($run->compensated) {
+            try {
+                $this->persistAtomically($store, function () use ($store, $run): void {
+                    $this->persistRunFinished($store, $run, 'succeeded');
+                });
+            } catch (Throwable $e) {
+                $this->persistRunFinishedBestEffort($store, $run, 'succeeded');
+
+                throw $e;
+            }
+        }
+
+        return $run;
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @param  array<string, mixed>  $actor
+     */
+    private function approvedApprovalResult(
+        FlowApprovalRecord $approval,
+        array $payload,
+        array $actor,
+    ): FlowStepResult {
+        $output = [
+            'approval_id' => $approval->id,
+            'approval_status' => FlowApprovalRecord::STATUS_APPROVED,
+        ];
+
+        if ($payload !== []) {
+            $output['approval_payload'] = $payload;
+        }
+
+        if ($actor !== []) {
+            $output['approval_actor'] = $actor;
+        }
+
+        $decidedAt = $this->immutableDate($approval->decided_at);
+
+        if ($decidedAt instanceof DateTimeImmutable) {
+            $output['approval_decided_at'] = $decidedAt->format(DateTimeInterface::ATOM);
+        }
+
+        return FlowStepResult::success($output);
+    }
+
+    private function conditionalRuns(FlowStore $store): ConditionalRunRepository
+    {
+        $runs = $store->runs();
+
+        if (! ($runs instanceof ConditionalRunRepository)) {
+            throw new FlowExecutionException(sprintf(
+                'Approval resume/reject requires the run repository to implement %s.',
+                ConditionalRunRepository::class,
+            ));
+        }
+
+        return $runs;
+    }
+
+    private function approvalExecutionState(
+        FlowApprovalRecord $approval,
+        FlowStore $store,
+        ?FlowRunRecord $runRecord = null,
+    ): ApprovalRecoveryState {
+        $runRecord ??= $this->approvalRunRecord($approval, $store);
+
+        $definition = $this->definition($runRecord->definition_name);
+        $approvalIndex = $this->approvalStepIndex($definition, $approval->step_name);
+        $approvalStep = $definition->steps[$approvalIndex];
+        $run = $this->flowRunShellFromRecord($runRecord);
+        $input = is_array($runRecord->input) ? $runRecord->input : [];
+        $context = new FlowContext($runRecord->id, $definition->name, $input, [], (bool) $runRecord->dry_run);
+        $completedSteps = [];
+        $approvalStepRecord = null;
+        $expectedIndex = 0;
+        $retryCompletedSteps = [];
+        $retryContext = $context;
+        $retrySequence = max(0, $approvalIndex);
+        $retryStartIndex = $approvalIndex;
+        $pausedDownstreamStep = null;
+
+        foreach ($this->stepRecordsForRun($store, $runRecord->id) as $stepRecord) {
+            $result = $this->flowStepResultFromRecord($stepRecord);
+
+            if ($result instanceof FlowStepResult) {
+                $run->recordStepResult($stepRecord->step_name, $result);
+            }
+
+            $stepIndex = $this->stepIndex($definition, $stepRecord->step_name);
+
+            if ($stepIndex === null || $stepIndex !== $expectedIndex) {
+                throw new FlowExecutionException(sprintf(
+                    'Cannot resume approval because persisted step [%s] does not match the current flow definition.',
+                    $stepRecord->step_name,
+                ));
+            }
+
+            if ($stepRecord->handler !== $definition->steps[$stepIndex]->handlerFqcn) {
+                throw new FlowExecutionException(sprintf(
+                    'Cannot resume approval because persisted step [%s] does not match the current flow definition.',
+                    $stepRecord->step_name,
+                ));
+            }
+
+            if ($stepIndex < $approvalIndex && ! in_array($stepRecord->status, ['succeeded', 'skipped'], true)) {
+                throw new FlowExecutionException(sprintf(
+                    'Cannot resume approval because prior step [%s] is [%s].',
+                    $stepRecord->step_name,
+                    $stepRecord->status,
+                ));
+            }
+
+            if ($stepIndex < $approvalIndex
+                && $stepRecord->status === 'succeeded'
+                && ! $stepRecord->dry_run_skipped
+            ) {
+                $context = $context->withStepOutput($stepRecord->step_name, $stepRecord->output ?? []);
+            }
+
+            if ($stepIndex < $approvalIndex) {
+                $completedSteps[] = $definition->steps[$stepIndex];
+                $retryCompletedSteps = $completedSteps;
+                $retryContext = $context;
+                $retrySequence = $stepRecord->sequence;
+                $retryStartIndex = $stepIndex + 1;
+                $expectedIndex++;
+
+                continue;
+            }
+
+            if ($stepIndex === $approvalIndex) {
+                $approvalStepRecord = $stepRecord;
+
+                if ($stepRecord->status === 'succeeded') {
+                    $retryContext = $context->withStepOutput($stepRecord->step_name, $stepRecord->output ?? []);
+                    $retryCompletedSteps = [...$completedSteps, $approvalStep];
+                    $retrySequence = $stepRecord->sequence;
+                    $retryStartIndex = $approvalIndex + 1;
+                } elseif (! in_array($stepRecord->status, ['paused', 'failed'], true)) {
+                    throw new FlowExecutionException(sprintf(
+                        'Cannot resume approval because approval step [%s] is [%s].',
+                        $stepRecord->step_name,
+                        $stepRecord->status,
+                    ));
+                }
+
+                $expectedIndex++;
+
+                continue;
+            }
+
+            if (! ($approvalStepRecord instanceof FlowStepRecord) || $approvalStepRecord->status !== 'succeeded') {
+                throw new FlowExecutionException(sprintf(
+                    'Cannot resume approval because downstream step [%s] was persisted before the approval gate succeeded.',
+                    $stepRecord->step_name,
+                ));
+            }
+
+            if ($stepRecord->status === 'paused' && $runRecord->status === FlowRun::STATUS_PAUSED) {
+                $pausedDownstreamStep = $stepRecord->step_name;
+                $expectedIndex++;
+
+                continue;
+            }
+
+            if ($stepRecord->status === 'running' && $runRecord->status === FlowRun::STATUS_RUNNING) {
+                $retrySequence = max(0, $stepRecord->sequence - 1);
+                $retryStartIndex = $stepIndex;
+                $expectedIndex++;
+
+                continue;
+            }
+
+            if (! in_array($stepRecord->status, ['succeeded', 'skipped'], true)) {
+                throw new FlowExecutionException(sprintf(
+                    'Cannot resume approval because downstream step [%s] is [%s].',
+                    $stepRecord->step_name,
+                    $stepRecord->status,
+                ));
+            }
+
+            if ($stepRecord->status === 'succeeded' && ! $stepRecord->dry_run_skipped) {
+                $retryContext = $retryContext->withStepOutput($stepRecord->step_name, $stepRecord->output ?? []);
+            }
+
+            $retryCompletedSteps[] = $definition->steps[$stepIndex];
+            $retrySequence = $stepRecord->sequence;
+            $retryStartIndex = $stepIndex + 1;
+            $expectedIndex++;
+        }
+
+        if (! ($approvalStepRecord instanceof FlowStepRecord)) {
+            throw new FlowExecutionException(sprintf(
+                'Cannot resume approval because step [%s] was not persisted for run [%s].',
+                $approval->step_name,
+                $runRecord->id,
+            ));
+        }
+
+        return new ApprovalRecoveryState(
+            approvalIndex: $approvalIndex,
+            approvalStep: $approvalStep,
+            approvalStepRecord: $approvalStepRecord,
+            completedSteps: $completedSteps,
+            context: $context,
+            definition: $definition,
+            pausedDownstreamStep: $pausedDownstreamStep,
+            retryCompletedSteps: $retryCompletedSteps,
+            retryContext: $retryContext,
+            retrySequence: $retrySequence,
+            retryStartIndex: $retryStartIndex,
+            run: $run,
+            runRecord: $runRecord,
+        );
+    }
+
+    private function approvalRunRecord(FlowApprovalRecord $approval, FlowStore $store): FlowRunRecord
+    {
+        try {
+            $runRecord = $store->runs()->find($approval->run_id);
+        } catch (QueryException $e) {
+            throw $this->approvalPersistenceUnavailableException($e);
+        }
+
+        if (! ($runRecord instanceof FlowRunRecord)) {
+            throw new FlowExecutionException(sprintf('Approval run [%s] was not found.', $approval->run_id));
+        }
+
+        return $runRecord;
+    }
+
+    private function approvalCurrentRunRecord(FlowStore $store, string $runId): ?FlowRunRecord
+    {
+        try {
+            return $store->runs()->find($runId);
+        } catch (QueryException $e) {
+            throw $this->approvalPersistenceUnavailableException($e);
+        }
+    }
+
+    private function approvalPersistenceUnavailableException(QueryException $e): ApprovalPersistenceException
+    {
+        return new ApprovalPersistenceException(
+            'Approval resume/reject requires published laravel-flow persistence tables and a reachable persistence connection. Run the package migrations and verify the persistence connection.',
+            previous: $e,
+        );
+    }
+
+    /**
+     * @return iterable<FlowStepRecord>
+     */
+    private function stepRecordsForRun(FlowStore $store, string $runId): iterable
+    {
+        try {
+            return $store->steps()->forRun($runId);
+        } catch (QueryException $e) {
+            throw $this->flowPersistenceUnavailableException($e);
+        }
+    }
+
+    private function flowPersistenceUnavailableException(QueryException $e): FlowExecutionException
+    {
+        return new FlowExecutionException(
+            'Laravel Flow persistence requires published laravel-flow persistence tables and a reachable persistence connection. Run the package migrations and verify the persistence connection.',
+            previous: $e,
+        );
+    }
+
+    private function approvalStepIndex(FlowDefinition $definition, string $stepName): int
+    {
+        $index = $this->stepIndex($definition, $stepName);
+
+        if ($index === null) {
+            throw new FlowExecutionException(sprintf(
+                'Approval step [%s] does not exist in current flow definition [%s].',
+                $stepName,
+                $definition->name,
+            ));
+        }
+
+        $step = $definition->steps[$index];
+
+        if ($step->handlerFqcn !== ApprovalGate::class) {
+            throw new FlowExecutionException(sprintf(
+                'Step [%s] in flow definition [%s] is not an approval gate.',
+                $stepName,
+                $definition->name,
+            ));
+        }
+
+        return $index;
+    }
+
+    private function stepIndex(FlowDefinition $definition, string $stepName): ?int
+    {
+        foreach ($definition->steps as $index => $step) {
+            if ($step->name === $stepName) {
+                return $index;
+            }
+        }
+
+        return null;
+    }
+
     private function executeStep(FlowStep $step, FlowContext $context): FlowStepResult
     {
         if ($context->dryRun && ! $step->supportsDryRun) {
@@ -460,7 +1794,7 @@ class FlowEngine
             ));
         }
 
-        if (! $handler instanceof FlowStepHandler) {
+        if (! ($handler instanceof FlowStepHandler)) {
             return FlowStepResult::failed(new FlowExecutionException(sprintf(
                 'Handler [%s] for step [%s] does not implement %s.',
                 $step->handlerFqcn,
@@ -527,7 +1861,7 @@ class FlowEngine
                 continue;
             }
 
-            if (! $compensator instanceof FlowCompensator) {
+            if (! ($compensator instanceof FlowCompensator)) {
                 $compensationErrors[] = [
                     'step' => $step->name,
                     'error' => new FlowCompensationException(sprintf(
@@ -717,7 +2051,7 @@ class FlowEngine
             ];
         }
 
-        if (! $compensator instanceof FlowCompensator) {
+        if (! ($compensator instanceof FlowCompensator)) {
             return [
                 'success' => false,
                 'error_class' => FlowCompensationException::class,
@@ -1137,6 +2471,84 @@ class FlowEngine
         }
     }
 
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    private function recordWebhookOutbox(
+        string $event,
+        ?string $runId,
+        ?string $approvalId,
+        array $payload,
+        ?DateTimeInterface $availableAt = null,
+        ?int $maxAttempts = null,
+        ?PayloadRedactor $redactor = null,
+    ): void {
+        /** @var EloquentWebhookOutboxRepository $repository */
+        $repository = $this->container->make(EloquentWebhookOutboxRepository::class);
+
+        $repository->createPending(
+            event: $event,
+            runId: $runId,
+            approvalId: $approvalId,
+            payload: $payload,
+            availableAt: $availableAt,
+            maxAttempts: $maxAttempts ?? $this->webhookMaxAttempts(),
+            redactor: $redactor,
+        );
+    }
+
+    private function webhookMaxAttempts(): int
+    {
+        $webhook = $this->config['webhook'] ?? [];
+
+        if (! is_array($webhook)) {
+            return 3;
+        }
+
+        $maxAttempts = $webhook['max_attempts'] ?? 3;
+
+        return is_int($maxAttempts) && $maxAttempts >= 1 ? $maxAttempts : 3;
+    }
+
+    /**
+     * @param  array<string, mixed>|null  $output
+     * @return array<string, mixed>
+     */
+    private function flowWebhookPayload(
+        string $definitionName,
+        string $runId,
+        bool $dryRun,
+        ?array $output,
+        string $status,
+        DateTimeInterface $occurredAt,
+        ?string $stepName = null,
+        ?string $errorClass = null,
+        ?string $errorMessage = null,
+    ): array {
+        $payload = [
+            'definition_name' => $definitionName,
+            'dry_run' => $dryRun,
+            'flow_run_id' => $runId,
+            'occurred_at' => $occurredAt->format(DateTimeInterface::ATOM),
+            'output' => $output,
+            'status' => $status,
+        ];
+
+        if ($stepName !== null) {
+            $payload['step_name'] = $stepName;
+        }
+
+        if ($errorClass !== null) {
+            $payload['error_class'] = $errorClass;
+        }
+
+        if ($errorMessage !== null) {
+            $payload['error_message'] = $errorMessage;
+        }
+
+        return $payload;
+    }
+
     private function dispatchCompensatedAndIgnoreListenerFailure(
         FlowDefinition $definition,
         FlowContext $context,
@@ -1202,13 +2614,13 @@ class FlowEngine
         FlowDefinition $definition,
         FlowExecutionOptions $options,
     ): ?FlowRun {
-        if (! $store instanceof FlowStore || $options->idempotencyKey === null) {
+        if (! ($store instanceof FlowStore) || $options->idempotencyKey === null) {
             return null;
         }
 
         $existingRun = $store->runs()->findByIdempotencyKey($options->idempotencyKey);
 
-        if (! $existingRun instanceof FlowRunRecord) {
+        if (! ($existingRun instanceof FlowRunRecord)) {
             return null;
         }
 
@@ -1220,6 +2632,23 @@ class FlowEngine
     }
 
     private function flowRunFromRecord(FlowRunRecord $record, ?FlowStore $store = null): FlowRun
+    {
+        $run = $this->flowRunShellFromRecord($record);
+
+        if ($store instanceof FlowStore) {
+            foreach ($this->stepRecordsForRun($store, $record->id) as $stepRecord) {
+                $result = $this->flowStepResultFromRecord($stepRecord);
+
+                if ($result instanceof FlowStepResult) {
+                    $run->recordStepResult($stepRecord->step_name, $result);
+                }
+            }
+        }
+
+        return $run;
+    }
+
+    private function flowRunShellFromRecord(FlowRunRecord $record): FlowRun
     {
         $run = new FlowRun(
             id: $record->id,
@@ -1235,16 +2664,6 @@ class FlowEngine
         $run->compensated = (bool) $record->compensated;
         $run->finishedAt = $this->immutableDate($record->finished_at);
 
-        if ($store instanceof FlowStore) {
-            foreach ($store->steps()->forRun($record->id) as $stepRecord) {
-                $result = $this->flowStepResultFromRecord($stepRecord);
-
-                if ($result instanceof FlowStepResult) {
-                    $run->recordStepResult($stepRecord->step_name, $result);
-                }
-            }
-        }
-
         return $run;
     }
 
@@ -1254,6 +2673,10 @@ class FlowEngine
             return FlowStepResult::failed(new FlowExecutionException(
                 $record->error_message ?? 'Persisted flow step failed.',
             ));
+        }
+
+        if ($record->status === 'paused') {
+            return FlowStepResult::paused($record->output ?? [], $record->business_impact);
         }
 
         if ($record->status === 'skipped' || $record->dry_run_skipped) {
@@ -1353,8 +2776,21 @@ class FlowEngine
             'output' => $result->success ? $result->output : null,
             'sequence' => $sequence,
             'started_at' => $startedAt,
-            'status' => $result->success ? ($result->dryRunSkipped ? 'skipped' : 'succeeded') : 'failed',
+            'status' => $this->persistedStepStatus($result),
         ]);
+    }
+
+    private function persistedStepStatus(FlowStepResult $result): string
+    {
+        if ($result->paused) {
+            return 'paused';
+        }
+
+        if (! $result->success) {
+            return 'failed';
+        }
+
+        return $result->dryRunSkipped ? 'skipped' : 'succeeded';
     }
 
     /**
@@ -1370,7 +2806,7 @@ class FlowEngine
 
     private function safeErrorMessage(?Throwable $error, ?PayloadRedactor $redactor = null): ?string
     {
-        if (! $error instanceof Throwable) {
+        if (! ($error instanceof Throwable)) {
             return null;
         }
 
@@ -1522,6 +2958,59 @@ class FlowEngine
         );
     }
 
+    private function issueApprovalTokenForPausedStep(?FlowStore $store, FlowRun $run, FlowStep $step): ?IssuedApprovalToken
+    {
+        if (! ($store instanceof FlowStore) || $step->handlerFqcn !== ApprovalGate::class) {
+            return null;
+        }
+
+        return $this->approvalTokenManager()->issue($run->id, $step->name, [
+            'definition_name' => $run->definitionName,
+            'step_name' => $step->name,
+        ]);
+    }
+
+    private function pausedResultWithApprovalToken(
+        FlowStepResult $result,
+        IssuedApprovalToken $token,
+    ): FlowStepResult {
+        return FlowStepResult::paused(array_merge($result->output, [
+            'approval_expires_at' => $token->expiresAt->format(DateTimeInterface::ATOM),
+            'approval_id' => $token->approvalId,
+        ]), $result->businessImpact);
+    }
+
+    private function expireApprovalTokenBestEffort(?IssuedApprovalToken $token, DateTimeInterface $decidedAt): void
+    {
+        if (! ($token instanceof IssuedApprovalToken)) {
+            return;
+        }
+
+        try {
+            $this->approvalTokenManager()->expireIssued($token, $decidedAt);
+        } catch (Throwable) {
+            // Preserve the pause transition exception while preventing stale pending tokens when possible.
+        }
+    }
+
+    private function approvalTokenManager(?PayloadRedactor $redactor = null): ApprovalTokenManager
+    {
+        if ($this->approvalTokenManager instanceof ApprovalTokenManager) {
+            return $redactor instanceof PayloadRedactor
+                ? $this->approvalTokenManager->withPayloadRedactor($redactor)
+                : $this->approvalTokenManager;
+        }
+
+        if ($redactor instanceof PayloadRedactor) {
+            return $this->approvalTokenManager()->withPayloadRedactor($redactor);
+        }
+
+        /** @var ApprovalTokenManager $manager */
+        $manager = $this->container->make(ApprovalTokenManager::class);
+
+        return $manager;
+    }
+
     private function storeForExecution(bool $dryRun): ?FlowStore
     {
         $persistence = $this->config['persistence'] ?? [];
@@ -1549,7 +3038,7 @@ class FlowEngine
 
     private function storeWithExecutionRedactor(?FlowStore $store, ?PayloadRedactor $redactor): ?FlowStore
     {
-        if (! $store instanceof RedactorAwareFlowStore || ! $redactor instanceof PayloadRedactor) {
+        if (! ($store instanceof RedactorAwareFlowStore) || ! ($redactor instanceof PayloadRedactor)) {
             return $store;
         }
 
@@ -1572,7 +3061,7 @@ class FlowEngine
         $output = [];
 
         foreach ($run->stepResults as $stepName => $result) {
-            if (! $result->success || $result->dryRunSkipped || $stepName === $run->failedStep) {
+            if (! $result->success || $result->dryRunSkipped || $result->paused || $stepName === $run->failedStep) {
                 continue;
             }
 
@@ -1590,7 +3079,7 @@ class FlowEngine
         $businessImpact = [];
 
         foreach ($run->stepResults as $stepName => $result) {
-            if ($result->businessImpact === null || $stepName === $run->failedStep) {
+            if ($result->businessImpact === null || $result->paused || $stepName === $run->failedStep) {
                 continue;
             }
 

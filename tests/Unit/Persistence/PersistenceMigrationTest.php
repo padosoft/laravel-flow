@@ -17,6 +17,8 @@ final class PersistenceMigrationTest extends PersistenceTestCase
         $this->assertTrue(Schema::hasTable('flow_runs'));
         $this->assertTrue(Schema::hasTable('flow_steps'));
         $this->assertTrue(Schema::hasTable('flow_audit'));
+        $this->assertTrue(Schema::hasTable('flow_approvals'));
+        $this->assertTrue(Schema::hasTable('flow_webhook_outbox'));
 
         $this->assertTrue(Schema::hasColumns('flow_runs', [
             'id',
@@ -51,9 +53,38 @@ final class PersistenceMigrationTest extends PersistenceTestCase
             'business_impact',
             'occurred_at',
         ]));
+        $this->assertTrue(Schema::hasColumns('flow_approvals', [
+            'id',
+            'run_id',
+            'step_name',
+            'status',
+            'token_hash',
+            'previous_token_hash',
+            'payload',
+            'actor',
+            'expires_at',
+            'consumed_at',
+            'decided_at',
+        ]));
+        $this->assertFalse(Schema::hasColumn('flow_approvals', 'token'));
+        $this->assertTrue(Schema::hasColumns('flow_webhook_outbox', [
+            'run_id',
+            'approval_id',
+            'event',
+            'status',
+            'payload',
+            'attempts',
+            'max_attempts',
+            'available_at',
+            'delivered_at',
+            'failed_at',
+            'last_error',
+        ]));
 
         $this->dropFlowTables();
 
+        $this->assertFalse(Schema::hasTable('flow_webhook_outbox'));
+        $this->assertFalse(Schema::hasTable('flow_approvals'));
         $this->assertFalse(Schema::hasTable('flow_audit'));
         $this->assertFalse(Schema::hasTable('flow_steps'));
         $this->assertFalse(Schema::hasTable('flow_runs'));
@@ -96,5 +127,37 @@ final class PersistenceMigrationTest extends PersistenceTestCase
         $migration->down();
 
         $this->assertFalse(Schema::hasColumn('flow_runs', 'replayed_from_run_id'));
+    }
+
+    public function test_approval_and_webhook_tables_cascade_when_run_is_deleted(): void
+    {
+        $this->migrateFlowTables();
+
+        DB::table('flow_runs')->insert([
+            'id' => '00000000-0000-4000-8000-000000000123',
+            'definition_name' => 'flow.approval.cascade',
+            'dry_run' => false,
+            'status' => 'paused',
+        ]);
+        DB::table('flow_approvals')->insert([
+            'id' => '00000000-0000-4000-8000-000000000124',
+            'run_id' => '00000000-0000-4000-8000-000000000123',
+            'status' => 'pending',
+            'step_name' => 'manager-approval',
+            'token_hash' => str_repeat('a', 64),
+        ]);
+        DB::table('flow_webhook_outbox')->insert([
+            'approval_id' => '00000000-0000-4000-8000-000000000124',
+            'event' => 'flow.paused',
+            'run_id' => '00000000-0000-4000-8000-000000000123',
+            'status' => 'pending',
+        ]);
+
+        DB::table('flow_runs')
+            ->where('id', '00000000-0000-4000-8000-000000000123')
+            ->delete();
+
+        $this->assertSame(0, DB::table('flow_approvals')->where('run_id', '00000000-0000-4000-8000-000000000123')->count());
+        $this->assertSame(0, DB::table('flow_webhook_outbox')->where('run_id', '00000000-0000-4000-8000-000000000123')->count());
     }
 }

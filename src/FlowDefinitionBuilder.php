@@ -73,6 +73,15 @@ final class FlowDefinitionBuilder
     }
 
     /**
+     * Append a built-in approval gate that pauses the run until a later
+     * resume/reject API decides the pending approval.
+     */
+    public function approvalGate(string $name): self
+    {
+        return $this->step($name, ApprovalGate::class)->withDryRun(true);
+    }
+
+    /**
      * Toggle dry-run support on the LAST step added.
      */
     public function withDryRun(bool $supports = true): self

@@ -6,13 +6,20 @@ namespace Padosoft\LaravelFlow\Tests\Unit;
 
 use Illuminate\Support\ServiceProvider;
 use Orchestra\Testbench\TestCase;
+use Padosoft\LaravelFlow\ApprovalTokenManager;
+use Padosoft\LaravelFlow\Contracts\ApprovalDecisionRepository;
+use Padosoft\LaravelFlow\Contracts\ApprovalRepository;
 use Padosoft\LaravelFlow\Contracts\AuditRepository;
+use Padosoft\LaravelFlow\Contracts\ConditionalRunRepository;
 use Padosoft\LaravelFlow\Contracts\FlowStore;
 use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
+use Padosoft\LaravelFlow\Contracts\RedactorAwareApprovalRepository;
 use Padosoft\LaravelFlow\Contracts\RunRepository;
 use Padosoft\LaravelFlow\Contracts\StepRunRepository;
 use Padosoft\LaravelFlow\FlowEngine;
 use Padosoft\LaravelFlow\LaravelFlowServiceProvider;
+use Padosoft\LaravelFlow\Persistence\EloquentWebhookOutboxRepository;
+use Padosoft\LaravelFlow\WebhookDeliveryClient;
 
 /**
  * Smoke coverage for service-provider auto-discovery and package bindings.
@@ -50,13 +57,22 @@ final class ServiceProviderTest extends TestCase
         );
     }
 
-    public function test_persistence_contracts_are_bound(): void
+    public function test_persistence_and_approval_services_are_bound(): void
     {
         $this->assertTrue($this->app->bound(FlowStore::class));
         $this->assertTrue($this->app->bound(RunRepository::class));
         $this->assertTrue($this->app->bound(StepRunRepository::class));
         $this->assertTrue($this->app->bound(AuditRepository::class));
+        $this->assertTrue($this->app->bound(ApprovalRepository::class));
+        $this->assertTrue($this->app->bound(EloquentWebhookOutboxRepository::class));
         $this->assertTrue($this->app->bound(PayloadRedactor::class));
+        $this->assertTrue($this->app->bound(ApprovalTokenManager::class));
+        $this->assertTrue($this->app->bound(WebhookDeliveryClient::class));
+        $this->assertFalse($this->app->bound(ConditionalRunRepository::class));
+        $this->assertFalse($this->app->bound(ApprovalDecisionRepository::class));
+        $this->assertInstanceOf(ConditionalRunRepository::class, $this->app->make(FlowStore::class)->runs());
+        $this->assertInstanceOf(ApprovalDecisionRepository::class, $this->app->make(ApprovalRepository::class));
+        $this->assertInstanceOf(RedactorAwareApprovalRepository::class, $this->app->make(ApprovalRepository::class));
     }
 
     public function test_parallel_compensation_unknown_driver_falls_back_to_engine_resolution(): void
@@ -92,5 +108,20 @@ final class ServiceProviderTest extends TestCase
             realpath($packageRoot.'/database/migrations/2026_05_04_000002_add_replay_lineage_to_laravel_flow_runs.php'),
             $migrationSources,
         );
+        $this->assertContains(
+            realpath($packageRoot.'/database/migrations/2026_05_04_000003_create_laravel_flow_approval_and_webhook_tables.php'),
+            $migrationSources,
+        );
+        $this->assertContains(
+            realpath($packageRoot.'/database/migrations/2026_05_04_000004_add_previous_token_hash_to_flow_approvals.php'),
+            $migrationSources,
+        );
+    }
+
+    public function test_deliver_webhook_outbox_command_is_registered(): void
+    {
+        $this->artisan('flow:deliver-webhooks')
+            ->expectsOutputToContain('Enable laravel-flow.webhook.enabled before delivering webhook outbox rows.')
+            ->assertExitCode(1);
     }
 }

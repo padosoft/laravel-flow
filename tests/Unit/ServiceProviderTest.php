@@ -16,6 +16,9 @@ use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
 use Padosoft\LaravelFlow\Contracts\RedactorAwareApprovalRepository;
 use Padosoft\LaravelFlow\Contracts\RunRepository;
 use Padosoft\LaravelFlow\Contracts\StepRunRepository;
+use Padosoft\LaravelFlow\Dashboard\Authorization\AllowAllAuthorizer;
+use Padosoft\LaravelFlow\Dashboard\Authorization\DashboardActionAuthorizer;
+use Padosoft\LaravelFlow\Dashboard\FlowDashboardReadModel;
 use Padosoft\LaravelFlow\FlowEngine;
 use Padosoft\LaravelFlow\LaravelFlowServiceProvider;
 use Padosoft\LaravelFlow\Persistence\EloquentWebhookOutboxRepository;
@@ -123,5 +126,13 @@ final class ServiceProviderTest extends TestCase
         $this->artisan('flow:deliver-webhooks')
             ->expectsOutputToContain('Enable laravel-flow.webhook.enabled before delivering webhook outbox rows.')
             ->assertExitCode(1);
+    }
+
+    public function test_dashboard_read_model_and_authorizer_are_bound(): void
+    {
+        $this->assertTrue($this->app->bound(FlowDashboardReadModel::class));
+        $this->assertTrue($this->app->bound(DashboardActionAuthorizer::class));
+        $this->assertInstanceOf(FlowDashboardReadModel::class, $this->app->make(FlowDashboardReadModel::class));
+        $this->assertInstanceOf(AllowAllAuthorizer::class, $this->app->make(DashboardActionAuthorizer::class));
     }
 }

@@ -106,6 +106,57 @@ final class FlowDashboardReadModel
     }
 
     /**
+     * @return PaginatedResult<ApprovalSummary>
+     */
+    public function listApprovals(ApprovalFilter $filter, Pagination $pagination): PaginatedResult
+    {
+        $query = $this->applyApprovalFilter($this->approvalQuery(), $filter);
+
+        $total = (clone $query)->count();
+        $records = $query
+            ->orderByDesc('created_at')
+            ->orderByDesc('id')
+            ->offset($pagination->offset())
+            ->limit($pagination->perPage)
+            ->get();
+
+        $items = [];
+        foreach ($records as $record) {
+            if (! ($record instanceof FlowApprovalRecord)) {
+                continue;
+            }
+            $items[] = $this->approvalSummaryFromRecord($record);
+        }
+
+        return new PaginatedResult($items, $total, $pagination->page, $pagination->perPage);
+    }
+
+    /**
+     * @return PaginatedResult<WebhookOutboxSummary>
+     */
+    public function listWebhookOutbox(WebhookOutboxFilter $filter, Pagination $pagination): PaginatedResult
+    {
+        $query = $this->applyWebhookOutboxFilter($this->webhookOutboxQuery(), $filter);
+
+        $total = (clone $query)->count();
+        $records = $query
+            ->orderByDesc('id')
+            ->offset($pagination->offset())
+            ->limit($pagination->perPage)
+            ->get();
+
+        $items = [];
+        foreach ($records as $record) {
+            if (! ($record instanceof FlowWebhookOutboxRecord)) {
+                continue;
+            }
+            $items[] = $this->webhookOutboxSummaryFromRecord($record);
+        }
+
+        return new PaginatedResult($items, $total, $pagination->page, $pagination->perPage);
+    }
+
+    /**
      * @return list<WebhookOutboxSummary>
      */
     public function failedWebhookOutbox(?int $limit = null): array
@@ -233,6 +284,68 @@ final class FlowDashboardReadModel
 
         if ($filter->startedUntil !== null) {
             $query->where('started_at', '<=', $filter->startedUntil);
+        }
+
+        return $query;
+    }
+
+    /**
+     * @param  Builder<FlowApprovalRecord>  $query
+     * @return Builder<FlowApprovalRecord>
+     */
+    private function applyApprovalFilter(Builder $query, ApprovalFilter $filter): Builder
+    {
+        if ($filter->status !== null) {
+            $query->where('status', $filter->status);
+        }
+
+        if ($filter->runId !== null) {
+            $query->where('run_id', $filter->runId);
+        }
+
+        if ($filter->stepName !== null) {
+            $query->where('step_name', $filter->stepName);
+        }
+
+        if ($filter->createdSince !== null) {
+            $query->where('created_at', '>=', $filter->createdSince);
+        }
+
+        if ($filter->createdUntil !== null) {
+            $query->where('created_at', '<=', $filter->createdUntil);
+        }
+
+        return $query;
+    }
+
+    /**
+     * @param  Builder<FlowWebhookOutboxRecord>  $query
+     * @return Builder<FlowWebhookOutboxRecord>
+     */
+    private function applyWebhookOutboxFilter(Builder $query, WebhookOutboxFilter $filter): Builder
+    {
+        if ($filter->status !== null) {
+            $query->where('status', $filter->status);
+        }
+
+        if ($filter->event !== null) {
+            $query->where('event', $filter->event);
+        }
+
+        if ($filter->runId !== null) {
+            $query->where('run_id', $filter->runId);
+        }
+
+        if ($filter->approvalId !== null) {
+            $query->where('approval_id', $filter->approvalId);
+        }
+
+        if ($filter->createdSince !== null) {
+            $query->where('created_at', '>=', $filter->createdSince);
+        }
+
+        if ($filter->createdUntil !== null) {
+            $query->where('created_at', '<=', $filter->createdUntil);
         }
 
         return $query;

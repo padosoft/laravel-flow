@@ -5,9 +5,11 @@ declare(strict_types=1);
 namespace Padosoft\LaravelFlow\Tests\Unit\Dashboard;
 
 use Illuminate\Support\Facades\Date;
+use Padosoft\LaravelFlow\Dashboard\ApprovalFilter;
 use Padosoft\LaravelFlow\Dashboard\FlowDashboardReadModel;
 use Padosoft\LaravelFlow\Dashboard\Pagination;
 use Padosoft\LaravelFlow\Dashboard\RunFilter;
+use Padosoft\LaravelFlow\Dashboard\WebhookOutboxFilter;
 use Padosoft\LaravelFlow\FlowEngine;
 use Padosoft\LaravelFlow\FlowRun;
 use Padosoft\LaravelFlow\Models\FlowApprovalRecord;
@@ -184,6 +186,99 @@ final class FlowDashboardReadModelTest extends PersistenceTestCase
         $this->assertCount(1, $failed);
         $this->assertSame(FlowWebhookOutboxRecord::STATUS_FAILED, $failed[0]->status);
         $this->assertSame('connection refused', $failed[0]->lastError);
+    }
+
+    public function test_list_approvals_supports_status_filter_and_pagination(): void
+    {
+        $this->migrateFlowTables();
+        $engine = $this->engineWithPersistence();
+
+        $engine->define('flow.dashboard.list-approvals')
+            ->step('one', AlwaysSucceedsHandler::class)
+            ->approvalGate('manager')
+            ->register();
+
+        $paused = $engine->execute('flow.dashboard.list-approvals', []);
+
+        $reader = $this->reader();
+        $allPending = $reader->listApprovals(
+            new ApprovalFilter(status: FlowApprovalRecord::STATUS_PENDING),
+            new Pagination(1, 25),
+        );
+
+        $this->assertSame(1, $allPending->total);
+        $this->assertSame($paused->id, $allPending->items[0]->runId);
+        $this->assertSame(FlowApprovalRecord::STATUS_PENDING, $allPending->items[0]->status);
+
+        $approved = $engine->resume($paused->approvalTokens['manager']->plainTextToken);
+        $this->assertSame(FlowRun::STATUS_SUCCEEDED, $approved->status);
+
+        $listApproved = $reader->listApprovals(
+            new ApprovalFilter(status: FlowApprovalRecord::STATUS_APPROVED),
+            new Pagination(1, 25),
+        );
+        $this->assertSame(1, $listApproved->total);
+
+        $listPendingNow = $reader->listApprovals(
+            new ApprovalFilter(status: FlowApprovalRecord::STATUS_PENDING),
+            new Pagination(1, 25),
+        );
+        $this->assertSame(0, $listPendingNow->total);
+
+        $listAll = $reader->listApprovals(new ApprovalFilter, new Pagination(1, 25));
+        $this->assertSame(1, $listAll->total);
+    }
+
+    public function test_list_webhook_outbox_supports_status_event_run_filters_and_pagination(): void
+    {
+        $this->migrateFlowTables();
+        $engine = $this->engineWithPersistence();
+
+        $engine->define('flow.dashboard.outbox-success')
+            ->step('one', AlwaysSucceedsHandler::class)
+            ->register();
+        $engine->define('flow.dashboard.outbox-fail')
+            ->step('one', AlwaysFailsHandler::class)
+            ->register();
+
+        $successRun = $engine->execute('flow.dashboard.outbox-success', []);
+        $failRun = $engine->execute('flow.dashboard.outbox-fail', []);
+
+        // Mark the success run's outbox row as already delivered so the
+        // status filter can prove it surfaces non-pending rows too.
+        FlowWebhookOutboxRecord::query()
+            ->where('run_id', $successRun->id)
+            ->update([
+                'status' => FlowWebhookOutboxRecord::STATUS_DELIVERED,
+                'attempts' => 1,
+                'delivered_at' => now(),
+            ]);
+
+        $reader = $this->reader();
+
+        $delivered = $reader->listWebhookOutbox(
+            new WebhookOutboxFilter(status: FlowWebhookOutboxRecord::STATUS_DELIVERED),
+            new Pagination(1, 25),
+        );
+        $this->assertSame(1, $delivered->total);
+        $this->assertSame($successRun->id, $delivered->items[0]->runId);
+        $this->assertSame('flow.completed', $delivered->items[0]->event);
+
+        $byEvent = $reader->listWebhookOutbox(
+            new WebhookOutboxFilter(event: 'flow.failed'),
+            new Pagination(1, 25),
+        );
+        $this->assertSame(1, $byEvent->total);
+        $this->assertSame($failRun->id, $byEvent->items[0]->runId);
+
+        $byRun = $reader->listWebhookOutbox(
+            new WebhookOutboxFilter(runId: $successRun->id),
+            new Pagination(1, 25),
+        );
+        $this->assertSame(1, $byRun->total);
+
+        $all = $reader->listWebhookOutbox(new WebhookOutboxFilter, new Pagination(1, 25));
+        $this->assertSame(2, $all->total);
     }
 
     private function reader(): FlowDashboardReadModel

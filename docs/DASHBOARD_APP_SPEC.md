@@ -127,6 +127,16 @@ Artisan::call('flow:replay', ['runId' => $originalRunId]);
 
 Plain approval tokens are never stored. Operators who can act on a gate must already have access to the token (e.g. delivered through email/Slack via the webhook). The dashboard does not bypass token verification.
 
+The authorization contract takes a **token hash**, not the plain token, because that lets the dashboard authorize an operator without sending the secret value to the policy layer. Compute the hash with `ApprovalTokenManager::hashToken($plainToken)` (a static SHA-256 helper) before calling `canApproveByToken` / `canRejectByToken`:
+
+```php
+use Padosoft\LaravelFlow\ApprovalTokenManager;
+
+$tokenHash = ApprovalTokenManager::hashToken($plainToken);
+abort_unless($authorizer->canApproveByToken($tokenHash, $actor), 403);
+Flow::resume($plainToken, payload: $payload, actor: $actor);
+```
+
 ## Functional scope
 
 ### Pages / routes
@@ -166,7 +176,7 @@ Render six tiles, color-only-as-secondary signal (do not encode meaning solely w
 - Action buttons (gated by authorizer):
   - **Replay** — for terminal runs (succeeded/failed/compensated/aborted).
   - **Approve / Reject** — only when run is paused at an approval gate AND operator has provided plain token (input field).
-- JSON drawer: raw input/output/business_impact (already redacted by persistence — never display unredacted).
+- JSON drawer: input/output/business_impact as stored. The package redacts before persistence ONLY when `laravel-flow.persistence.redaction.enabled` is true (the default); if the host app disables that flag, raw values reach this drawer and the dashboard MUST run an additional sanitisation pass before rendering. The drawer must never display unredacted secrets — verify with the same redaction key list as the package or refuse to render when redaction is off.
 
 ## UI/UX guardrails
 
@@ -255,7 +265,8 @@ composer install
 npm ci
 cp .env.example .env
 php artisan key:generate
-php artisan migrate              # also runs vendor:publish for laravel-flow migrations
+php artisan vendor:publish --tag=laravel-flow-migrations
+php artisan migrate
 npm run dev &
 php artisan serve
 ```

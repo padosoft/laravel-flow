@@ -5,12 +5,17 @@ declare(strict_types=1);
 namespace Padosoft\LaravelFlow\Dashboard\Authorization;
 
 /**
- * Default binding for {@see DashboardActionAuthorizer}.
+ * Permissive opt-in binding for {@see DashboardActionAuthorizer}.
  *
- * Allows every operation. Production deployments MUST override this
- * binding because authorization is the host application's responsibility.
- * Keeping the default permissive avoids forcing every consumer to provide
- * a binding before they can use any read API in development.
+ * NOT the default. The package registers {@see DenyAllAuthorizer} by
+ * default so production environments cannot accidentally expose the
+ * dashboard. Bind this class explicitly only when you need a no-auth
+ * local-development setup:
+ *
+ *     $this->app->bind(DashboardActionAuthorizer::class, AllowAllAuthorizer::class);
+ *
+ * Production deployments MUST replace the binding with a host-app
+ * implementation that enforces the actual RBAC.
  */
 final class AllowAllAuthorizer implements DashboardActionAuthorizer
 {

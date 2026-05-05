@@ -10,6 +10,8 @@ use Throwable;
  * Readonly DTO summarising the outcome of one step execution.
  *
  * @phpstan-type Impact array<string, mixed>|null
+ *
+ * @api
  */
 final class FlowStepResult
 {

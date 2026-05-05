@@ -12,6 +12,8 @@ use Padosoft\LaravelFlow\Models\FlowApprovalRecord;
  * optional; null means "do not constrain on this field". The status
  * field accepts one of the {@see FlowApprovalRecord::STATUS_*}
  * constants (`pending`, `approved`, `rejected`, `expired`).
+ *
+ * @api
  */
 final readonly class ApprovalFilter
 {

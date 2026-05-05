@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Padosoft\LaravelFlow\Queue;
 
+/**
+ * @internal
+ */
 final readonly class QueueRetryPolicy
 {
     /**

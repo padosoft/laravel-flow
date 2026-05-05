@@ -16,6 +16,8 @@ namespace Padosoft\LaravelFlow\Dashboard\Authorization;
  *
  * Production deployments MUST replace the binding with a host-app
  * implementation that enforces the actual RBAC.
+ *
+ * @api
  */
 final class AllowAllAuthorizer implements DashboardActionAuthorizer
 {

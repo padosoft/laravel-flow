@@ -17,6 +17,9 @@ use Padosoft\LaravelFlow\Models\FlowRunRecord;
 use Padosoft\LaravelFlow\Models\FlowStepRecord;
 use Throwable;
 
+/**
+ * @internal
+ */
 final class ReplayFlowRunCommand extends Command
 {
     /**

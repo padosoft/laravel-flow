@@ -14,6 +14,9 @@ use InvalidArgumentException;
 use Padosoft\LaravelFlow\Persistence\FlowPruner;
 use Throwable;
 
+/**
+ * @internal
+ */
 final class PruneFlowRunsCommand extends Command
 {
     use ConfirmableTrait;

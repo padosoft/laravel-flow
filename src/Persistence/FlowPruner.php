@@ -12,6 +12,9 @@ use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 use Padosoft\LaravelFlow\FlowRun;
 
+/**
+ * @internal
+ */
 final class FlowPruner
 {
     /**

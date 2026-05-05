@@ -8,6 +8,9 @@ use Padosoft\LaravelFlow\Contracts\CurrentPayloadRedactorProvider;
 use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
 use RuntimeException;
 
+/**
+ * @internal
+ */
 final class PayloadRedactorResolution
 {
     private const MAX_PROVIDER_DEPTH = 32;

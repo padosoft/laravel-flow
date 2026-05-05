@@ -9,6 +9,8 @@ use Padosoft\LaravelFlow\Models\FlowApprovalRecord;
 
 /**
  * Optional repository extension required by persisted approval resume/reject.
+ *
+ * @api
  */
 interface ApprovalDecisionRepository
 {

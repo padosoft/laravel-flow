@@ -6,6 +6,9 @@ namespace Padosoft\LaravelFlow\Persistence;
 
 use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
 
+/**
+ * @internal
+ */
 final class PersistencePayloadRedaction
 {
     /**

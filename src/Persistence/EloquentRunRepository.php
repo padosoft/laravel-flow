@@ -10,6 +10,9 @@ use Padosoft\LaravelFlow\Contracts\RunRepository;
 use Padosoft\LaravelFlow\Models\FlowRunRecord;
 use RuntimeException;
 
+/**
+ * @internal
+ */
 final class EloquentRunRepository implements ConditionalRunRepository, RunRepository
 {
     /**

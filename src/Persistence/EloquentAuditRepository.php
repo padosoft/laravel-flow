@@ -10,6 +10,9 @@ use Padosoft\LaravelFlow\Contracts\AuditRepository;
 use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
 use Padosoft\LaravelFlow\Models\FlowAuditRecord;
 
+/**
+ * @internal
+ */
 final class EloquentAuditRepository implements AuditRepository
 {
     public function __construct(

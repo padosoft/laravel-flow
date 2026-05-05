@@ -21,6 +21,8 @@ use Padosoft\LaravelFlow\Models\FlowWebhookOutboxRecord;
  * evolve persistence internals without breaking the dashboard
  * Composer-path-repo consumer. Method names and DTO shapes are part
  * of the public v1.0 API.
+ *
+ * @api
  */
 final class FlowDashboardReadModel
 {

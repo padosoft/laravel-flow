@@ -7,6 +7,9 @@ namespace Padosoft\LaravelFlow\Contracts;
 use Illuminate\Database\Eloquent\Collection;
 use Padosoft\LaravelFlow\Models\FlowStepRecord;
 
+/**
+ * @api
+ */
 interface StepRunRepository
 {
     /**

@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Padosoft\LaravelFlow\Events;
 
+/**
+ * @api
+ */
 final class FlowStepStarted
 {
     public function __construct(

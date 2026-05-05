@@ -9,6 +9,8 @@ namespace Padosoft\LaravelFlow;
  *
  * Steps are immutable post-registration: the builder produces a fresh
  * FlowStep on every fluent mutation.
+ *
+ * @api
  */
 final class FlowStep
 {

@@ -6,6 +6,9 @@ namespace Padosoft\LaravelFlow;
 
 use DateTimeImmutable;
 
+/**
+ * @api
+ */
 final class IssuedApprovalToken
 {
     public function __construct(

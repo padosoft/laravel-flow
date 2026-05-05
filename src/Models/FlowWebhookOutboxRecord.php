@@ -20,6 +20,8 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $delivered_at
  * @property Carbon|null $failed_at
  * @property string|null $last_error
+ *
+ * @internal
  */
 final class FlowWebhookOutboxRecord extends Model
 {

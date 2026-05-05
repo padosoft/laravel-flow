@@ -8,6 +8,8 @@ use DateTimeImmutable;
 
 /**
  * Stable read DTO representing one webhook outbox row for dashboard consumption.
+ *
+ * @api
  */
 final readonly class WebhookOutboxSummary
 {

@@ -8,6 +8,8 @@ use Padosoft\LaravelFlow\Models\FlowRunRecord;
 
 /**
  * Optional repository extension for compare-and-set run transitions.
+ *
+ * @api
  */
 interface ConditionalRunRepository
 {

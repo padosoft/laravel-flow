@@ -14,6 +14,9 @@ use Padosoft\LaravelFlow\Contracts\RedactorAwareApprovalRepository;
 use Padosoft\LaravelFlow\Exceptions\FlowExecutionException;
 use Padosoft\LaravelFlow\Models\FlowApprovalRecord;
 
+/**
+ * @api
+ */
 final class ApprovalTokenManager
 {
     private const DEFAULT_TTL_MINUTES = 1440;

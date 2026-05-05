@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Padosoft\LaravelFlow\Persistence;
 
+/**
+ * @internal
+ */
 final class FlowPruneResult
 {
     public function __construct(

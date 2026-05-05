@@ -13,6 +13,8 @@ namespace Padosoft\LaravelFlow\Dashboard;
  * redactor is disabled by config the dashboard will receive raw stored values,
  * so host apps that cannot guarantee that flag must add their own redaction
  * layer before rendering.
+ *
+ * @api
  */
 final readonly class RunDetail
 {

@@ -26,6 +26,8 @@ use Padosoft\LaravelFlow\FlowEngine;
  * deployments cannot accidentally expose the dashboard. Host apps must
  * explicitly bind their own implementation (or {@see AllowAllAuthorizer}
  * for development) before exposing the dashboard.
+ *
+ * @api
  */
 interface DashboardActionAuthorizer
 {

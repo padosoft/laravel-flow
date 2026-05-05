@@ -16,6 +16,8 @@ namespace Padosoft\LaravelFlow\Dashboard\Authorization;
  * opt into {@see AllowAllAuthorizer} by binding it explicitly:
  *
  *     $this->app->bind(DashboardActionAuthorizer::class, AllowAllAuthorizer::class);
+ *
+ * @api
  */
 final class DenyAllAuthorizer implements DashboardActionAuthorizer
 {

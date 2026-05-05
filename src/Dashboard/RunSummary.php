@@ -11,6 +11,8 @@ use DateTimeImmutable;
  *
  * The companion dashboard app must depend only on this DTO, never on
  * the underlying Eloquent record, to keep the read contract stable.
+ *
+ * @api
  */
 final readonly class RunSummary
 {

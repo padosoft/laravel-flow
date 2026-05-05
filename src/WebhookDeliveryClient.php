@@ -91,7 +91,7 @@ final class WebhookDeliveryClient
     }
 
     /**
-     * @param  array<string, string>  $headers
+     * @param  list<string>  $headers
      * @return array{status_code: int, body: string, error: string}
      */
     private function defaultTransport(string $url, array $headers, string $body, int $timeout): array

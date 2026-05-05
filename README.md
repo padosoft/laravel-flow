@@ -454,7 +454,7 @@ return [
 | `queue.backoff_seconds`   | `null`           | Optional Laravel job backoff value stamped onto `RunFlowJob`; use a single integer or comma-separated/list values such as `5,30,120`. Async backoff schedules that can retry the whole run are rejected until step-level retry or replay semantics are available. |
 | `approval.token_ttl_minutes` | `1440`        | Expiry window for `ApprovalTokenManager` one-time tokens consumed by `Flow::resume()` / `Flow::reject()`. Only token hashes are stored in `flow_approvals`; the plain token is returned once from issuance. |
 | `webhook.enabled`         | `false`          | Enables signed lifecycle delivery. Set `true` only when your app can reach the webhook URL from the command schedule or worker. |
-| `webhook.url`             | `''`             | HTTPS endpoint receiving lifecycle event JSON from `flow:deliver-webhooks`; the command rejects empty or non-URL values. |
+| `webhook.url`             | `''`             | URL endpoint receiving lifecycle event JSON from `flow:deliver-webhooks`; the command rejects empty or syntactically invalid URL values (HTTPS strongly recommended for production). |
 | `webhook.secret`          | `null`           | Shared HMAC secret for signing `X-Laravel-Flow-Signature: t=...,v1=...` headers. Leave empty to disable signing. |
 | `webhook.retry_base_delay_seconds` | `30`    | Base delay (seconds) for exponential backoff between outbox retries. |
 | `webhook.max_attempts`    | `3`              | Maximum delivery attempts before `flow_webhook_outbox.status` becomes `failed`. |

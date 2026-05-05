@@ -141,6 +141,7 @@ final class EloquentWebhookOutboxRepository
         $this->newQuery()
             ->where('id', $record->id)
             ->where('status', self::STATUS_DELIVERING)
+            ->where('attempts', $attempts)
             ->update($payload);
     }
 

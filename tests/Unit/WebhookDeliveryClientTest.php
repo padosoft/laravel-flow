@@ -13,7 +13,7 @@ final class WebhookDeliveryClientTest extends TestCase
     public function test_deliver_returns_failure_when_url_is_empty(): void
     {
         $client = new WebhookDeliveryClient(
-            transport: static fn (): array => ['status_code' => 200, 'body' => '', 'error' => ''],
+            transport: static fn (string $url, array $headers, string $body, int $timeout): array => ['status_code' => 200, 'body' => '', 'error' => ''],
         );
 
         $result = $client->deliver('', ['key' => 'value']);
@@ -26,7 +26,7 @@ final class WebhookDeliveryClientTest extends TestCase
     public function test_deliver_returns_failure_when_url_is_invalid(): void
     {
         $client = new WebhookDeliveryClient(
-            transport: static fn (): array => ['status_code' => 200, 'body' => '', 'error' => ''],
+            transport: static fn (string $url, array $headers, string $body, int $timeout): array => ['status_code' => 200, 'body' => '', 'error' => ''],
         );
 
         $result = $client->deliver('not-a-url', ['key' => 'value']);

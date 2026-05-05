@@ -89,7 +89,7 @@ final class WebhookDeliveryClientTest extends TestCase
     public function test_deliver_treats_non_2xx_as_failure(): void
     {
         $client = new WebhookDeliveryClient(
-            transport: static fn (): array => ['status_code' => 500, 'body' => 'oops', 'error' => 'server error'],
+            transport: static fn (string $url, array $headers, string $body, int $timeout): array => ['status_code' => 500, 'body' => 'oops', 'error' => 'server error'],
             timeoutSeconds: 2,
         );
 
@@ -103,7 +103,7 @@ final class WebhookDeliveryClientTest extends TestCase
     public function test_deliver_normalizes_empty_transport_error(): void
     {
         $client = new WebhookDeliveryClient(
-            transport: static fn (): array => ['status_code' => 502, 'body' => '', 'error' => ''],
+            transport: static fn (string $url, array $headers, string $body, int $timeout): array => ['status_code' => 502, 'body' => '', 'error' => ''],
             timeoutSeconds: 2,
         );
 

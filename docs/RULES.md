@@ -91,3 +91,13 @@ Playwright is required only when UI/UX changes are in scope.
 - Merge only after local gates, Copilot review, and reported CI checks are clean.
 - If a PR reports no checks, verify the workflow trigger and base branch, update the trigger if needed, then re-check the same PR. Do not merge until checks for the current head are visible and green.
 - If GitHub access is unavailable, record the exact blocked remote step in `docs/PROGRESS.md`.
+
+## v1.0 Stability Rules
+
+- Class-level `@api` and `@internal` docblock tags are load-bearing from v1.0. SemVer applies to `@api`; `@internal` may change in any release. Never combine the two on a single class.
+- Internal namespaces today: `Padosoft\LaravelFlow\Persistence\*`, `Padosoft\LaravelFlow\Models\*`, `Padosoft\LaravelFlow\Queue\*`, `Padosoft\LaravelFlow\Jobs\*`, `Padosoft\LaravelFlow\Console\*`. Host apps must consume only the matching public contracts.
+- The `tests/Contract/` testsuite pins class names, public methods, and constants for the v1.0 `@api` surface. Update it in the same PR when intentionally evolving the public API.
+- Companion dashboard scope: separate repo (`padosoft/padosoft-laravel-flow-dashboard`). Package itself never ships UI. Spec: `docs/DASHBOARD_APP_SPEC.md`.
+- `DashboardActionAuthorizer` ships as deny-by-default (`DenyAllAuthorizer`). Production deployments must override; `AllowAllAuthorizer` is the explicit dev opt-in.
+- Approval tokens are SHA-256 hashed at rest. Plain tokens are returned only on the immediate `FlowRun` at issuance time. The dashboard authorizer takes a token hash via `ApprovalTokenManager::hashToken($plainToken)`.
+- Read DTOs (`RunDetail`, `ApprovalSummary`) return whatever is stored. The package only redacts JSON payloads when `laravel-flow.persistence.redaction.enabled` is true. Documentation must always reference that gate when describing redaction behavior.

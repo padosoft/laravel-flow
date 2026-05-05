@@ -72,3 +72,16 @@ composer test
 If the companion dashboard app is being changed, also run its PHP, Node, Vite, Vitest, and Playwright gates as documented in that app.
 
 If a tool is unavailable, blocked, or remote CI/Copilot cannot be verified, do not fake completion. Record the exact blocker and next remote step in `docs/PROGRESS.md`.
+
+## v1.0 Stability Rules
+
+From v1.0 onward, classes carry an explicit visibility contract in their docblock. Treat these tags as load-bearing.
+
+- Class-level `@api` means the class, its public method signatures, and its public constants are SemVer-covered. Breaking changes only happen on a major version bump and ship with `docs/UPGRADE.md` updated. The contract test suite `tests/Contract/` pins this surface; if you must change an `@api` class, update both the test and the upgrade guide in the same PR.
+- Class-level `@internal` means the class is implementation detail. Do not type-hint, extend, mock, or reflect on `@internal` classes from host code. Internal classes can change in any release. Internal namespaces today: `Persistence`, `Models`, `Queue`, `Jobs`, `Console`.
+- Never give a class both `@api` and `@internal`. If a class accepts an `@internal` type in a public constructor, the class itself is internal — drop the `@api` tag. The contradiction was caught during Macro 6 review and is now flagged by the contract test policy.
+- New host-app extension points must surface through `Padosoft\LaravelFlow\Contracts\*` interfaces, not by exposing a `Persistence/*` class. Custom backends extend the contract; the package keeps Eloquent-backed defaults.
+- The companion dashboard lives in a separate repo (`padosoft/padosoft-laravel-flow-dashboard`). Package code stays headless. The dashboard contract surface is `Padosoft\LaravelFlow\Dashboard\*`; the brief for an AI agent or human team building the companion app is at `docs/DASHBOARD_APP_SPEC.md`.
+- `DashboardActionAuthorizer` is registered as `DenyAllAuthorizer` by default. Production deployments MUST bind their own implementation. `AllowAllAuthorizer` is opt-in for development only.
+- Approval tokens are SHA-256 hashed at rest and never recoverable from `flow_approvals`. The dashboard authorizer takes a token hash, not the plain token; compute it via `ApprovalTokenManager::hashToken($plainToken)` before calling the authorizer.
+- Payload redaction depends on `laravel-flow.persistence.redaction.enabled`. Read DTOs (`RunDetail`, `ApprovalSummary`) return whatever is stored; host apps that disable redaction must add their own sanitisation pass before rendering, never advertise an unconditional package-level guarantee.

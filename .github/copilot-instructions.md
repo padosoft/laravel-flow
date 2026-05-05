@@ -12,6 +12,11 @@ Important project context:
 - Persisted audit and webhook payloads must not expose secrets.
 - Public API changes require tests and documentation.
 - Feature additions or material feature improvements must update README section `Comparison vs alternatives`; competitor claims must be accurate and researched when uncertain.
+- v1.0 stability: classes are annotated with `@api` (SemVer-covered) or `@internal` (implementation detail). Never combine the two. Do not change the public method signature, public constants, or class name of an `@api` type without bumping the major version and updating `docs/UPGRADE.md` plus `tests/Contract/PublicApiContractTest.php`.
+- Internal namespaces today (`Persistence`, `Models`, `Queue`, `Jobs`, `Console`) are not part of the public contract. Surface new extension points through `Padosoft\LaravelFlow\Contracts\*` interfaces.
+- `DashboardActionAuthorizer` is bound to `DenyAllAuthorizer` by default. Reject changes that flip this default to permissive; production deployments rely on the deny-by-default posture.
+- Plain approval tokens are never stored. The dashboard authorizer takes a token hash; flag any code path that persists or logs a plain token.
+- Companion dashboard work belongs in `padosoft/padosoft-laravel-flow-dashboard`. The package must remain headless. The dashboard brief is at `docs/DASHBOARD_APP_SPEC.md`.
 
 Review priorities:
 

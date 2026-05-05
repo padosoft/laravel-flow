@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Padosoft\LaravelFlow\Tests\Unit\Dashboard;
 
+use Illuminate\Support\Facades\Date;
 use Padosoft\LaravelFlow\Dashboard\FlowDashboardReadModel;
 use Padosoft\LaravelFlow\Dashboard\Pagination;
 use Padosoft\LaravelFlow\Dashboard\RunFilter;
@@ -26,8 +27,13 @@ final class FlowDashboardReadModelTest extends PersistenceTestCase
             ->step('one', AlwaysSucceedsHandler::class)
             ->register();
 
+        Date::setTestNow('2026-05-05 10:00:00');
         $first = $engine->execute('flow.dashboard.list-runs', ['marker' => 1]);
+
+        Date::setTestNow('2026-05-05 11:00:00');
         $second = $engine->execute('flow.dashboard.list-runs', ['marker' => 2]);
+
+        Date::setTestNow();
 
         $reader = $this->reader();
         $page = $reader->listRuns(new RunFilter, new Pagination(1, 10));
@@ -39,8 +45,7 @@ final class FlowDashboardReadModelTest extends PersistenceTestCase
         $this->assertSame(1, $page->totalPages());
 
         $ids = array_map(static fn ($item) => $item->id, $page->items);
-        $this->assertContains($first->id, $ids);
-        $this->assertContains($second->id, $ids);
+        $this->assertSame([$second->id, $first->id], $ids);
     }
 
     public function test_list_runs_filters_by_status_definition_correlation_and_compensated(): void

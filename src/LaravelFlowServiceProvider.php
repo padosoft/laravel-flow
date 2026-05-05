@@ -21,8 +21,8 @@ use Padosoft\LaravelFlow\Contracts\FlowStore;
 use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
 use Padosoft\LaravelFlow\Contracts\RunRepository;
 use Padosoft\LaravelFlow\Contracts\StepRunRepository;
-use Padosoft\LaravelFlow\Dashboard\Authorization\AllowAllAuthorizer;
 use Padosoft\LaravelFlow\Dashboard\Authorization\DashboardActionAuthorizer;
+use Padosoft\LaravelFlow\Dashboard\Authorization\DenyAllAuthorizer;
 use Padosoft\LaravelFlow\Dashboard\FlowDashboardReadModel;
 use Padosoft\LaravelFlow\Persistence\EloquentApprovalRepository;
 use Padosoft\LaravelFlow\Persistence\EloquentFlowStore;
@@ -132,7 +132,7 @@ final class LaravelFlowServiceProvider extends ServiceProvider
 
             return new FlowDashboardReadModel(connection: $connection);
         });
-        $this->app->bind(DashboardActionAuthorizer::class, AllowAllAuthorizer::class);
+        $this->app->bind(DashboardActionAuthorizer::class, DenyAllAuthorizer::class);
     }
 
     public function boot(): void

@@ -7,6 +7,7 @@ namespace Padosoft\LaravelFlow\Dashboard;
 use DateTimeImmutable;
 use DateTimeInterface;
 use Illuminate\Database\Eloquent\Builder;
+use Padosoft\LaravelFlow\FlowRun;
 use Padosoft\LaravelFlow\Models\FlowApprovalRecord;
 use Padosoft\LaravelFlow\Models\FlowAuditRecord;
 use Padosoft\LaravelFlow\Models\FlowRunRecord;
@@ -122,25 +123,56 @@ final class FlowDashboardReadModel
 
     public function kpis(): Kpis
     {
-        $totalRuns = $this->runQuery()->count();
-        $runningRuns = $this->runQuery()->where('status', 'running')->count();
-        $pausedRuns = $this->runQuery()->where('status', 'paused')->count();
-        $failedRuns = $this->runQuery()->where('status', 'failed')->count();
-        $compensatedRuns = $this->runQuery()->where('status', 'compensated')->count();
+        $runCounts = $this->runQuery()
+            ->selectRaw('count(*) as total')
+            ->selectRaw('sum(case when status = ? then 1 else 0 end) as running', [FlowRun::STATUS_RUNNING])
+            ->selectRaw('sum(case when status = ? then 1 else 0 end) as paused', [FlowRun::STATUS_PAUSED])
+            ->selectRaw('sum(case when status = ? then 1 else 0 end) as failed', [FlowRun::STATUS_FAILED])
+            ->selectRaw('sum(case when compensated = ? then 1 else 0 end) as compensated', [true])
+            ->first();
+
+        $outboxCounts = $this->webhookOutboxQuery()
+            ->selectRaw('sum(case when status = ? then 1 else 0 end) as pending', [FlowWebhookOutboxRecord::STATUS_PENDING])
+            ->selectRaw('sum(case when status = ? then 1 else 0 end) as failed', [FlowWebhookOutboxRecord::STATUS_FAILED])
+            ->first();
+
         $pendingApprovals = $this->approvalQuery()->where('status', FlowApprovalRecord::STATUS_PENDING)->count();
-        $webhookOutboxPending = $this->webhookOutboxQuery()->where('status', FlowWebhookOutboxRecord::STATUS_PENDING)->count();
-        $webhookOutboxFailed = $this->webhookOutboxQuery()->where('status', FlowWebhookOutboxRecord::STATUS_FAILED)->count();
 
         return new Kpis(
-            totalRuns: $totalRuns,
-            runningRuns: $runningRuns,
-            pausedRuns: $pausedRuns,
-            failedRuns: $failedRuns,
-            compensatedRuns: $compensatedRuns,
+            totalRuns: $this->intAttr($runCounts, 'total'),
+            runningRuns: $this->intAttr($runCounts, 'running'),
+            pausedRuns: $this->intAttr($runCounts, 'paused'),
+            failedRuns: $this->intAttr($runCounts, 'failed'),
+            compensatedRuns: $this->intAttr($runCounts, 'compensated'),
             pendingApprovals: $pendingApprovals,
-            webhookOutboxPending: $webhookOutboxPending,
-            webhookOutboxFailed: $webhookOutboxFailed,
+            webhookOutboxPending: $this->intAttr($outboxCounts, 'pending'),
+            webhookOutboxFailed: $this->intAttr($outboxCounts, 'failed'),
         );
+    }
+
+    private function intAttr(mixed $row, string $key): int
+    {
+        if ($row === null) {
+            return 0;
+        }
+
+        if (is_object($row)) {
+            $value = $row->{$key} ?? null;
+        } elseif (is_array($row)) {
+            $value = $row[$key] ?? null;
+        } else {
+            $value = null;
+        }
+
+        if ($value === null) {
+            return 0;
+        }
+
+        if (is_numeric($value)) {
+            return (int) $value;
+        }
+
+        return 0;
     }
 
     /**

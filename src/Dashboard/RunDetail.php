@@ -6,7 +6,13 @@ namespace Padosoft\LaravelFlow\Dashboard;
 
 /**
  * Aggregate read DTO bundling a run with its persisted children for dashboard
- * detail views. JSON payloads are returned as already-redacted by persistence.
+ * detail views. JSON payloads (input, output, businessImpact, audit payload,
+ * approval decisionPayload/actor) are returned exactly as stored. The package
+ * applies redaction before persistence ONLY when
+ * `laravel-flow.persistence.redaction.enabled` is true (the default); when the
+ * redactor is disabled by config the dashboard will receive raw stored values,
+ * so host apps that cannot guarantee that flag must add their own redaction
+ * layer before rendering.
  */
 final readonly class RunDetail
 {

@@ -16,8 +16,8 @@ use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
 use Padosoft\LaravelFlow\Contracts\RedactorAwareApprovalRepository;
 use Padosoft\LaravelFlow\Contracts\RunRepository;
 use Padosoft\LaravelFlow\Contracts\StepRunRepository;
-use Padosoft\LaravelFlow\Dashboard\Authorization\AllowAllAuthorizer;
 use Padosoft\LaravelFlow\Dashboard\Authorization\DashboardActionAuthorizer;
+use Padosoft\LaravelFlow\Dashboard\Authorization\DenyAllAuthorizer;
 use Padosoft\LaravelFlow\Dashboard\FlowDashboardReadModel;
 use Padosoft\LaravelFlow\FlowEngine;
 use Padosoft\LaravelFlow\LaravelFlowServiceProvider;
@@ -133,6 +133,6 @@ final class ServiceProviderTest extends TestCase
         $this->assertTrue($this->app->bound(FlowDashboardReadModel::class));
         $this->assertTrue($this->app->bound(DashboardActionAuthorizer::class));
         $this->assertInstanceOf(FlowDashboardReadModel::class, $this->app->make(FlowDashboardReadModel::class));
-        $this->assertInstanceOf(AllowAllAuthorizer::class, $this->app->make(DashboardActionAuthorizer::class));
+        $this->assertInstanceOf(DenyAllAuthorizer::class, $this->app->make(DashboardActionAuthorizer::class));
     }
 }

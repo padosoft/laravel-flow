@@ -86,7 +86,11 @@ $kpis = $reader->kpis();
 
 ### Authorization hook — `Padosoft\LaravelFlow\Dashboard\Authorization\DashboardActionAuthorizer`
 
-The dashboard MUST bind a custom implementation in its service provider. The default `AllowAllAuthorizer` is for development only.
+The dashboard MUST bind a custom implementation in its service provider. The default registered by the package is `DenyAllAuthorizer`, which rejects every action — exactly so production cannot be silently exposed. For local development against a single trusted operator, the package also ships `AllowAllAuthorizer` which can be opted into explicitly:
+
+```php
+$this->app->bind(DashboardActionAuthorizer::class, AllowAllAuthorizer::class);
+```
 
 ```php
 interface DashboardActionAuthorizer {
@@ -113,9 +117,12 @@ Flow::resume($plainToken, payload: ['decision' => 'approve'], actor: ['user_id' 
 // Reject a paused approval gate
 Flow::reject($plainToken, payload: ['decision' => 'reject', 'reason' => $note], actor: [...]);
 
-// Replay a terminal persisted run (creates a new linked run; original
-// is not mutated)
-$replayedRun = Flow::replay($originalRunId);
+// Replay a terminal persisted run: trigger the same flow again with the
+// same persisted input and link the new run via replayedFromRunId. Replay
+// is a CLI command at the package level — Artisan::call('flow:replay'),
+// or run the command from a queued job. There is no Flow::replay() facade
+// shortcut; the command preserves persistence-aware drift detection.
+Artisan::call('flow:replay', ['runId' => $originalRunId]);
 ```
 
 Plain approval tokens are never stored. Operators who can act on a gate must already have access to the token (e.g. delivered through email/Slack via the webhook). The dashboard does not bypass token verification.

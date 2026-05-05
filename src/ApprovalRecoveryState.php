@@ -9,8 +9,6 @@ use Padosoft\LaravelFlow\Models\FlowStepRecord;
 
 /**
  * @internal
- *
- * @api
  */
 final readonly class ApprovalRecoveryState
 {

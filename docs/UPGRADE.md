@@ -6,7 +6,7 @@ This document describes how to upgrade `padosoft/laravel-flow` between minor and
 
 - **`@api`** — Stable for v1.x. Breaking changes only happen on a major bump and ship with this guide updated. The `@api` annotation appears in the class docblock of:
   - Facade: `Padosoft\LaravelFlow\Facades\Flow`.
-  - Engine and DTOs: `FlowEngine`, `FlowDefinitionBuilder`, `FlowExecutionOptions`, `FlowDefinition`, `FlowStep`, `FlowRun`, `FlowStepResult`, `FlowContext`, `IssuedApprovalToken`, `ApprovalGate`, `ApprovalRecoveryState`, `ApprovalTokenManager`, `WebhookDeliveryClient`, `WebhookDeliveryResult`.
+  - Engine and DTOs: `FlowEngine`, `FlowDefinitionBuilder`, `FlowExecutionOptions`, `FlowDefinition`, `FlowStep`, `FlowRun`, `FlowStepResult`, `FlowContext`, `IssuedApprovalToken`, `ApprovalGate`, `ApprovalTokenManager`, `WebhookDeliveryClient`, `WebhookDeliveryResult`.
   - Public extension contracts: everything in `Padosoft\LaravelFlow\Contracts\*`.
   - Events: everything in `Padosoft\LaravelFlow\Events\*`.
   - Exceptions: everything in `Padosoft\LaravelFlow\Exceptions\*`.

@@ -34,6 +34,7 @@ $dryRun = Flow::dryRun ('promotion.create', $input);   // simulate, no writes
 - [Why this package](#why-this-package)
 - [Design rationale](#design-rationale)
 - [Features at a glance](#features-at-a-glance)
+- [Web admin UI](#web-admin-ui)
 - [Comparison vs alternatives](#comparison-vs-alternatives)
 - [Installation](#installation)
 - [Quick start](#quick-start)
@@ -117,6 +118,14 @@ When `audit_trail_enabled` is enabled, normal-case step and compensation transit
 - **Testbench-friendly** — TestCase + stubs ready to copy.
 - **🚀 AI vibe-coding pack included** — `.claude/` directory with skills, rules, agents, commands, and the Padosoft Copilot review loop pre-wired.
 - **PHP 8.3 / 8.4 × Laravel 13** matrix on every CI run.
+
+---
+
+## Web admin UI
+
+A full-featured web admin panel for `laravel-flow` is available at [`padosoft/laravel-flow-admin`](https://github.com/padosoft/laravel-flow-admin).
+
+![Laravel Flow admin dashboard](resources/screenshoots/laravel-flow-admin-dashboard.png)
 
 ---
 

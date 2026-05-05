@@ -25,6 +25,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property \DateTimeInterface|null $finished_at
  * @property \DateTimeInterface|null $created_at
  * @property \DateTimeInterface|null $updated_at
+ *
+ * @internal
  */
 final class FlowStepRecord extends Model
 {

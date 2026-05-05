@@ -7,6 +7,9 @@ namespace Padosoft\LaravelFlow\Contracts;
 use DateTimeInterface;
 use Padosoft\LaravelFlow\Models\FlowApprovalRecord;
 
+/**
+ * @api
+ */
 interface ApprovalRepository
 {
     /**

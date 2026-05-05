@@ -8,6 +8,8 @@ namespace Padosoft\LaravelFlow;
  * Readonly context object passed to every handler + compensator.
  *
  * @phpstan-type StepOutputs array<string, array<string, mixed>>
+ *
+ * @api
  */
 final class FlowContext
 {

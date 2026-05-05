@@ -20,6 +20,8 @@ namespace Padosoft\LaravelFlow;
  * - `FlowStepResult::paused(...)` is reserved for side-effect-free
  *   control steps. A paused step is not considered completed and its own
  *   compensator will not run during rollback.
+ *
+ * @api
  */
 interface FlowStepHandler
 {

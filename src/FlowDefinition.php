@@ -8,6 +8,8 @@ namespace Padosoft\LaravelFlow;
  * Readonly aggregate describing a registered flow.
  *
  * @phpstan-type FlowSteps list<FlowStep>
+ *
+ * @api
  */
 final class FlowDefinition
 {

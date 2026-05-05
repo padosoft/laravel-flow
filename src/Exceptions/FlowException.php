@@ -11,5 +11,7 @@ use RuntimeException;
  *
  * NOT final on purpose — package + host applications subclass it
  * (W4.C lesson — `final` on the parent prevents typed catch upstream).
+ *
+ * @api
  */
 class FlowException extends RuntimeException {}

@@ -6,6 +6,8 @@ namespace Padosoft\LaravelFlow\Dashboard;
 
 /**
  * Aggregate KPI counters for the dashboard landing view.
+ *
+ * @api
  */
 final readonly class Kpis
 {

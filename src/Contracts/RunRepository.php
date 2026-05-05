@@ -6,6 +6,9 @@ namespace Padosoft\LaravelFlow\Contracts;
 
 use Padosoft\LaravelFlow\Models\FlowRunRecord;
 
+/**
+ * @api
+ */
 interface RunRepository
 {
     /**

@@ -10,6 +10,8 @@ use DateTimeInterface;
  * Filter DTO for run-list dashboard queries. All fields are optional; null
  * means "do not constrain on this field". Filter values are matched as
  * exact equality (not LIKE) so the dashboard contract stays predictable.
+ *
+ * @api
  */
 final readonly class RunFilter
 {

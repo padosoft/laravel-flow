@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Padosoft\LaravelFlow;
 
+/**
+ * @api
+ */
 final class WebhookDeliveryResult
 {
     public function __construct(

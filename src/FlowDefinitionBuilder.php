@@ -13,6 +13,8 @@ use Padosoft\LaravelFlow\Exceptions\FlowExecutionException;
  * {@see FlowDefinition} on `register()`. `withDryRun()` and
  * `compensateWith()` apply to the LAST step added — calling them before
  * the first `step()` is an error.
+ *
+ * @api
  */
 final class FlowDefinitionBuilder
 {

@@ -6,6 +6,9 @@ namespace Padosoft\LaravelFlow\Events;
 
 use Padosoft\LaravelFlow\FlowStepResult;
 
+/**
+ * @api
+ */
 final class FlowPaused
 {
     public function __construct(

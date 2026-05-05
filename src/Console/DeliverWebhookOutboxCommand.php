@@ -12,6 +12,9 @@ use Padosoft\LaravelFlow\Persistence\EloquentWebhookOutboxRepository;
 use Padosoft\LaravelFlow\WebhookDeliveryClient;
 use Padosoft\LaravelFlow\WebhookDeliveryResult;
 
+/**
+ * @internal
+ */
 final class DeliverWebhookOutboxCommand extends Command
 {
     /**

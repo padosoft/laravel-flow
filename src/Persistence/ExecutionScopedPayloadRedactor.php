@@ -10,6 +10,8 @@ use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
 
 /**
  * Keeps singleton FlowStore repositories aligned with the current redactor binding.
+ *
+ * @internal
  */
 final class ExecutionScopedPayloadRedactor implements CurrentPayloadRedactorProvider
 {

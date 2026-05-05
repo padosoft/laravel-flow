@@ -13,6 +13,9 @@ use Padosoft\LaravelFlow\Contracts\RedactorAwareApprovalRepository;
 use Padosoft\LaravelFlow\Models\FlowApprovalRecord;
 use Padosoft\LaravelFlow\Models\FlowRunRecord;
 
+/**
+ * @internal
+ */
 final class EloquentApprovalRepository implements ApprovalDecisionRepository, ApprovalRepository, RedactorAwareApprovalRepository
 {
     public function __construct(

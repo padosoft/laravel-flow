@@ -18,6 +18,8 @@ use Padosoft\LaravelFlow\Persistence\AppendOnlyAuditBuilder;
  * @property array<string, mixed>|null $business_impact
  * @property \DateTimeInterface|null $occurred_at
  * @property \DateTimeInterface|null $created_at
+ *
+ * @internal
  */
 final class FlowAuditRecord extends Model
 {

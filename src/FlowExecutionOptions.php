@@ -6,6 +6,9 @@ namespace Padosoft\LaravelFlow;
 
 use Padosoft\LaravelFlow\Exceptions\FlowInputException;
 
+/**
+ * @api
+ */
 final readonly class FlowExecutionOptions
 {
     public const MAX_IDENTIFIER_LENGTH = 255;

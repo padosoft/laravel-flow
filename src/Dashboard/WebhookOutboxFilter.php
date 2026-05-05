@@ -12,6 +12,8 @@ use DateTimeInterface;
  * field accepts one of `pending`, `delivering`, `delivered`, `failed`.
  * The event field matches lifecycle events such as `flow.completed`,
  * `flow.failed`, `flow.paused`, or `flow.resumed`.
+ *
+ * @api
  */
 final readonly class WebhookOutboxFilter
 {

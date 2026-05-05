@@ -10,6 +10,9 @@ use Padosoft\LaravelFlow\Exceptions\FlowExecutionException;
 use Padosoft\LaravelFlow\FlowEngine;
 use Throwable;
 
+/**
+ * @internal
+ */
 abstract class ApprovalDecisionCommand extends Command
 {
     /**

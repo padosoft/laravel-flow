@@ -7,6 +7,9 @@ namespace Padosoft\LaravelFlow;
 use JsonException;
 use Throwable;
 
+/**
+ * @api
+ */
 final class WebhookDeliveryClient
 {
     /** @var callable(string, list<string>, string, int): array{status_code: int, body: string, error: string} */

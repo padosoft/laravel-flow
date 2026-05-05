@@ -26,6 +26,8 @@ use Padosoft\LaravelFlow\FlowRun;
  * @method static void registerDefinition(FlowDefinition $definition)
  *
  * @see FlowEngine
+ *
+ * @api
  */
 final class Flow extends Facade
 {

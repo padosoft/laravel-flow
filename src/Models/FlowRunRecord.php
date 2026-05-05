@@ -25,6 +25,8 @@ use Padosoft\LaravelFlow\FlowRun;
  * @property int|null $duration_ms
  * @property \DateTimeInterface|null $started_at
  * @property \DateTimeInterface|null $finished_at
+ *
+ * @internal
  */
 final class FlowRunRecord extends Model
 {

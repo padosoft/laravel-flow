@@ -20,6 +20,8 @@ use Illuminate\Database\Eloquent\Model;
  * @property \DateTimeInterface|null $decided_at
  * @property \DateTimeInterface|null $created_at
  * @property \DateTimeInterface|null $updated_at
+ *
+ * @internal
  */
 final class FlowApprovalRecord extends Model
 {

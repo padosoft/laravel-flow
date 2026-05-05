@@ -72,7 +72,8 @@
         ],
         "test": [
             "phpunit --testsuite Unit",
-            "phpunit --testsuite Architecture"
+            "phpunit --testsuite Architecture",
+            "phpunit --testsuite Contract"
         ]
     }
 }

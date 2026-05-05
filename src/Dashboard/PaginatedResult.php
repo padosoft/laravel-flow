@@ -9,6 +9,8 @@ namespace Padosoft\LaravelFlow\Dashboard;
  * pagination controls without needing a second COUNT query.
  *
  * @template TItem
+ *
+ * @api
  */
 final readonly class PaginatedResult
 {

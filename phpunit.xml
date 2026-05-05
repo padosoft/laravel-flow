@@ -16,6 +16,11 @@
             <directory>tests/Architecture</directory>
         </testsuite>
 
+        <!-- Contract suite: pin v1.0 @api surface so SemVer guarantees can be enforced. -->
+        <testsuite name="Contract">
+            <directory>tests/Contract</directory>
+        </testsuite>
+
         <!-- Opt-in Live suite: scaffold for v0.2+ scenarios that need a real
              external dependency (queue worker, webhook receiver, etc.). Every
              Live test self-skips unless LARAVEL_FLOW_LIVE=1 is set. NOT run in CI. -->

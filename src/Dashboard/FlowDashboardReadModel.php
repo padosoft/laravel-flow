@@ -288,7 +288,17 @@ final class FlowDashboardReadModel
             if (! ($record instanceof FlowAuditRecord)) {
                 continue;
             }
-            $occurred = $this->immutable($record->occurred_at) ?? new DateTimeImmutable;
+            // Prefer engine-captured occurred_at; fall back to Eloquent
+            // created_at so legacy/manual rows still surface a stable
+            // timestamp instead of a fabricated "now". Skip the row entirely
+            // if neither timestamp is populated.
+            $occurred = $this->immutable($record->occurred_at)
+                ?? $this->immutable($record->created_at);
+
+            if ($occurred === null) {
+                continue;
+            }
+
             $items[] = new AuditEntry(
                 id: (int) $record->id,
                 runId: (string) $record->run_id,

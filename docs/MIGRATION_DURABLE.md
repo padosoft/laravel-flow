@@ -35,7 +35,7 @@ This guide maps concepts from common PHP "durable workflow" libraries (e.g. Temp
        {
            $result = $this->gateway->charge($context->input['amount']);
 
-           return FlowStepResult::ok(
+           return FlowStepResult::success(
                output: ['charge_id' => $result->id],
                businessImpact: ['amount_cents' => $result->amount],
            );

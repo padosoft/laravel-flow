@@ -111,6 +111,7 @@ final class WebhookDeliveryClient
         ]);
 
         $errorMessage = null;
+        // PHP populates $http_response_header in the local scope where file_get_contents() runs.
         $response = @file_get_contents($url, false, $context);
 
         if ($response === false) {
@@ -119,7 +120,7 @@ final class WebhookDeliveryClient
             $statusCode = 0;
             $responseBody = '';
         } else {
-            $statusCode = $this->statusCodeFromStreamHeaders();
+            $statusCode = $this->statusCodeFromHeaders($http_response_header);
             $responseBody = (string) $response;
         }
 
@@ -130,10 +131,11 @@ final class WebhookDeliveryClient
         ];
     }
 
-    private function statusCodeFromStreamHeaders(): int
+    /**
+     * @param  array<int, string>  $headers
+     */
+    private function statusCodeFromHeaders(array $headers): int
     {
-        $headers = $this->streamResponseHeaders();
-
         if ($headers === []) {
             return 0;
         }
@@ -145,22 +147,5 @@ final class WebhookDeliveryClient
         }
 
         return 0;
-    }
-
-    /**
-     * @return list<string>
-     */
-    private function streamResponseHeaders(): array
-    {
-        $globalHeaders = $GLOBALS['http_response_header'] ?? [];
-
-        if (! is_array($globalHeaders)) {
-            return [];
-        }
-
-        /** @var list<string> $headers */
-        $headers = array_values(array_filter($globalHeaders, 'is_string'));
-
-        return $headers;
     }
 }

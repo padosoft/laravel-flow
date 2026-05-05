@@ -36,6 +36,11 @@ use Throwable;
  *
  * Registers {@see FlowEngine} as a container singleton and exposes the
  * opt-in persistence repositories used by v0.2.
+ *
+ * @internal The service provider class is wired by Laravel package auto-
+ * discovery and is not part of the v1.0 SemVer-covered surface. Host
+ * applications must not extend this class; bind your own contracts on
+ * top of {@see Contracts} interfaces instead.
  */
 final class LaravelFlowServiceProvider extends ServiceProvider
 {

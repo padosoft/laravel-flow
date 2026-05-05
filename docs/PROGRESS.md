@@ -14,6 +14,8 @@ Known workstreams:
 | Macro Task 2 macro review hardening | Centralizes execution-scoped redactor provider resolution, aligns prune transaction callback usage, explicitly deletes pruned child rows, and keeps persistence model PHPDoc aligned with stored timestamp columns so Macro Task 2 review feedback remains folded into the durable implementation. |
 | Macro Task 3 - v0.2 queues/replay | Completed after merge of the macro PR to `main`: `Flow::dispatch()` validates and queues an after-commit `RunFlowJob` carrying flow name, input, execution options, per-dispatch lock metadata, and optional guarded Laravel-native tries/backoff metadata; queued jobs release lock-held duplicates after a configurable short delay, no-op completed duplicates, reject process-local `array` locks outside the `sync` queue driver, and have sync/database queue coverage. `flow:replay {runId}` creates new linked terminal-run replays with additive lineage metadata and partial-schema failures. `compensation_strategy=parallel` batches independent compensators while preserving `reverse-order` as the default. |
 | Macro Task 4 - v0.3 approval gates/webhooks | Completed after merge of macro PR #32 into `main` (merge commit `7fca1461083d8abb7e054baa32f6b2665a0581f6`). The macro adds `approvalGate($name)` pause primitive, hashed one-time `ApprovalTokenManager` tokens, persisted `Flow::resume()` / `Flow::reject()` with per-run shared cache lock, `flow:approve` / `flow:reject` CLI commands, and `flow:deliver-webhooks` with HMAC-SHA256 signed outbox delivery (lease-based `claimNextPending`, `markDeliveryResult`, configurable timeout/retries). Lifecycle outbox rows (`flow.paused`, `flow.resumed`, `flow.completed`, `flow.failed`) persist in engine transactions. Additive migrations for `flow_approvals` and `flow_webhook_outbox` cascade with `flow_runs`. |
+| Macro Task 5 - companion dashboard contracts (package-side) | Completed after merge of macro PR #34 into `main` (merge commit `0191b61f48031e48bc30021e8034bfafba1839ed`). The macro adds the headless `Padosoft\LaravelFlow\Dashboard\*` namespace: `FlowDashboardReadModel` with paginated `listRuns`/`findRun`/`listApprovals`/`pendingApprovals`/`listWebhookOutbox`/`failedWebhookOutbox`/`pendingWebhookOutbox`/`kpis`, immutable read DTOs (`RunSummary`, `StepSummary`, `AuditEntry`, `ApprovalSummary`, `WebhookOutboxSummary`, `RunDetail`, `RunFilter`, `ApprovalFilter`, `WebhookOutboxFilter`, `Pagination`, `PaginatedResult`, `Kpis`), and the `DashboardActionAuthorizer` interface with `DenyAllAuthorizer` registered as the deny-by-default binding (plus `AllowAllAuthorizer` for explicit dev opt-in). The companion app spec lives at `docs/DASHBOARD_APP_SPEC.md` and is intentionally outside the package repo. |
+| Macro Task 6 - v1.0 stable API and migration helpers | Completed after merge of macro PR #36 into `main` (merge commit `856f824da61c83bda7e8cc38ec9517a98c32b042`). The macro marks 81 source files with class-level `@api` (Facade, FlowEngine, builder/DTOs, Events, Exceptions, Contracts, Dashboard, WebhookDeliveryClient/Result) or `@internal` (Persistence, Models, Queue, Jobs, Console). Adds `docs/UPGRADE.md`, `docs/MIGRATION_DURABLE.md`, `docs/MIGRATION_SYMFONY.md`, and `tests/Contract/PublicApiContractTest.php` (new `Contract` testsuite) pinning the v1.0 surface so future patches cannot silently drop or rename `@api` classes/methods/constants. `composer test` now runs Unit + Architecture + Contract suites. |
 
 Concurrent subtasks should add rows here instead of replacing existing workstreams.
 
@@ -50,20 +52,13 @@ Completed in Macro Task 2 (v0.2 persistence layer):
 - Added `FlowExecutionOptions` for normalized, length-validated correlation/idempotency metadata and idempotent persisted-run reuse with step-result rehydration and create-race fallback.
 - Added `flow:prune` retention cleanup for old terminal runs while keeping pending/running rows intact.
 
-Current validation baseline:
-
-- `composer validate --strict --no-check-publish`
-- `composer format:test`
-- `composer analyse`
-- `composer test` => Unit 234 tests / 1054 assertions, Architecture 2 tests / 7 assertions
-
 Current active macro:
 
-- Macro Task 5 — companion dashboard app (`task/dashboard-contracts`). Package side: stable read models for runs, steps, audit, approvals, and replay actions; configurable middleware/policy hooks; no embedded package UI.
+- Macro Task 7 — release docs + v1.0.0 tag (`task/release-docs-v1`). Adds `CHANGELOG.md`, expands README architecture/security/enterprise sections, folds reusable `docs/LESSON.md` findings back into AGENTS / CLAUDE / RULES / Copilot instructions / PR template / repo skills, and tags `v1.0.0` from `main` after the macro PR merges.
 
 Current validation baseline:
 
 - `composer validate --strict --no-check-publish`
 - `composer format:test`
 - `composer analyse`
-- `composer test` => Unit 234 tests / 1054 assertions, Architecture 2 tests / 7 assertions
+- `composer test` => Unit 250 tests / 1125 assertions, Architecture 2 tests / 7 assertions, Contract 63 tests / 265 assertions

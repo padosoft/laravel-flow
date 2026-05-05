@@ -33,3 +33,13 @@ Use the repo-local skills when their trigger matches:
 - `.claude/skills/test-count-readme-sync/SKILL.md`
 
 Before pushing a branch that changed tests or README test-count claims, run the test-count sync skill.
+
+## v1.0 Stability Rules
+
+- Public surface is annotated `@api`; internal namespaces are annotated `@internal`. The `tests/Contract/` testsuite pins the v1.0 surface — keep it in sync with any `@api` change.
+- Never mix `@api` and `@internal` on the same class. Classes whose constructors accept internal types are internal.
+- Companion dashboard is a separate repo (`padosoft/padosoft-laravel-flow-dashboard`); package stays headless. Spec: `docs/DASHBOARD_APP_SPEC.md`.
+- `DashboardActionAuthorizer` default binding is `DenyAllAuthorizer`. Production deployments must bind a real authorizer; `AllowAllAuthorizer` is dev-only.
+- Plain approval tokens are never recoverable from storage. The dashboard authorizer takes a token hash via `ApprovalTokenManager::hashToken($plainToken)`.
+- Read DTOs return whatever is stored; advertised redaction guarantees must always reference the `laravel-flow.persistence.redaction.enabled` config gate.
+- See `docs/UPGRADE.md` for the full SemVer policy and upgrade guidance.

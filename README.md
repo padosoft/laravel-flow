@@ -514,6 +514,24 @@ Custom `FlowStore` implementations that need the same per-execution `PayloadReda
 
 Every box is one PHP class under `src/`. The engine path is still synchronous and in-memory by default; when persistence is enabled, runtime runs and steps are written to `flow_runs` and `flow_steps` for non-dry-run executions. Audit transitions are written to `flow_audit` only for non-dry-run executions while persistence and `audit_trail_enabled` are both enabled. Dry-runs never write audit rows. `Flow::dispatch()` queues an after-commit `RunFlowJob` with per-dispatch locking, database queue coverage, and guarded Laravel retry/backoff metadata. `flow:replay` creates new linked runs from terminal persisted input, and `compensation_strategy=parallel` batches independent compensators through Laravel Concurrency.
 
+### Public API surface (v1.0)
+
+The package marks every class with `@api` (stable, SemVer-covered) or `@internal` (implementation detail, not covered by SemVer). Public surface:
+
+- **Facade**: `Padosoft\LaravelFlow\Facades\Flow`.
+- **Engine + DTOs**: `FlowEngine`, `FlowDefinitionBuilder`, `FlowDefinition`, `FlowStep`, `FlowExecutionOptions`, `FlowRun`, `FlowStepResult`, `FlowContext`, `IssuedApprovalToken`, `ApprovalGate`, `ApprovalTokenManager`, `WebhookDeliveryClient`, `WebhookDeliveryResult`.
+- **Hooks**: `FlowStepHandler`, `FlowCompensator` interfaces.
+- **Events**: every class under `Padosoft\LaravelFlow\Events\*`.
+- **Exceptions**: every class under `Padosoft\LaravelFlow\Exceptions\*`.
+- **Extension contracts**: every interface under `Padosoft\LaravelFlow\Contracts\*` (custom `FlowStore`, `RunRepository`, `StepRunRepository`, `AuditRepository`, `ApprovalRepository`, `ApprovalDecisionRepository`, `ConditionalRunRepository`, `PayloadRedactor`, `CurrentPayloadRedactorProvider`, `RedactorAwareFlowStore`, `RedactorAwareApprovalRepository` implementations).
+- **Dashboard contracts**: `FlowDashboardReadModel`, the read DTOs in `Padosoft\LaravelFlow\Dashboard\*`, and `DashboardActionAuthorizer` + the `DenyAllAuthorizer` / `AllowAllAuthorizer` bindings.
+
+The `tests/Contract/PublicApiContractTest` testsuite pins the v1.0 surface so a follow-up patch cannot silently rename or remove an `@api` class, method, or constant. Internal namespaces (`Persistence`, `Models`, `Queue`, `Jobs`, `Console`) may change in any minor release; route consumers through the public contracts instead. See [`docs/UPGRADE.md`](docs/UPGRADE.md) for the full SemVer policy and upgrade chain.
+
+### Companion dashboard
+
+The package itself is headless — there is no embedded UI. The companion app `padosoft/padosoft-laravel-flow-dashboard` (separate repo) consumes the dashboard contracts via Composer path repository during development and from Packagist in production. The complete brief for an AI agent or human team building that app is at [`docs/DASHBOARD_APP_SPEC.md`](docs/DASHBOARD_APP_SPEC.md).
+
 ---
 
 ## AI vibe-coding pack
@@ -571,7 +589,28 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). Community PRs target `main`; enterprise 
 
 ## Security
 
-See [SECURITY.md](SECURITY.md). Report vulnerabilities privately to `lorenzo.padovani@padosoft.com`.
+Report vulnerabilities privately to `lorenzo.padovani@padosoft.com` per [SECURITY.md](SECURITY.md). Operational guarantees the package enforces:
+
+- **Approval tokens are SHA-256 hashed at rest.** The plain token is returned only on the immediate `FlowRun` at issuance time and is never recoverable from `flow_approvals`. The dashboard contract takes a token hash, not the plain value, so authorization can run without the secret.
+- **JSON payload redaction.** `flow_runs.input/output/business_impact`, `flow_steps.input/output/business_impact`, `flow_audit.payload`, and `flow_approvals.payload/actor` pass through the configured `PayloadRedactor` before storage. Default keys cover common secret-looking fields; the policy is configurable through `laravel-flow.persistence.redaction`. The dashboard read DTOs (`RunDetail`, `ApprovalSummary`) return whatever is stored — host apps that disable `persistence.redaction.enabled` MUST add their own redaction layer before rendering.
+- **Webhook payload signing.** When `webhook.secret` is set, every outbox delivery carries `X-Laravel-Flow-Signature: t=<unix>,v1=<hmac-sha256>` so receivers can verify authenticity. Empty secret disables signing rather than emitting a bogus header.
+- **Dashboard authorization is deny-by-default.** `DashboardActionAuthorizer` is bound to `DenyAllAuthorizer`. Production deployments MUST replace the binding with their own RBAC implementation. `AllowAllAuthorizer` is shipped explicitly for development and never registered automatically.
+- **Append-only audit at runtime.** `flow_audit` rows cannot be updated or deleted via Eloquent `save()`/`delete()`. Bulk `update()` / `delete()` / `forceDelete()` are blocked by a custom Eloquent builder. The `flow:prune` retention command is the only supported deletion path and is documented as such.
+- **Run-level locking.** `Flow::resume()` and `Flow::reject()` claim a per-run shared cache lock to serialize approval decisions. The process-local `array` cache store is rejected because it cannot synchronize across HTTP / queue workers.
+- **No secrets in logs or error messages.** Engine text-redaction normalises common secret keys across snake_case / kebab-case / camelCase before persisting exception messages.
+
+## Enterprise notes
+
+The package is designed to live inside a Laravel application's process and database, not in a separate workflow service. That keeps the operational footprint small (no dedicated workflow cluster) at the cost of cross-language workflows and managed multi-region failover. If you need either, evaluate a managed durable-workflow runtime instead — see [`docs/MIGRATION_DURABLE.md`](docs/MIGRATION_DURABLE.md) for the trade-off table.
+
+For teams adopting laravel-flow:
+
+- Use macro branches and subtask PRs documented in `AGENTS.md`. Every PR requires GitHub Copilot Code Review plus the local Composer-script gates (`composer validate --strict --no-check-publish`, `composer format:test`, `composer analyse`, `composer test`).
+- Bind a custom `DashboardActionAuthorizer` before exposing the dashboard read model to operators. The default `DenyAllAuthorizer` is intentional.
+- Schedule `flow:prune` to bound `flow_audit` and `flow_webhook_outbox` growth. Retention is the only supported audit-deletion path.
+- Schedule `flow:deliver-webhooks` (e.g. once a minute) when webhook delivery is enabled. The command is idempotent and uses lease-based row claims with a compare-and-set guard, so multiple concurrent workers are safe.
+- Configure `queue.lock_store` to a shared atomic cache (`redis`, `memcached`, `database`, `dynamodb`) before enabling queued dispatch with multiple workers. The `array` store is accepted only on the `sync` queue driver and is rejected for approval decisions.
+- Read [`docs/UPGRADE.md`](docs/UPGRADE.md) before bumping major versions; v1.0 marked the public-vs-internal contract and SemVer policy.
 
 ---
 

@@ -33,6 +33,13 @@ Plan reference (enterprise roadmap only; write `N/A` for community PRs):
 
 Briefly state package-core coupling, standalone-agnostic impact, and BC/API impact.
 
+## v1.0 stability impact
+
+- [ ] No `@api` class, public method signature, or public constant was removed or renamed without a major version bump
+- [ ] No `@api` class accidentally accepts an `@internal` type in its public surface (would force the class itself to be internal)
+- [ ] If new public methods/classes were added under `@api`, `tests/Contract/PublicApiContractTest.php` was updated to pin them
+- [ ] `docs/UPGRADE.md` was updated if the change is observable to consumers
+
 ## Security impact
 
 Briefly state secret/redaction/auth/webhook/approval-token impact, or `None`.

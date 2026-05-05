@@ -102,3 +102,14 @@ Before every push:
 - Run `.claude/skills/pre-push-self-review/SKILL.md`.
 - If tests or README test-count claims changed, run `.claude/skills/test-count-readme-sync/SKILL.md`.
 - Confirm no secrets, debug output, or app-specific coupling entered the diff.
+
+## v1.0 Stability Checklist
+
+When touching public-facing code, also check:
+
+- The class carries `@api` OR `@internal` in its docblock — never both. Classes that accept an `@internal` type in their public constructor are internal.
+- Internal namespaces (`Persistence`, `Models`, `Queue`, `Jobs`, `Console`) are not part of the v1.0 surface. Route new extension points through `Padosoft\LaravelFlow\Contracts\*`.
+- `tests/Contract/PublicApiContractTest.php` must be updated whenever an `@api` class, public method, or public constant is added or renamed. Removing one requires a major version bump and `docs/UPGRADE.md` update.
+- `DashboardActionAuthorizer` default binding must remain `DenyAllAuthorizer`. `AllowAllAuthorizer` is opt-in for development only.
+- Plain approval tokens never appear in storage, logs, audit, or webhook payloads. The dashboard authorizer accepts a token hash via `ApprovalTokenManager::hashToken($plainToken)`.
+- Read DTOs return whatever is stored. Documentation must always reference the `laravel-flow.persistence.redaction.enabled` config gate when describing redaction behavior.

@@ -51,7 +51,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - `Flow::resume()` and `Flow::reject()` require a shared cache lock store; the process-local `array` store is rejected.
 - Plain approval tokens are never recoverable from storage. Operators must receive tokens out-of-band (email, Slack, signed webhook payload).
 
-## [0.2.0] — 2026 Q3
+## [0.2.0] — 2026-05-04
 
 ### Added
 

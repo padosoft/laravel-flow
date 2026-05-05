@@ -13,3 +13,5 @@ composer.lock
 /coverage/
 .DS_Store
 Thumbs.db
+.claude/scheduled_tasks.lock
+.claude/settings.local.json

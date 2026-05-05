@@ -21,6 +21,9 @@ use Padosoft\LaravelFlow\Contracts\FlowStore;
 use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
 use Padosoft\LaravelFlow\Contracts\RunRepository;
 use Padosoft\LaravelFlow\Contracts\StepRunRepository;
+use Padosoft\LaravelFlow\Dashboard\Authorization\DashboardActionAuthorizer;
+use Padosoft\LaravelFlow\Dashboard\Authorization\DenyAllAuthorizer;
+use Padosoft\LaravelFlow\Dashboard\FlowDashboardReadModel;
 use Padosoft\LaravelFlow\Persistence\EloquentApprovalRepository;
 use Padosoft\LaravelFlow\Persistence\EloquentFlowStore;
 use Padosoft\LaravelFlow\Persistence\EloquentWebhookOutboxRepository;
@@ -123,6 +126,13 @@ final class LaravelFlowServiceProvider extends ServiceProvider
                 clock: static fn (): \DateTimeImmutable => Date::now()->toDateTimeImmutable(),
             );
         });
+        $this->app->singleton(FlowDashboardReadModel::class, function (Container $app): FlowDashboardReadModel {
+            /** @var string|null $connection */
+            $connection = $app['config']->get('laravel-flow.default_storage');
+
+            return new FlowDashboardReadModel(connection: $connection);
+        });
+        $this->app->bind(DashboardActionAuthorizer::class, DenyAllAuthorizer::class);
     }
 
     public function boot(): void

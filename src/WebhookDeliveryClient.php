@@ -111,6 +111,7 @@ final class WebhookDeliveryClient
         ]);
 
         $errorMessage = null;
+        $http_response_header = [];
         // PHP populates $http_response_header in the local scope where file_get_contents() runs.
         $response = @file_get_contents($url, false, $context);
 

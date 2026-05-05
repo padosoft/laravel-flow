@@ -52,7 +52,7 @@ final class EloquentWebhookOutboxRepository
         return $model->refresh();
     }
 
-    public function claimNextPending(DateTimeInterface $now): ?FlowWebhookOutboxRecord
+    public function claimNextPending(DateTimeInterface $now, int $deliveryTimeoutSeconds = 0): ?FlowWebhookOutboxRecord
     {
         $query = $this->newQuery()
             ->where(function (Builder $query) use ($now): void {
@@ -79,6 +79,8 @@ final class EloquentWebhookOutboxRepository
 
         $updated = $this->newQuery()
             ->where('id', $candidate->id)
+            ->where('attempts', $candidate->attempts)
+            ->whereColumn('attempts', '<', 'max_attempts')
             ->where(function (Builder $query) use ($now): void {
                 $query->where(function (Builder $query) use ($now): void {
                     $query->where('status', self::STATUS_PENDING)
@@ -93,7 +95,7 @@ final class EloquentWebhookOutboxRepository
             ->update([
                 'attempts' => $candidate->attempts + 1,
                 'status' => self::STATUS_DELIVERING,
-                'available_at' => $this->nextLeaseAvailableAt($candidate->attempts + 1),
+                'available_at' => $this->nextLeaseAvailableAt($candidate->attempts + 1, $deliveryTimeoutSeconds),
                 'updated_at' => $this->newModel()->freshTimestamp(),
             ]);
 
@@ -161,10 +163,10 @@ final class EloquentWebhookOutboxRepository
             ->orWhere('available_at', '<=', $now);
     }
 
-    private function nextLeaseAvailableAt(int $attempt): DateTimeInterface
+    private function nextLeaseAvailableAt(int $attempt, int $deliveryTimeoutSeconds = 0): DateTimeInterface
     {
         $attempt = max(1, $attempt);
-        $seconds = 30 * (2 ** ($attempt - 1));
+        $seconds = 30 * (2 ** ($attempt - 1)) + max(0, $deliveryTimeoutSeconds);
 
         return $this->newModel()->freshTimestamp()->modify(sprintf('+%d seconds', $seconds));
     }

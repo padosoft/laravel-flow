@@ -73,9 +73,12 @@ final class DeliverWebhookOutboxCommand extends Command
         $delivered = 0;
         $failed = 0;
 
+        $configTimeout = $this->getLaravel()->make('config')->get('laravel-flow.webhook.timeout_seconds', 5);
+        $deliveryTimeoutSeconds = is_numeric($configTimeout) && (int) $configTimeout >= 1 ? (int) $configTimeout : 5;
+
         while ($processed < $batch) {
             try {
-                $record = $this->outbox->claimNextPending($this->now());
+                $record = $this->outbox->claimNextPending($this->now(), $deliveryTimeoutSeconds);
             } catch (QueryException $e) {
                 $this->error('Laravel Flow webhook outbox tables were not found or could not be queried.');
                 if ($this->output->isVerbose()) {

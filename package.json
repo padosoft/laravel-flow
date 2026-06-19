@@ -1,0 +1,22 @@
+{
+  "name": "padosoft-laravel-flow-docs",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Static docmd documentation site for padosoft/laravel-flow.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "engines": {
+    "node": "20.x"
+  },
+  "scripts": {
+    "dev": "docmd dev",
+    "build": "docmd build",
+    "check": "node scripts/check-no-raw-html.mjs && docmd validate"
+  },
+  "devDependencies": {
+    "@docmd/core": "^0.8.6",
+    "@huggingface/transformers": "^4.2.0",
+    "docmd-search": "0.1.0-alpha.1",
+    "onnxruntime-node": "1.24.3"
+  }
+}

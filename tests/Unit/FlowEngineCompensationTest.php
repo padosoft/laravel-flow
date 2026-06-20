@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Padosoft\LaravelFlow\Tests\Unit;
 
+use Carbon\CarbonInterval;
 use Closure;
 use Illuminate\Container\Container as IlluminateContainer;
 use Illuminate\Contracts\Concurrency\Driver;
@@ -319,7 +320,7 @@ final class RecordingConcurrencyDriver implements Driver
 
     public int $lastTaskCount = 0;
 
-    public function run(Closure|array $tasks): array
+    public function run(Closure|array $tasks, CarbonInterval|int|null $timeout = null): array
     {
         $this->runCount++;
 

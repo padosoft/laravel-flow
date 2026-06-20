@@ -121,7 +121,7 @@ When `audit_trail_enabled` is enabled, normal-case step and compensation transit
 - **Parallel compensation strategy** — `compensation_strategy=parallel` batches completed compensators through Laravel Concurrency when compensators are safe to run without reverse-order dependencies.
 - **Testbench-friendly** — TestCase + stubs ready to copy.
 - **🚀 AI vibe-coding pack included** — `.claude/` directory with skills, rules, agents, commands, and the Padosoft Copilot review loop pre-wired.
-- **PHP 8.3 / 8.4 × Laravel 13** matrix on every CI run.
+- **PHP 8.3 / 8.4 / 8.5 × Laravel 13** matrix on every CI run.
 
 ---
 
@@ -584,7 +584,7 @@ The `Live` testsuite is **opt-in** and reserved for v0.2+ scenarios that need a 
 LARAVEL_FLOW_LIVE=1 vendor/bin/phpunit --testsuite Live
 ```
 
-CI runs Pint (style), PHPStan (level 6), and the Unit + Architecture suites through Composer scripts on the PHP 8.3 / 8.4 × Laravel 13 matrix for pushes to `main` and PRs targeting `main` or `task/**`. PHP 8.5 is intentionally not a hard gate until Laravel/Testbench dependency support is reliable enough for this package.
+CI runs Pint (style), PHPStan (level 6), and the Unit + Architecture suites through Composer scripts on the PHP 8.3 / 8.4 / 8.5 × Laravel 13 matrix for pushes to `main` and PRs targeting `main` or `task/**`.
 
 ---
 

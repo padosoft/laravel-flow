@@ -9,7 +9,7 @@ Known workstreams:
 | Workstream | Durable state |
 | --- | --- |
 | Macro Task 0 - durable agent operating system | Completed after merge of the macro PR to `main`. |
-| Macro Task 1 - baseline tooling and Laravel 13 policy | Completed after merge of the macro PR to `main`; Composer/CI/docs now narrow to Laravel 13, PHP 8.3/8.4, and Composer-script quality gates. |
+| Macro Task 1 - baseline tooling and Laravel 13 policy | Completed after merge of the macro PR to `main`; Composer/CI/docs now narrow to Laravel 13, PHP 8.3/8.4/8.5, and Composer-script quality gates. |
 | Macro Task 2 - v0.2 persistence layer | Completed after merge of the macro PR to `main`; the package has opt-in DB persistence for runs, steps, audit rows, redaction, retention pruning, correlation IDs, and idempotency keys. |
 | Macro Task 2 macro review hardening | Centralizes execution-scoped redactor provider resolution, aligns prune transaction callback usage, explicitly deletes pruned child rows, and keeps persistence model PHPDoc aligned with stored timestamp columns so Macro Task 2 review feedback remains folded into the durable implementation. |
 | Macro Task 3 - v0.2 queues/replay | Completed after merge of the macro PR to `main`: `Flow::dispatch()` validates and queues an after-commit `RunFlowJob` carrying flow name, input, execution options, per-dispatch lock metadata, and optional guarded Laravel-native tries/backoff metadata; queued jobs release lock-held duplicates after a configurable short delay, no-op completed duplicates, reject process-local `array` locks outside the `sync` queue driver, and have sync/database queue coverage. `flow:replay {runId}` creates new linked terminal-run replays with additive lineage metadata and partial-schema failures. `compensation_strategy=parallel` batches independent compensators while preserving `reverse-order` as the default. |
@@ -62,3 +62,9 @@ Current validation baseline:
 - `composer format:test`
 - `composer analyse`
 - `composer test` => Unit 250 tests / 1125 assertions, Architecture 2 tests / 7 assertions, Contract 63 tests / 265 assertions
+
+## 2026-06-21 - CI Compatibility Fix
+
+- CI compatibility fix prepared from `main` for the next patch release.
+- Fixes the CI fatal in `FlowEngineCompensationTest` by matching Laravel's current `Illuminate\Contracts\Concurrency\Driver::run()` timeout signature on the test double.
+- Expands the GitHub Actions PHP matrix to 8.3, 8.4, and 8.5.

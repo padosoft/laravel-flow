@@ -16,7 +16,7 @@
 - The imported `.claude` pack already contains useful PR-loop and pre-push skills. Do not duplicate the full content; link to it and add laravel-flow-specific rules.
 - For this package repo, Vite/Vitest/Playwright are not local gates unless the companion dashboard app is touched.
 - When tests are added or assertion counts change, run the `test-count-readme-sync` skill before pushing so README and PR descriptions do not drift.
-- After Macro Task 1, the active implementation baseline is Laravel 13 with PHP 8.3 and 8.4 as hard CI gates. PHP 8.5 remains outside hard CI until dependency support is reliable.
+- After Macro Task 1, the active implementation baseline is Laravel 13 with PHP 8.3, 8.4, and 8.5 as hard CI gates.
 - Do not use `task/**` as a push trigger. Macro and subtask branches both use the `task/` prefix, so `task/**` belongs only in PR base triggers unless branch naming changes.
 - README and CONTRIBUTING are part of the durable workflow contract. When AGENTS/RULES change branching or CI behavior, update public contributor docs in the same PR.
 - Keep companion-dashboard scope consistent everywhere it appears, including README intro copy and roadmap rows; changing only one mention leaves the public docs ambiguous.
@@ -288,3 +288,8 @@
 - GitHub does not reliably mark Copilot/Codex review threads as outdated when the fix lands on a line adjacent to (but not exactly at) the thread anchor; the anchor line (often a closing brace or return statement) remains unchanged even though the substantive fix was applied one or two lines above. Confirm all issues are addressed by reading the actual file at the referenced lines rather than relying on isOutdated status alone before merging.
 - When a macro PR review produces new comments that were NOT raised in the subtask PRs, they typically surface issues introduced by the integration of multiple subtasks or by reviewing the full diff rather than an incremental slice; apply these fixes directly to the macro branch before merging to main.
 - When passing terminal status to `markDeliveryResult`, normalize the bookkeeping: `delivered` clears `available_at`/`last_error` and stamps `delivered_at`; `failed` stamps `failed_at` while preserving `last_error`; `pending` (retry) stores the next `available_at` and the latest `last_error` so operators can diagnose without re-deriving the cause.
+
+## 2026-06-21 - CI PHP 8.5 Compatibility
+
+- Test doubles that implement Laravel framework contracts must include newly added optional parameters, such as `Illuminate\Contracts\Concurrency\Driver::run($tasks, $timeout = null)`, otherwise CI can fatal before PHPUnit executes assertions after dependency updates.
+- PHP 8.5 is now part of the hard CI matrix alongside PHP 8.3 and 8.4 for Laravel 13.

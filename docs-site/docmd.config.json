@@ -1,0 +1,258 @@
+{
+  "copyCode": true,
+  "pageNavigation": true,
+  "minify": true,
+  "theme": {
+    "appearance": "system",
+    "primaryColor": "#0d9488",
+    "name": "default",
+    "defaultMode": "dark",
+    "customCss": [
+      "assets/custom.css"
+    ]
+  },
+  "layout": {
+    "spa": true,
+    "header": {
+      "enabled": true
+    },
+    "sidebar": {
+      "enabled": true,
+      "collapsible": true
+    },
+    "footer": {
+      "style": "minimal",
+      "content": "Built by Padosoft. Apache-2.0."
+    },
+    "menubar": {
+      "enabled": true,
+      "left": [
+        {
+          "title": "Docs",
+          "path": "/"
+        },
+        {
+          "title": "GitHub",
+          "url": "https://github.com/padosoft/laravel-flow"
+        },
+        {
+          "title": "Packagist",
+          "url": "https://packagist.org/packages/padosoft/laravel-flow"
+        }
+      ],
+      "right": [
+        {
+          "title": "Padosoft",
+          "url": "https://padosoft.com"
+        }
+      ]
+    }
+  },
+  "footer": {
+    "style": "minimal",
+    "content": "laravel-flow documentation. Built by Padosoft under Apache-2.0."
+  },
+  "navigation": [
+    {
+      "title": "Get Started",
+      "children": [
+        {
+          "title": "Overview",
+          "path": "/"
+        },
+        {
+          "title": "Installation",
+          "path": "/get-started/installation"
+        },
+        {
+          "title": "Quickstart",
+          "path": "/get-started/quickstart"
+        },
+        {
+          "title": "Configuration",
+          "path": "/get-started/configuration"
+        }
+      ]
+    },
+    {
+      "title": "Guides",
+      "children": [
+        {
+          "title": "Defining Flows",
+          "path": "/guides/defining-flows"
+        },
+        {
+          "title": "Dry Runs",
+          "path": "/guides/dry-runs"
+        },
+        {
+          "title": "Compensation",
+          "path": "/guides/compensation"
+        },
+        {
+          "title": "Pipeline and Workflow",
+          "path": "/guides/pipeline-workflow"
+        },
+        {
+          "title": "Worked Example",
+          "path": "/guides/worked-example"
+        }
+      ]
+    },
+    {
+      "title": "Concetti & Teoria",
+      "children": [
+        {
+          "title": "Motivazione",
+          "path": "/concetti/motivazione"
+        },
+        {
+          "title": "Teoria",
+          "path": "/concetti/teoria"
+        },
+        {
+          "title": "Design",
+          "path": "/concetti/design"
+        },
+        {
+          "title": "Modello dati e contratto",
+          "path": "/concetti/modello-dati-contratto"
+        }
+      ]
+    },
+    {
+      "title": "Architettura",
+      "children": [
+        {
+          "title": "Overview",
+          "path": "/architettura/overview"
+        },
+        {
+          "title": "Persistence",
+          "path": "/architettura/persistence"
+        },
+        {
+          "title": "Events and Audit",
+          "path": "/architettura/events-audit"
+        },
+        {
+          "title": "Dashboard Contracts",
+          "path": "/architettura/dashboard-contracts"
+        },
+        {
+          "title": "ADR",
+          "path": "/architettura/adr"
+        }
+      ]
+    },
+    {
+      "title": "Best Practices",
+      "children": [
+        {
+          "title": "Handlers",
+          "path": "/best-practices/handlers"
+        },
+        {
+          "title": "Idempotency",
+          "path": "/best-practices/idempotency"
+        },
+        {
+          "title": "Security",
+          "path": "/best-practices/security"
+        },
+        {
+          "title": "Gotchas and Limits",
+          "path": "/best-practices/gotchas-limits"
+        }
+      ]
+    },
+    {
+      "title": "Operations",
+      "children": [
+        {
+          "title": "Queues",
+          "path": "/operations/queues"
+        },
+        {
+          "title": "Approvals",
+          "path": "/operations/approvals"
+        },
+        {
+          "title": "Webhooks",
+          "path": "/operations/webhooks"
+        },
+        {
+          "title": "Pruning and Replay",
+          "path": "/operations/pruning-replay"
+        },
+        {
+          "title": "Runbooks",
+          "path": "/operations/runbooks"
+        }
+      ]
+    },
+    {
+      "title": "Reference",
+      "children": [
+        {
+          "title": "CLI",
+          "path": "/reference/cli"
+        },
+        {
+          "title": "API",
+          "path": "/reference/api"
+        },
+        {
+          "title": "Contracts",
+          "path": "/reference/contracts"
+        },
+        {
+          "title": "Events",
+          "path": "/reference/events"
+        },
+        {
+          "title": "Configuration API",
+          "path": "/reference/configuration-api"
+        }
+      ]
+    }
+  ],
+  "plugins": {
+    "seo": {
+      "titleTemplate": "%s | laravel-flow",
+      "description": "DX-first workflow, saga, compensation, dry-run, and audit engine for Laravel.",
+      "author": "Lorenzo Padovani"
+    },
+    "sitemap": {
+      "defaultChangefreq": "weekly",
+      "defaultPriority": 0.8,
+      "rootPriority": 1
+    },
+    "mermaid": {},
+    "math": {},
+    "llms": {},
+    "search": {
+      "enabled": true,
+      "semantic": true,
+      "placeholder": "Search the docs…"
+    },
+    "git": {
+      "repo": "https://github.com/padosoft/laravel-flow",
+      "branch": "main",
+      "editLink": true,
+      "lastUpdated": true,
+      "commitHistory": true,
+      "dateFormat": "relative"
+    },
+    "analytics": {
+      "enabled": false
+    }
+  },
+  "title": "laravel-flow",
+  "description": "DX-first workflow, saga, compensation, dry-run, and audit engine for Laravel.",
+  "url": "https://doc.laravel-flow.padosoft.com",
+  "src": "docs",
+  "out": "_site",
+  "base": "/",
+  "favicon": "assets/favicon.svg"
+}

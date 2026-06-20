@@ -1,5 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="laravel-flow">
-  <rect width="64" height="64" rx="14" fill="#0d9488"/>
-  <path d="M16 19h12c7 0 11 4 11 10s-4 10-11 10h-5v8h-7V19zm12 14c3 0 5-1 5-4s-2-4-5-4h-5v8h5z" fill="#fff"/>
-  <path d="M42 19h7v28h-7z" fill="#ccfbf1"/>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" aria-label="laravel-flow" role="img" viewBox="0 0 64 64"><rect width="64" height="64" fill="#0d9488" rx="14"/><path fill="#fff" d="M16 19h12c7 0 11 4 11 10s-4 10-11 10h-5v8h-7V19zm12 14c3 0 5-1 5-4s-2-4-5-4h-5v8h5z"/><path fill="#ccfbf1" d="M42 19h7v28h-7z"/></svg>

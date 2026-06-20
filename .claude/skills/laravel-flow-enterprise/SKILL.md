@@ -27,7 +27,7 @@ If the current branch or progress file disagree, trust Git first and update `doc
 ## Product Defaults
 
 - Current implementation target: active Composer/CI matrix compatibility.
-- Active matrix after Macro Task 1: Laravel 13 and PHP `^8.3`, with CI hard gates on PHP 8.3 and 8.4.
+- Active matrix after Macro Task 1: Laravel 13 and PHP `^8.3`, with CI hard gates on PHP 8.3, 8.4, and 8.5.
 - Laravel 13-only APIs are allowed only when covered by package tests and compatible with the current Composer constraints.
 - Dashboard: companion app.
 - Core package: standalone-agnostic and headless.

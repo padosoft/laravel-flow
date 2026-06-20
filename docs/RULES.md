@@ -11,7 +11,7 @@
 ## Product Direction
 
 - Current implementation must remain compatible with the active Composer/CI matrix.
-- After Macro Task 1, the active matrix is Laravel 13 and PHP `^8.3`, with CI hard gates on PHP 8.3 and 8.4.
+- After Macro Task 1, the active matrix is Laravel 13 and PHP `^8.3`, with CI hard gates on PHP 8.3, 8.4, and 8.5.
 - Core package stays headless and standalone-agnostic.
 - Dashboard is a separate companion app.
 - Public APIs must be explicit, documented, and pinned by tests before v1.0.

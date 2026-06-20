@@ -9,7 +9,7 @@ Current baseline:
 - Release tag: `v0.1.0`
 - v0.1 status: code complete for the in-memory engine core.
 - Live branch, PR, and SHA status must be verified with `git` and `gh`; `docs/PROGRESS.md` carries the human restart summary.
-- Enterprise baseline selected by user: Laravel 13-only, PHP `^8.3`; Composer and CI are narrowed to PHP 8.3/8.4 hard gates.
+- Enterprise baseline selected by user: Laravel 13-only, PHP `^8.3`; Composer and CI are narrowed to PHP 8.3/8.4/8.5 hard gates.
 - Dashboard selected by user: companion app.
 
 ## Macro Task 0 - Durable Agent Operating System
@@ -42,7 +42,7 @@ Key changes:
 
 - Narrow Composer and CI from Laravel 12/13 to Laravel 13-only.
 - Reconcile README, badges, roadmap, and package metadata with the real v0.1 state.
-- Keep PHP `^8.3`; test PHP 8.3 and 8.4 as stable gates, with PHP 8.5 only if dependency support is reliable.
+- Keep PHP `^8.3`; test PHP 8.3, 8.4, and 8.5 as stable gates.
 - Ensure PHPStan, Pint, Unit, and Architecture are hard CI gates.
 - Add Composer scripts for `test`, `analyse`, `format:test`, and `quality`.
 
@@ -254,7 +254,7 @@ For every macro:
 
 ## Assumptions
 
-- Laravel 13-only is the active enterprise target after Macro Task 1. Implementation follows the Laravel 13-only matrix.
+- Laravel 13-only is the active enterprise target after Macro Task 1. Implementation follows the Laravel 13-only matrix across PHP 8.3, 8.4, and 8.5.
 - The dashboard remains a companion app unless the user explicitly changes the architecture.
 - Package code remains standalone-agnostic.
 - GitHub/Copilot access must be verified, not assumed.

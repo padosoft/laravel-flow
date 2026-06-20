@@ -241,7 +241,7 @@ Playwright must run against a seeded SQLite or test MySQL with realistic fixture
 
 `.github/workflows/ci.yml` matrix:
 
-- PHP 8.3 + 8.4 with PHPUnit + PHPStan + Pint.
+- PHP 8.3 + 8.4 + 8.5 with PHPUnit + PHPStan + Pint.
 - Node LTS with Vitest + Vite build.
 - Playwright job that boots the Laravel app, runs migrations, seeds fixtures, runs the E2E suite.
 

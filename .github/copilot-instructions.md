@@ -4,7 +4,7 @@ This repository is a Laravel package, not an application.
 
 Important project context:
 
-- Review code against the active Composer/CI matrix. After Macro Task 1, the package supports Laravel 13 and PHP `^8.3`, with CI hard gates on PHP 8.3 and 8.4.
+- Review code against the active Composer/CI matrix. After Macro Task 1, the package supports Laravel 13 and PHP `^8.3`, with CI hard gates on PHP 8.3, 8.4, and 8.5.
 - Dashboard work belongs in a companion app, not embedded in this package.
 - Core code in `src/` must remain standalone-agnostic and must not reference AskMyDocs, the companion dashboard, or app-specific symbols.
 - Dry-run behavior must not perform real side effects.

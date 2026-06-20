@@ -65,6 +65,6 @@ Current validation baseline:
 
 ## 2026-06-21 - CI Compatibility Fix
 
-- Active fix branch: `fix/ci-concurrency-php85` from `main`.
+- CI compatibility fix prepared from `main` for the next patch release.
 - Fixes the CI fatal in `FlowEngineCompensationTest` by matching Laravel's current `Illuminate\Contracts\Concurrency\Driver::run()` timeout signature on the test double.
 - Expands the GitHub Actions PHP matrix to 8.3, 8.4, and 8.5.

@@ -125,7 +125,8 @@ Detailed, code-level TDD plans are written just-in-time: Macro A's exists now; e
 
 ## Macro E — Flow Studio (PENULTIMATE — runs after F-core)
 
-- **Branch:** in `laravel-flow-admin` repo (`task/v2e-studio`) · **Depends on:** B, D, F-core (core released as v2-dev tag or path repo) **+ the Claude Design UI template supplied by the user** (ask for its path when starting E if not yet provided; brief: `docs/design/2026-07-07-flow-studio-ui-design-brief.md`)
+- **Branch:** in `laravel-flow-admin` repo (`task/v2e-studio`) · **Depends on:** B, D, F-core (core released as v2-dev tag or path repo)
+- **UI template (DELIVERED 2026-07-07):** Claude Design handoff bundle at `C:\Users\lopad\Downloads\laravel-flow-admin` — read `project/index.html` IN FULL first, then follow its imports (`app.jsx`, `canvas.jsx`, `flow-data.jsx`, `pages.jsx`, `run-monitor.jsx`, `shell.jsx`, `studio.jsx`, `tweaks-panel.jsx`, `ui.jsx`, `studio.css`, `styles.css`). Per the bundle README: prototypes are mockups — recreate pixel-perfectly in the target stack (Blade shell + React island + React Flow), match visual output, do NOT copy prototype internals, do NOT screenshot. Copy the bundle into the admin repo (e.g. `design/claude-design-template/`) at E start so it is version-controlled. The user delegated the integrate-vs-redo decision: default is full re-skin using the template as visual source of truth (E-PR0 hygiene + rewrite already planned); confirm only if the template conflicts with working-console needs.
 - **Objective:** Visual composer (React Flow island) + working operating console (spec §5), plus admin hygiene fixes, plus the Advisor/builder UI (formerly F-PR9). Every UI interaction ships with a Playwright scenario.
 
 | Subtask PR | Deliverable | Gate criteria |

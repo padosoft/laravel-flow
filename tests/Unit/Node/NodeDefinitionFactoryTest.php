@@ -196,4 +196,30 @@ final class NodeDefinitionFactoryTest extends TestCase
         $this->expectExceptionMessageMatches('/must be public/i');
         $this->factory->fromClass($handler::class);
     }
+
+    public function test_static_input_property_is_rejected(): void
+    {
+        $handler = new #[FlowNode(type: 'static.in')] class
+        {
+            #[Input(type: PortType::Text, required: true)]
+            public static string $a;
+        };
+
+        $this->expectException(InvalidNodeDefinitionException::class);
+        $this->expectExceptionMessageMatches('/must be an instance property/i');
+        $this->factory->fromClass($handler::class);
+    }
+
+    public function test_static_output_property_is_rejected(): void
+    {
+        $handler = new #[FlowNode(type: 'static.out')] class
+        {
+            #[Output(type: PortType::Text)]
+            public static string $o;
+        };
+
+        $this->expectException(InvalidNodeDefinitionException::class);
+        $this->expectExceptionMessageMatches('/must be an instance property/i');
+        $this->factory->fromClass($handler::class);
+    }
 }

@@ -10,10 +10,10 @@ use Padosoft\LaravelFlow\Node\Exceptions\NodeInputValidationException;
  * Enforces a node's input port contract BEFORE the handler runs, so a
  * malformed payload can never burn a side effect or provider call.
  *
- * An optional (`required: false`) port whose value is explicitly `null` is
- * treated exactly like an absent key: skipped, not a violation, and not
- * included in the returned validated array. A required port still fails
- * type validation on `null` as it always has.
+ * An explicit `null` never enters the validated array: on an optional
+ * (`required: false`) port it is treated exactly like an absent key —
+ * skipped, not a violation — while on a required port it is always a
+ * violation, regardless of the port type (including {@see PortType::Any}).
  *
  * @api
  */
@@ -44,7 +44,11 @@ final class NodeInputValidator
 
             $value = $inputs[$port->key];
 
-            if (! $port->required && $value === null) {
+            if ($value === null) {
+                if ($port->required) {
+                    $violations[$port->key][] = "Input [{$port->key}] is required and must not be null.";
+                }
+
                 continue;
             }
 

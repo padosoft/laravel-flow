@@ -109,4 +109,22 @@ final class NodeInputValidatorTest extends TestCase
             $this->assertArrayHasKey('count', $e->violations());
         }
     }
+
+    public function test_explicit_null_on_required_any_input_violates(): void
+    {
+        $handler = new #[FlowNode(type: 'test.any')] class
+        {
+            #[Input(type: PortType::Any, required: true)]
+            public mixed $data;
+        };
+        $definition = (new NodeDefinitionFactory)->fromClass($handler::class);
+
+        try {
+            $this->validator->validate($definition, ['data' => null]);
+            $this->fail('Expected NodeInputValidationException');
+        } catch (NodeInputValidationException $e) {
+            $this->assertArrayHasKey('data', $e->violations());
+            $this->assertStringContainsString('must not be null', $e->violations()['data'][0]);
+        }
+    }
 }

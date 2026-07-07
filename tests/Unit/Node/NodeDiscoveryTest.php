@@ -25,4 +25,14 @@ final class NodeDiscoveryTest extends TestCase
     {
         $this->assertSame([], (new NodeDiscovery)->discover(__DIR__.'/nope', 'App\\Nope'));
     }
+
+    public function test_trailing_separator_in_path_is_handled(): void
+    {
+        $found = (new NodeDiscovery)->discover(
+            __DIR__.'/../../Fixtures/Nodes'.DIRECTORY_SEPARATOR,
+            'Padosoft\\LaravelFlow\\Tests\\Fixtures\\Nodes',
+        );
+
+        $this->assertSame([GreetNode::class, UpperNode::class], $found);
+    }
 }

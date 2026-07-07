@@ -30,9 +30,13 @@ final class NodeDiscovery
             return [];
         }
 
-        // Filesystem roots (e.g. "C:\" or "/") keep a trailing separator from
-        // realpath(); strip it so the offset math below stays correct.
-        $realPath = rtrim($realPath, DIRECTORY_SEPARATOR);
+        // realpath() strips trailing separators except on filesystem roots
+        // ("C:\", "/"): build the prefix explicitly so the relative-path
+        // offset below is correct in both cases, without ever mutating the
+        // (always valid) iterator path.
+        $prefix = str_ends_with($realPath, DIRECTORY_SEPARATOR)
+            ? $realPath
+            : $realPath.DIRECTORY_SEPARATOR;
 
         $found = [];
         $iterator = new RecursiveIteratorIterator(
@@ -45,7 +49,7 @@ final class NodeDiscovery
                 continue;
             }
 
-            $relative = substr($file->getPathname(), strlen($realPath) + 1, -4);
+            $relative = substr($file->getPathname(), strlen($prefix), -4);
             $class = rtrim($namespace, '\\').'\\'.str_replace(DIRECTORY_SEPARATOR, '\\', $relative);
 
             if (! class_exists($class)) {

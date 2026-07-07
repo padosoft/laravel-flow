@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Padosoft\LaravelFlow\Node;
 
+use InvalidArgumentException;
 use Padosoft\LaravelFlow\Node\Attributes\FlowNode;
 use Padosoft\LaravelFlow\Node\Attributes\Input;
 use Padosoft\LaravelFlow\Node\Attributes\Output;
@@ -12,6 +13,12 @@ use ReflectionClass;
 
 /**
  * Builds {@see NodeDefinition}s from attribute-annotated handler classes.
+ *
+ * Optional (`required: false`) input properties must declare a default
+ * value: the hydrator only assigns validated inputs that are present, so an
+ * optional input left absent from the payload would otherwise leave a typed
+ * property uninitialized and fatal on later reads. Required inputs need no
+ * default because the hydrator always assigns them once validation passes.
  *
  * @api
  */
@@ -67,7 +74,17 @@ final class NodeDefinitionFactory
                     throw new InvalidNodeDefinitionException("Duplicate input port [{$key}] on [{$class}].");
                 }
 
-                $inputs[$key] = new PortDefinition($key, $input->type, $input->required, $input->label, $property->getName());
+                try {
+                    $port = new PortDefinition($key, $input->type, $input->required, $input->label, $property->getName());
+                } catch (InvalidArgumentException $e) {
+                    throw new InvalidNodeDefinitionException("Invalid input port on [{$class}::\${$property->getName()}]: {$e->getMessage()}", previous: $e);
+                }
+
+                if (! $input->required && ! $property->hasDefaultValue()) {
+                    throw new InvalidNodeDefinitionException("Optional input property [{$class}::\${$property->getName()}] must declare a default value.");
+                }
+
+                $inputs[$key] = $port;
             }
 
             foreach ($property->getAttributes(Output::class) as $attribute) {
@@ -78,7 +95,11 @@ final class NodeDefinitionFactory
                     throw new InvalidNodeDefinitionException("Duplicate output port [{$key}] on [{$class}].");
                 }
 
-                $outputs[$key] = new PortDefinition($key, $output->type, false, $output->label, $property->getName());
+                try {
+                    $outputs[$key] = new PortDefinition($key, $output->type, false, $output->label, $property->getName());
+                } catch (InvalidArgumentException $e) {
+                    throw new InvalidNodeDefinitionException("Invalid output port on [{$class}::\${$property->getName()}]: {$e->getMessage()}", previous: $e);
+                }
             }
         }
 

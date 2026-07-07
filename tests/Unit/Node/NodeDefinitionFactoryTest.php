@@ -104,10 +104,10 @@ final class NodeDefinitionFactoryTest extends TestCase
     {
         $handler = new #[FlowNode(type: 'dup.node')] class
         {
-            #[Input(type: PortType::Text, key: 'same')]
+            #[Input(type: PortType::Text, key: 'same', required: true)]
             public string $a;
 
-            #[Input(type: PortType::Text, key: 'same')]
+            #[Input(type: PortType::Text, key: 'same', required: true)]
             public string $b;
         };
 
@@ -129,6 +129,32 @@ final class NodeDefinitionFactoryTest extends TestCase
 
         $this->expectException(InvalidNodeDefinitionException::class);
         $this->expectExceptionMessageMatches('/duplicate output port.*same/i');
+        $this->factory->fromClass($handler::class);
+    }
+
+    public function test_wraps_invalid_port_key_from_attribute(): void
+    {
+        $handler = new #[FlowNode(type: 'bad.port')] class
+        {
+            #[Input(type: PortType::Text, key: '_bad')]
+            public string $a;
+        };
+
+        $this->expectException(InvalidNodeDefinitionException::class);
+        $this->expectExceptionMessageMatches('/invalid input port .*reserved/i');
+        $this->factory->fromClass($handler::class);
+    }
+
+    public function test_optional_input_without_default_is_rejected(): void
+    {
+        $handler = new #[FlowNode(type: 'opt.nodefault')] class
+        {
+            #[Input(type: PortType::Text)]
+            public string $x;
+        };
+
+        $this->expectException(InvalidNodeDefinitionException::class);
+        $this->expectExceptionMessageMatches('/must declare a default value/i');
         $this->factory->fromClass($handler::class);
     }
 }

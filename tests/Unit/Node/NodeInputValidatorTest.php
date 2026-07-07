@@ -92,4 +92,21 @@ final class NodeInputValidatorTest extends TestCase
         $this->assertSame(5, $this->handler->count);
         $this->assertSame('ciao', $this->handler->comment);
     }
+
+    public function test_explicit_null_on_optional_input_is_treated_as_absent(): void
+    {
+        $validated = $this->validator->validate($this->definition(), ['count' => 1, 'note' => null]);
+
+        $this->assertSame(['count' => 1], $validated);
+    }
+
+    public function test_explicit_null_on_required_input_violates(): void
+    {
+        try {
+            $this->validator->validate($this->definition(), ['count' => null]);
+            $this->fail('Expected NodeInputValidationException');
+        } catch (NodeInputValidationException $e) {
+            $this->assertArrayHasKey('count', $e->violations());
+        }
+    }
 }

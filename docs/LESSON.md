@@ -1,5 +1,14 @@
 # Lessons
 
+## 2026-07-07
+
+- On this Windows machine `composer`/`php` are NOT on the Git Bash PATH; they resolve only in PowerShell via the Herd shims (`%USERPROFILE%/.config/herd/bin/composer.bat`, `php.bat`). Herd ships php82/php84/**php85**: run local suites with PHP 8.5 (`php85.bat`) per program rule, never XAMPP.
+- Do NOT generate PHP/JSON scaffolds with unquoted bash heredocs containing backslashes or `${...}`: `\` and `\${ns}` get mangled (produced invalid composer.json PSR-4 keys and literal `${ns}` in PHP namespaces). Use the Write/Edit tools or single-quoted heredocs plus `sed`.
+- GitHub Copilot CLI 1.0.68 is installed (winget). Verified flags for the mandatory local review loop: `copilot --autopilot --yolo -s -p "/review …"`; pass big diffs as a temp-file path, never inline.
+- `gh repo create padosoft/<name> --public --source=. --push` works from an initialized local repo and sets up the remote; push annotated tags separately (`git push origin v0.0.1`) so Packagist sees a version immediately.
+- The reference repo `product_image_discovery_admin` has NO local copilot CLI loop (its "Copilot review" is PR-level via `gh` + GraphQL `requestReviewsByLogin` fallback) and uses Herd php84; portable assets worth copying are: the GraphQL reviewer fallback, `scripts/run-php.mjs`/`prepare-e2e.mjs`/`no-net-use.cjs` (Windows Vite/Herd footguns), Playwright `pool: threads` on Windows, `LARAVEL_BYPASS_ENV_CHECK=1` for Vitest in CI, and behavioural-sentence E2E test naming.
+- Flow v2 analysis (ModelsGenerator origin/develop): the real engine is `App\Modules\Platform\Flow`; `Flow2` is a profile via an `engine` column discriminator. Its gold patterns to port: event-driven coordinator with `lockForUpdate` + Kahn readiness, suspend/join child ledger (`flow_node_children`), content-hash node cache, `ShouldBroadcastNow` progress snapshot per-run channel. Its bug classes to avoid: untyped/unvalidated node inputs, hand-duplicated palette whitelists, `tries=1` with app-level uniform retry, missing `blocked` node state.
+
 ## 2026-05-04
 
 - Duplicate approval resumes must short-circuit on a persisted `running` run before rebuilding approval recovery state; otherwise a deploy-time definition drift can turn a harmless retry into a definition-mismatch failure.

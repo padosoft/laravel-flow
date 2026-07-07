@@ -5,10 +5,12 @@ This file is the Claude-compatible entrypoint for the repository. It mirrors `AG
 ## Read First
 
 1. `docs/PROGRESS.md`
-2. `docs/ENTERPRISE_PLAN.md`
-3. `docs/RULES.md`
-4. `docs/LESSON.md`
-5. `.claude/skills/laravel-flow-enterprise/SKILL.md`
+2. `docs/superpowers/plans/2026-07-07-flow-v2-program-master-plan.md` (ACTIVE program: Flow 2.0)
+3. `.claude/rules/rule-flow-v2-program-workflow.md` (mandatory working mode: DoR/DoD, local Copilot CLI review loop, Herd PHP 8.5)
+4. `docs/RULES.md`
+5. `docs/LESSON.md`
+6. `docs/ENTERPRISE_PLAN.md` (v1 history)
+7. `.claude/skills/laravel-flow-enterprise/SKILL.md`
 
 ## Non-Negotiable Rules
 
@@ -28,11 +30,16 @@ CI is configured for PRs targeting `main` and `task/**`, plus pushes to `main`. 
 Use the repo-local skills when their trigger matches:
 
 - `.claude/skills/laravel-flow-enterprise/SKILL.md`
+- `.claude/skills/local-copilot-review/SKILL.md` (BEFORE every push: local Copilot CLI review loop on the full branch diff)
 - `.claude/skills/copilot-pr-review-loop/SKILL.md`
 - `.claude/skills/pre-push-self-review/SKILL.md`
 - `.claude/skills/test-count-readme-sync/SKILL.md`
 
 Before pushing a branch that changed tests or README test-count claims, run the test-count sync skill.
+
+## Flow 2.0 Program (ACTIVE)
+
+The repo is executing the Laravel Flow 2.0 super-package program. Working mode is codified in `.claude/rules/rule-flow-v2-program-workflow.md` and is MANDATORY: Definition of Ready (objective + implementation details + test guardrails, Playwright on every UI interaction), Definition of Done (local gates → local Copilot CLI review loop → push → PR → Copilot reviewer + CI green → merge), LESSON.md passed to every subagent, PROGRESS.md crash-recovery entries, Herd PHP 8.5 locally. Macro order: A → B → C → D → F(core) → E (Studio UI, penultimate, waits for the user-supplied Claude Design template) → G (release + knowhow consolidation).
 
 ## v1.0 Stability Rules
 

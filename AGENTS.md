@@ -5,10 +5,22 @@ This repository is the reusable package `padosoft/laravel-flow`.
 If a session restarts with missing context, read these files first, in this order:
 
 1. `docs/PROGRESS.md`
-2. `docs/ENTERPRISE_PLAN.md`
-3. `docs/RULES.md`
-4. `docs/LESSON.md`
-5. `.claude/skills/laravel-flow-enterprise/SKILL.md`
+2. `docs/superpowers/plans/2026-07-07-flow-v2-program-master-plan.md` (active program)
+3. `.claude/rules/rule-flow-v2-program-workflow.md` (mandatory working mode)
+4. `docs/RULES.md`
+5. `docs/LESSON.md`
+6. `docs/ENTERPRISE_PLAN.md` (v1 history)
+7. `.claude/skills/laravel-flow-enterprise/SKILL.md`
+
+## Flow 2.0 Program (ACTIVE since 2026-07-07)
+
+The repo is executing the **Laravel Flow 2.0 super-package program**: typed node contracts → versioned graph definitions → event-driven graph executor → real-time/triggers → AI pack → Flow Studio UI → v2.0.0 release.
+
+- Spec: `docs/superpowers/specs/2026-07-07-flow-v2-super-package-design.md`
+- Master plan (gate system + all macros): `docs/superpowers/plans/2026-07-07-flow-v2-program-master-plan.md`
+- Macro execution order: **A → B → C → D → F(core) → E (Studio UI, penultimate) → G (release + knowhow consolidation)**. Macro E waits for the Claude Design template supplied by the user (brief: `docs/design/2026-07-07-flow-studio-ui-design-brief.md`).
+- Satellite repos (scaffolded, Packagist-registered): `padosoft/laravel-flow-connect`, `padosoft/laravel-flow-ai`. Companion UI: `laravel-flow-admin` (local sibling checkout).
+- Definition of Ready / Definition of Done for every task (including the **local Copilot CLI review loop before every push**) are in `.claude/rules/rule-flow-v2-program-workflow.md` — mandatory, no exceptions.
 
 ## Stable Baseline
 
@@ -41,18 +53,21 @@ Macro branches:
 - `task/v10-stable-api-migrations`
 - `task/release-docs-v1`
 
+Flow 2.0 macro branches (active program): `task/v2a-node-contract`, `task/v2b-graph-definition`, `task/v2c-graph-executor`, `task/v2d-realtime-triggers`, `task/v2f-ai-pack` (in laravel-flow-ai), `task/v2e-studio` (in laravel-flow-admin), `task/v2g-release`.
+
 For each subtask:
 
 1. Create a subtask branch from the current macro branch.
-2. Implement the smallest coherent slice.
+2. Implement the smallest coherent slice (Definition of Ready: objective + implementation details + test guardrails declared first).
 3. Run the relevant local gates.
-4. Open a PR from the subtask branch into the macro branch.
-5. Request GitHub Copilot Code Review.
-6. Wait for reported CI checks and Copilot comments.
-7. Fix all red reported CI and actionable Copilot comments.
-8. Repeat until CI is green and review comments are resolved.
-9. Merge the subtask PR into the macro branch.
-10. When a macro branch is complete, open a macro PR into `main` and run the same loop.
+4. Run the **local Copilot CLI review loop** on the full branch diff vs `origin/main` until zero actionable findings (`.claude/skills/local-copilot-review/SKILL.md`). Only then push.
+5. Open a PR from the subtask branch into the macro branch.
+6. Request GitHub Copilot Code Review and verify the request registered.
+7. Wait for reported CI checks and Copilot comments.
+8. Fix all red reported CI and actionable Copilot comments (re-running steps 3–4 on every fix).
+9. Repeat until CI is green and review comments are resolved.
+10. Merge the subtask PR into the macro branch.
+11. When a macro branch is complete, open a macro PR into `main` and run the same loop.
 
 Copilot review means GitHub Copilot Code Review, not a Codex review. If `gh pr edit <PR> --add-reviewer @copilot` fails because of GitHub CLI project scope issues or the `copilot` login does not resolve, use the GraphQL `requestReviewsByLogin` fallback documented in `.claude/skills/copilot-pr-review-loop/SKILL.md`.
 
@@ -69,7 +84,9 @@ composer analyse
 composer test
 ```
 
-If the companion dashboard app is being changed, also run its PHP, Node, Vite, Vitest, and Playwright gates as documented in that app.
+On this Windows machine, PHP and Composer come from **Herd** (`%USERPROFILE%\.config\herd\bin\`): run the local suite with **Herd PHP 8.5** (`php85.bat`), never XAMPP PHP. Plain Git Bash may not have `composer` on PATH — use PowerShell or the Herd shim explicitly. CI still covers PHP 8.3/8.4/8.5.
+
+If the companion dashboard app is being changed, also run its PHP, Node, Vite, Vitest, and Playwright gates as documented in that app. UI/UX-touching tasks additionally require Playwright scenarios for every interaction introduced (see `.claude/rules/rule-flow-v2-program-workflow.md`).
 
 If a tool is unavailable, blocked, or remote CI/Copilot cannot be verified, do not fake completion. Record the exact blocker and next remote step in `docs/PROGRESS.md`.
 

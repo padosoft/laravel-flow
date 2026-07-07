@@ -28,4 +28,15 @@ final class NodeRegistryWiringTest extends TestCase
         $this->assertTrue($registry->has('test.greet'));
         $this->assertSame($registry, $this->app->make(NodeRegistry::class));
     }
+
+    public function test_non_string_config_entries_are_ignored(): void
+    {
+        $this->app['config']->set('laravel-flow.nodes.handlers', [GreetNode::class, 42, null, ['nested']]);
+        $this->app->forgetInstance(NodeRegistry::class);
+
+        $registry = $this->app->make(NodeRegistry::class);
+
+        $this->assertTrue($registry->has('test.greet'));
+        $this->assertCount(1, $registry->all());
+    }
 }

@@ -52,4 +52,11 @@ final class NodeRegistryTest extends TestCase
         $this->expectException(UnknownNodeTypeException::class);
         $this->registry->get('missing.type');
     }
+
+    public function test_nonexistent_class_is_rejected_with_clear_message(): void
+    {
+        $this->expectException(InvalidNodeDefinitionException::class);
+        $this->expectExceptionMessageMatches('/does not exist/i');
+        $this->registry->register('App\\Does\\Not\\ExistHandler');
+    }
 }

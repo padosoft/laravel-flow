@@ -27,6 +27,10 @@ final class NodeRegistry
      */
     public function register(string $handlerClass): NodeDefinition
     {
+        if (! class_exists($handlerClass)) {
+            throw new InvalidNodeDefinitionException("Node handler class [{$handlerClass}] does not exist.");
+        }
+
         if (! is_a($handlerClass, FlowNodeHandler::class, true)) {
             throw new InvalidNodeDefinitionException(
                 "Node handler [{$handlerClass}] must implement ".FlowNodeHandler::class.'.'

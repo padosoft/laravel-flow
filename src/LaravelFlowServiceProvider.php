@@ -144,8 +144,13 @@ final class LaravelFlowServiceProvider extends ServiceProvider
         $this->app->singleton(NodeDefinitionFactory::class);
         $this->app->singleton(NodeRegistry::class, function (Container $app): NodeRegistry {
             $registry = new NodeRegistry($app->make(NodeDefinitionFactory::class));
+            /** @var mixed $configured */
+            $configured = $app['config']->get('laravel-flow.nodes.handlers', []);
             /** @var list<class-string> $handlers */
-            $handlers = $app['config']->get('laravel-flow.nodes.handlers', []);
+            $handlers = array_values(array_filter(
+                is_array($configured) ? $configured : [],
+                static fn (mixed $handler): bool => is_string($handler),
+            ));
             $registry->registerMany($handlers);
 
             return $registry;

@@ -1,6 +1,5 @@
 <?php
 
-// tests/Unit/Node/PortTypeTest.php
 declare(strict_types=1);
 
 namespace Padosoft\LaravelFlow\Tests\Unit\Node;

@@ -1,6 +1,5 @@
 <?php
 
-// src/Node/PortDefinition.php
 declare(strict_types=1);
 
 namespace Padosoft\LaravelFlow\Node;

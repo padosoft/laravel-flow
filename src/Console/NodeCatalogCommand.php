@@ -20,7 +20,7 @@ final class NodeCatalogCommand extends Command
     /**
      * @var string
      */
-    protected $description = 'List registered flow node types and their ports';
+    protected $description = 'List registered flow node types with port counts (--json for full port definitions)';
 
     public function handle(NodeCatalog $catalog): int
     {

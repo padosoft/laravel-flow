@@ -105,6 +105,10 @@ final class RefundOrderNode implements FlowNodeHandler
 5. **AI flow builder:** natural-language prompt → validated graph JSON (productizes the dev's prototype).
 6. **Guardrails/policy engine:** per-node/per-flow egress allowlists, automatic redaction (reuses `PayloadRedactor`) on payloads leaving to external LLMs, rate limits, per-node-type permissions.
 7. **Compensation for AI actions:** saga rollback applies to agentic nodes ("undo for agents").
+8. **Flow Advisor (suggest & improve):** an advisory engine that combines (a) the node/tool catalog registered in the host app (including discovered MCP tools), and (b) persisted flow history (run frequencies, failure hotspots, durations, costs, business impact, dead definitions) to produce:
+   - **New-flow suggestions:** proposed graph JSON drafts for workflows the user does not have yet but the available tools + usage patterns support.
+   - **Improvement suggestions for an existing flow:** concrete graph edits with rationale — e.g., add retry/cache to a flaky/expensive node, insert an approval gate before a high-impact node, extract a repeated segment into a sub-flow, replace a deprecated node, parallelize independent branches.
+   Every suggestion is emitted as a **draft `flow_definitions` version** (never auto-published) with a machine-readable rationale payload. Surfaces: **code API** (`FlowAdvisor` service, `@api`), **Artisan commands** (`flow:suggest`, `flow:improve {flow}`), and **Studio UI** (suggestions inbox panel + "Improve this flow" action showing the proposed change as a visual diff on the canvas, accept/dismiss per suggestion). LLM-backed analysis goes through the same guardrails/redaction as other AI nodes; history payloads sent to external LLMs respect the redaction gate.
 
 ## 5. Flow Studio (`laravel-flow-admin`)
 
@@ -128,7 +132,7 @@ final class RefundOrderNode implements FlowNodeHandler
 | **C — Graph Executor** | Coordinator, parallelism, per-node retry/timeout, `blocked`/`invalid_input` states, suspend/join sub-flows & fan-out, node cache, DAG dry-run + cost plan, graph saga | A, B |
 | **D — Real-time & Triggers** | Opt-in broadcasting + progress snapshot; schedule/event/inbound-webhook triggers (connect package bootstrap) | C |
 | **E — Flow Studio** | React Flow canvas, palette from registry, live run monitor, working mutations, admin hygiene fixes | B, D |
-| **F — AI Pack** | LLM node, MCP client, MCP server (flow-as-tool), bounded agent node, AI builder, guardrails | C (E for builder UI) |
+| **F — AI Pack** | LLM node, MCP client, MCP server (flow-as-tool), bounded agent node, AI builder, guardrails, Flow Advisor (suggest/improve via service + `flow:suggest`/`flow:improve` + Studio suggestions UI with visual diff) | C (E for builder/advisor UI) |
 | **G — Release v2.0** | Upgrade guide, migration docs, comparison table with fresh competitor research (n8n, Temporal, Windmill, Inngest, Laravel Workflow/Durable, Symfony), docs-site, contract tests final pass | all |
 
 Each macro follows the established workflow: macro branch + subtask PRs, Copilot review loop, CI green, PROGRESS/LESSON updates.

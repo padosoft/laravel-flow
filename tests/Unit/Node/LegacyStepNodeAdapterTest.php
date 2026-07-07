@@ -108,4 +108,25 @@ final class LegacyStepNodeAdapterTest extends TestCase
 
         $this->assertSame(['output' => ['echo' => []]], $result->outputs);
     }
+
+    public function test_non_array_input_payload_fails_without_reaching_the_step(): void
+    {
+        $step = new class implements FlowStepHandler
+        {
+            public bool $called = false;
+
+            public function execute(FlowContext $context): FlowStepResult
+            {
+                $this->called = true;
+
+                return FlowStepResult::success();
+            }
+        };
+
+        $result = (new LegacyStepNodeAdapter($step))->execute($this->context(['input' => 'not-an-array']));
+
+        $this->assertFalse($result->success);
+        $this->assertFalse($step->called);
+        $this->assertStringContainsString('array payload', (string) $result->error?->getMessage());
+    }
 }

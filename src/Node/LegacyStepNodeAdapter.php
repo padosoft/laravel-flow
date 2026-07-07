@@ -40,7 +40,10 @@ final class LegacyStepNodeAdapter implements FlowNodeHandler
     public function execute(NodeContext $context): NodeResult
     {
         $input = $context->inputs['input'] ?? [];
-        assert(is_array($input));
+
+        if (! is_array($input)) {
+            return NodeResult::failed(new \InvalidArgumentException('Legacy input port must carry an array payload.'));
+        }
 
         $result = $this->step->execute(new FlowContext(
             flowRunId: $context->flowRunId,

@@ -234,6 +234,14 @@ final class LaravelFlowServiceProvider extends ServiceProvider
                 continue;
             }
 
+            // Blank paths would make realpath('') resolve to the CWD and
+            // scan the whole application; blank namespaces produce garbage
+            // FQCNs. Both are misconfigurations: skip them.
+            if (trim($root['path']) === '' || trim($root['namespace'], ' 	
+ \\') === '') {
+                continue;
+            }
+
             $roots[] = ['path' => $root['path'], 'namespace' => $root['namespace']];
         }
 

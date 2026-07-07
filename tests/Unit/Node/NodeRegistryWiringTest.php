@@ -110,6 +110,9 @@ final class NodeRegistryWiringTest extends TestCase
             ['namespace' => 'App\\Nowhere'],
             ['path' => 42, 'namespace' => 'App\\Nowhere'],
             ['path' => __DIR__.'/../../Fixtures/Nodes', 'namespace' => ['nested']],
+            ['path' => '', 'namespace' => 'App\\Nowhere'],
+            ['path' => '   ', 'namespace' => 'App\\Nowhere'],
+            ['path' => __DIR__.'/../../Fixtures/Nodes', 'namespace' => '\\'],
             ['path' => __DIR__.'/../../Fixtures/Nodes', 'namespace' => 'Padosoft\\LaravelFlow\\Tests\\Fixtures\\Nodes'],
         ]);
         $this->app->forgetInstance(NodeRegistry::class);

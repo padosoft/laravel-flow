@@ -184,9 +184,11 @@ return [
     |--------------------------------------------------------------------------
     | Node catalog (v2 graph engine)
     |--------------------------------------------------------------------------
+    |
     | `handlers`: FlowNodeHandler class-strings registered at boot.
     | `discovery`: PSR-4 roots scanned for #[FlowNode] handlers, e.g.
     |   ['path' => app_path('Flow/Nodes'), 'namespace' => 'App\\Flow\\Nodes'].
+    |
     */
     'nodes' => [
         'handlers' => [],

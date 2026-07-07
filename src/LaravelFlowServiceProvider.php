@@ -24,7 +24,9 @@ use Padosoft\LaravelFlow\Contracts\StepRunRepository;
 use Padosoft\LaravelFlow\Dashboard\Authorization\DashboardActionAuthorizer;
 use Padosoft\LaravelFlow\Dashboard\Authorization\DenyAllAuthorizer;
 use Padosoft\LaravelFlow\Dashboard\FlowDashboardReadModel;
+use Padosoft\LaravelFlow\Node\Exceptions\DuplicateNodeTypeException;
 use Padosoft\LaravelFlow\Node\NodeDefinitionFactory;
+use Padosoft\LaravelFlow\Node\NodeDiscovery;
 use Padosoft\LaravelFlow\Node\NodeRegistry;
 use Padosoft\LaravelFlow\Persistence\EloquentApprovalRepository;
 use Padosoft\LaravelFlow\Persistence\EloquentFlowStore;
@@ -152,6 +154,7 @@ final class LaravelFlowServiceProvider extends ServiceProvider
                 static fn (mixed $handler): bool => is_string($handler),
             ));
             $registry->registerMany($handlers);
+            $this->discoverNodes($registry, $app);
 
             return $registry;
         });
@@ -181,6 +184,49 @@ final class LaravelFlowServiceProvider extends ServiceProvider
             PruneFlowRunsCommand::class,
             ReplayFlowRunCommand::class,
         ]);
+    }
+
+    private function discoverNodes(NodeRegistry $registry, Container $app): void
+    {
+        /** @var mixed $configured */
+        $configured = $app['config']->get('laravel-flow.nodes.discovery', []);
+        $discovery = new NodeDiscovery;
+
+        foreach ($this->sanitizeDiscoveryRoots($configured) as $root) {
+            foreach ($discovery->discover($root['path'], $root['namespace']) as $class) {
+                try {
+                    $registry->register($class);
+                } catch (DuplicateNodeTypeException) {
+                    // Config-registered handlers win over discovery; skip silently.
+                }
+            }
+        }
+    }
+
+    /**
+     * @return list<array{path: string, namespace: string}>
+     */
+    private function sanitizeDiscoveryRoots(mixed $configured): array
+    {
+        if (! is_array($configured)) {
+            return [];
+        }
+
+        $roots = [];
+
+        foreach ($configured as $root) {
+            if (! is_array($root) || ! isset($root['path'], $root['namespace'])) {
+                continue;
+            }
+
+            if (! is_string($root['path']) || ! is_string($root['namespace'])) {
+                continue;
+            }
+
+            $roots[] = ['path' => $root['path'], 'namespace' => $root['namespace']];
+        }
+
+        return $roots;
     }
 
     private function configPath(string $file): string

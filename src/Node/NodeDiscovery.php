@@ -1,0 +1,68 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Padosoft\LaravelFlow\Node;
+
+use Padosoft\LaravelFlow\Node\Attributes\FlowNode;
+use RecursiveDirectoryIterator;
+use RecursiveIteratorIterator;
+use ReflectionClass;
+use SplFileInfo;
+
+/**
+ * Scans a PSR-4 mapped directory for #[FlowNode]-attributed classes
+ * implementing {@see FlowNodeHandler}. Classes are resolved through the
+ * autoloader, never by including files directly.
+ *
+ * @api
+ */
+final class NodeDiscovery
+{
+    /**
+     * @return list<class-string> sorted FQCNs
+     */
+    public function discover(string $path, string $namespace): array
+    {
+        $realPath = realpath($path);
+
+        if ($realPath === false || ! is_dir($realPath)) {
+            return [];
+        }
+
+        $found = [];
+        $iterator = new RecursiveIteratorIterator(
+            new RecursiveDirectoryIterator($realPath, RecursiveDirectoryIterator::SKIP_DOTS)
+        );
+
+        /** @var SplFileInfo $file */
+        foreach ($iterator as $file) {
+            if ($file->getExtension() !== 'php') {
+                continue;
+            }
+
+            $relative = substr($file->getPathname(), strlen($realPath) + 1, -4);
+            $class = rtrim($namespace, '\\').'\\'.str_replace(DIRECTORY_SEPARATOR, '\\', $relative);
+
+            if (! class_exists($class)) {
+                continue;
+            }
+
+            $reflection = new ReflectionClass($class);
+
+            if ($reflection->getAttributes(FlowNode::class) === []) {
+                continue;
+            }
+
+            if (! $reflection->implementsInterface(FlowNodeHandler::class)) {
+                continue;
+            }
+
+            $found[] = $class;
+        }
+
+        sort($found);
+
+        return $found;
+    }
+}

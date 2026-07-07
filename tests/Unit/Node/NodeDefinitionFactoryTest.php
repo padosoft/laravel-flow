@@ -10,6 +10,7 @@ use Padosoft\LaravelFlow\Node\Attributes\Output;
 use Padosoft\LaravelFlow\Node\Exceptions\InvalidNodeDefinitionException;
 use Padosoft\LaravelFlow\Node\NodeDefinitionFactory;
 use Padosoft\LaravelFlow\Node\PortType;
+use Padosoft\LaravelFlow\Tests\Fixtures\Nodes\EmptyTypeNode;
 use Padosoft\LaravelFlow\Tests\Fixtures\Nodes\GreetNode;
 use PHPUnit\Framework\TestCase;
 
@@ -221,5 +222,12 @@ final class NodeDefinitionFactoryTest extends TestCase
         $this->expectException(InvalidNodeDefinitionException::class);
         $this->expectExceptionMessageMatches('/must be an instance property/i');
         $this->factory->fromClass($handler::class);
+    }
+
+    public function test_wraps_invalid_flow_node_attribute_payload(): void
+    {
+        $this->expectException(InvalidNodeDefinitionException::class);
+        $this->expectExceptionMessageMatches('/invalid #\[FlowNode\].*type must not be empty/i');
+        $this->factory->fromClass(EmptyTypeNode::class);
     }
 }

@@ -46,7 +46,11 @@ final class NodeDefinitionFactory
             throw new InvalidNodeDefinitionException("Class [{$class}] is missing the #[FlowNode] attribute.");
         }
 
-        $node = $nodeAttributes[0]->newInstance();
+        try {
+            $node = $nodeAttributes[0]->newInstance();
+        } catch (InvalidArgumentException $e) {
+            throw new InvalidNodeDefinitionException("Invalid #[FlowNode] on [{$class}]: {$e->getMessage()}", previous: $e);
+        }
 
         [$inputs, $outputs] = $this->collectPorts($reflection, $class);
 

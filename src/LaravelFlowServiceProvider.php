@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\Date;
 use Illuminate\Support\ServiceProvider;
 use Padosoft\LaravelFlow\Console\ApproveFlowCommand;
 use Padosoft\LaravelFlow\Console\DeliverWebhookOutboxCommand;
+use Padosoft\LaravelFlow\Console\NodeCatalogCommand;
 use Padosoft\LaravelFlow\Console\PruneFlowRunsCommand;
 use Padosoft\LaravelFlow\Console\RejectFlowCommand;
 use Padosoft\LaravelFlow\Console\ReplayFlowRunCommand;
@@ -25,6 +26,7 @@ use Padosoft\LaravelFlow\Dashboard\Authorization\DashboardActionAuthorizer;
 use Padosoft\LaravelFlow\Dashboard\Authorization\DenyAllAuthorizer;
 use Padosoft\LaravelFlow\Dashboard\FlowDashboardReadModel;
 use Padosoft\LaravelFlow\Node\Exceptions\DuplicateNodeTypeException;
+use Padosoft\LaravelFlow\Node\NodeCatalog;
 use Padosoft\LaravelFlow\Node\NodeDefinitionFactory;
 use Padosoft\LaravelFlow\Node\NodeDiscovery;
 use Padosoft\LaravelFlow\Node\NodeRegistry;
@@ -158,6 +160,7 @@ final class LaravelFlowServiceProvider extends ServiceProvider
 
             return $registry;
         });
+        $this->app->singleton(NodeCatalog::class);
     }
 
     public function boot(): void
@@ -183,6 +186,7 @@ final class LaravelFlowServiceProvider extends ServiceProvider
             DeliverWebhookOutboxCommand::class,
             PruneFlowRunsCommand::class,
             ReplayFlowRunCommand::class,
+            NodeCatalogCommand::class,
         ]);
     }
 

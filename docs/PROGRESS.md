@@ -68,3 +68,11 @@ Current validation baseline:
 - CI compatibility fix prepared from `main` for the next patch release.
 - Fixes the CI fatal in `FlowEngineCompensationTest` by matching Laravel's current `Illuminate\Contracts\Concurrency\Driver::run()` timeout signature on the test double.
 - Expands the GitHub Actions PHP matrix to 8.3, 8.4, and 8.5.
+
+## 2026-07-07 - Flow 2.0 Super-Package Program Kickoff (planning)
+
+- Deep comparative analysis completed across `padosoft/laravel-flow` v1.0, `laravel-flow-admin`, and the Flow v2 prototype in ModelsGenerator (`origin/develop`).
+- Approved design spec: `docs/superpowers/specs/2026-07-07-flow-v2-super-package-design.md` (approach A: evolve core in-place; React Flow canvas; AI pack incl. Flow Advisor suggest/improve).
+- Program master plan with gate system (Task/PR/Macro gates) and Macros A-G: `docs/superpowers/plans/2026-07-07-flow-v2-program-master-plan.md`.
+- Macro A (Node Contract & Registry) detailed TDD plan ready for execution: `docs/superpowers/plans/2026-07-07-macro-a-node-contract-registry.md`.
+- Next action: execute Macro A on branch `task/v2a-node-contract` (5 subtask PRs).

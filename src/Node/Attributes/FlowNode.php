@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Padosoft\LaravelFlow\Node\Attributes;
 
 use Attribute;
+use InvalidArgumentException;
 
 /**
  * Marks a class as a flow node handler and declares its catalog identity.
@@ -20,5 +21,9 @@ final class FlowNode
         public readonly ?string $name = null,
         public readonly ?string $icon = null,
         public readonly ?string $description = null,
-    ) {}
+    ) {
+        if (trim($this->type) === '') {
+            throw new InvalidArgumentException('Node type must not be empty.');
+        }
+    }
 }

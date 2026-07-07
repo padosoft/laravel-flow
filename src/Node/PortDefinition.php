@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Padosoft\LaravelFlow\Node;
 
+use InvalidArgumentException;
+
 /**
  * Immutable definition of one input or output port of a node.
  *
@@ -20,7 +22,11 @@ final class PortDefinition
         public readonly bool $required = false,
         public readonly ?string $label = null,
         public readonly ?string $propertyName = null,
-    ) {}
+    ) {
+        if (trim($this->key) === '') {
+            throw new InvalidArgumentException('Port key must not be empty.');
+        }
+    }
 
     /**
      * @return array{key: string, type: string, required: bool, label: string}

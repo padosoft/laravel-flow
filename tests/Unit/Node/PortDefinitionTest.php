@@ -27,4 +27,12 @@ final class PortDefinitionTest extends TestCase
         $this->assertSame('Customer name', $port->toArray()['label']);
         $this->assertFalse($port->toArray()['required']);
     }
+
+    public function test_rejects_empty_key(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Port key must not be empty.');
+
+        new PortDefinition(key: '  ', type: PortType::Text);
+    }
 }

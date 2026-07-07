@@ -40,4 +40,12 @@ final class AttributesTest extends TestCase
         $output = new Output(type: PortType::Json, key: 'result');
         $this->assertSame('result', $output->key);
     }
+
+    public function test_flow_node_rejects_empty_type(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Node type must not be empty.');
+
+        new FlowNode(type: '  ');
+    }
 }

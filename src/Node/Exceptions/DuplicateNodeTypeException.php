@@ -11,4 +11,10 @@ use RuntimeException;
  *
  * @api
  */
-final class DuplicateNodeTypeException extends RuntimeException {}
+final class DuplicateNodeTypeException extends RuntimeException
+{
+    public function __construct(public readonly string $type)
+    {
+        parent::__construct("Node type [{$type}] is already registered.");
+    }
+}

@@ -9,8 +9,8 @@ use Throwable;
 
 /**
  * Readonly DTO summarising one node execution. Factory semantics mirror
- * {@see FlowStepResult} 1:1 so v1 step results map
- * losslessly through the legacy adapter.
+ * {@see FlowStepResult} 1:1, so every v1 step outcome (success, failure,
+ * dry-run skip, pause) has an exact node-result counterpart.
  *
  * @api
  */

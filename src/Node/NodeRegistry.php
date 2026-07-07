@@ -36,7 +36,7 @@ final class NodeRegistry
         $definition = $this->factory->fromClass($handlerClass);
 
         if (isset($this->definitions[$definition->type])) {
-            throw new DuplicateNodeTypeException("Node type [{$definition->type}] is already registered.");
+            throw new DuplicateNodeTypeException($definition->type);
         }
 
         $this->definitions[$definition->type] = $definition;
@@ -62,7 +62,7 @@ final class NodeRegistry
     public function get(string $type): NodeDefinition
     {
         return $this->definitions[$type]
-            ?? throw new UnknownNodeTypeException("Node type [{$type}] is not registered.");
+            ?? throw new UnknownNodeTypeException($type);
     }
 
     /**

@@ -11,4 +11,10 @@ use RuntimeException;
  *
  * @api
  */
-final class UnknownNodeTypeException extends RuntimeException {}
+final class UnknownNodeTypeException extends RuntimeException
+{
+    public function __construct(public readonly string $type)
+    {
+        parent::__construct("Node type [{$type}] is not registered.");
+    }
+}

@@ -24,7 +24,10 @@ final class GreetNode implements FlowNodeHandler
     public function execute(NodeContext $context): NodeResult
     {
         $name = $context->inputs['name'];
-        assert(is_string($name));
+
+        if (! is_string($name)) {
+            return NodeResult::failed(new \InvalidArgumentException('Input [name] must be a string.'));
+        }
 
         return NodeResult::success(['greeting' => 'Hello '.$name]);
     }

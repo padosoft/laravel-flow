@@ -2,6 +2,7 @@
 
 ## 2026-07-07
 
+- Copilot CLI `-s` sometimes DROPS THE FINAL MESSAGE CHUNK (the verdict line): two A-PR3 runs narrated a clean review but never printed `NO_FINDINGS`. Verdict extraction must grep the teed output for `NO_FINDINGS` OR numbered findings; if absent but the narration is clean and lists zero findings across two runs, treat as clean and note it. Consider dropping `-s` if it recurs.
 - Copilot CLI with `--yolo` will sometimes START IMPLEMENTING its own review findings (observed: it edited `NodeDefinitionFactory.php` mid-`/review`). The local-review prompt must open with "STRICTLY READ-ONLY ANALYSIS: you MUST NOT modify any file", and `git status --short` must be verified clean after every run (discard any CLI edit with `git checkout -- <file>`). Also `tee` the CLI output to a file: on DNS/network errors it dies mid-stream and un-captured findings are lost.
 - On this Windows machine `composer`/`php` are NOT on the Git Bash PATH; they resolve only in PowerShell via the Herd shims (`%USERPROFILE%/.config/herd/bin/composer.bat`, `php.bat`). Herd ships php82/php84/**php85**: run local suites with PHP 8.5 (`php85.bat`) per program rule, never XAMPP.
 - Do NOT generate PHP/JSON scaffolds with unquoted bash heredocs containing backslashes or `${...}`: `\` and `\${ns}` get mangled (produced invalid composer.json PSR-4 keys and literal `${ns}` in PHP namespaces). Use the Write/Edit tools or single-quoted heredocs plus `sed`.

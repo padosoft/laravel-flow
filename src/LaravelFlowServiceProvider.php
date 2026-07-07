@@ -24,6 +24,8 @@ use Padosoft\LaravelFlow\Contracts\StepRunRepository;
 use Padosoft\LaravelFlow\Dashboard\Authorization\DashboardActionAuthorizer;
 use Padosoft\LaravelFlow\Dashboard\Authorization\DenyAllAuthorizer;
 use Padosoft\LaravelFlow\Dashboard\FlowDashboardReadModel;
+use Padosoft\LaravelFlow\Node\NodeDefinitionFactory;
+use Padosoft\LaravelFlow\Node\NodeRegistry;
 use Padosoft\LaravelFlow\Persistence\EloquentApprovalRepository;
 use Padosoft\LaravelFlow\Persistence\EloquentFlowStore;
 use Padosoft\LaravelFlow\Persistence\EloquentWebhookOutboxRepository;
@@ -138,6 +140,21 @@ final class LaravelFlowServiceProvider extends ServiceProvider
             return new FlowDashboardReadModel(connection: $connection);
         });
         $this->app->bind(DashboardActionAuthorizer::class, DenyAllAuthorizer::class);
+
+        $this->app->singleton(NodeDefinitionFactory::class);
+        $this->app->singleton(NodeRegistry::class, function (Container $app): NodeRegistry {
+            $registry = new NodeRegistry($app->make(NodeDefinitionFactory::class));
+            /** @var mixed $configured */
+            $configured = $app['config']->get('laravel-flow.nodes.handlers', []);
+            /** @var list<class-string> $handlers */
+            $handlers = array_values(array_filter(
+                is_array($configured) ? $configured : [],
+                static fn (mixed $handler): bool => is_string($handler),
+            ));
+            $registry->registerMany($handlers);
+
+            return $registry;
+        });
     }
 
     public function boot(): void

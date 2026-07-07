@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Padosoft\LaravelFlow\Node;
 
+use InvalidArgumentException;
 use Padosoft\LaravelFlow\FlowContext;
 use Padosoft\LaravelFlow\FlowStepHandler;
 use Padosoft\LaravelFlow\FlowStepResult;
@@ -27,7 +28,7 @@ final class LegacyStepNodeAdapter implements FlowNodeHandler
     {
         return new NodeDefinition(
             type: $nodeType,
-            name: substr($stepHandlerClass, (int) strrpos($stepHandlerClass, '\\') + 1) ?: $stepHandlerClass,
+            name: self::classBasename($stepHandlerClass),
             category: 'legacy',
             icon: null,
             description: 'v1 FlowStepHandler adapter for '.$stepHandlerClass,
@@ -37,12 +38,20 @@ final class LegacyStepNodeAdapter implements FlowNodeHandler
         );
     }
 
+    private static function classBasename(string $class): string
+    {
+        $pos = strrpos($class, '\\');
+
+        // Global-namespace classes have no separator: use the name as-is.
+        return $pos === false ? $class : substr($class, $pos + 1);
+    }
+
     public function execute(NodeContext $context): NodeResult
     {
         $input = $context->inputs['input'] ?? [];
 
         if (! is_array($input)) {
-            return NodeResult::failed(new \InvalidArgumentException('Legacy input port must carry an array payload.'));
+            return NodeResult::failed(new InvalidArgumentException('Legacy input port must carry an array payload.'));
         }
 
         $result = $this->step->execute(new FlowContext(

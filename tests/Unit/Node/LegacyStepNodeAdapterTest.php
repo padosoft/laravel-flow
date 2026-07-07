@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Padosoft\LaravelFlow\Tests\Unit\Node;
 
+use Padosoft\LaravelFlow\ApprovalGate;
 use Padosoft\LaravelFlow\FlowContext;
 use Padosoft\LaravelFlow\FlowStepHandler;
 use Padosoft\LaravelFlow\FlowStepResult;
@@ -37,6 +38,17 @@ final class LegacyStepNodeAdapterTest extends TestCase
         $this->assertFalse($definition->input('input')->required);
         $this->assertSame(PortType::Json, $definition->output('output')?->type);
         $this->assertSame($step::class, $definition->handlerClass);
+    }
+
+    public function test_definition_name_for_namespaced_and_global_classes(): void
+    {
+        require_once __DIR__.'/../../Fixtures/GlobalNamespaceLegacyStep.php';
+
+        $namespaced = LegacyStepNodeAdapter::definitionFor('legacy.ns', ApprovalGate::class);
+        $this->assertSame('ApprovalGate', $namespaced->name);
+
+        $global = LegacyStepNodeAdapter::definitionFor('legacy.global', \GlobalNamespaceLegacyStep::class);
+        $this->assertSame('GlobalNamespaceLegacyStep', $global->name);
     }
 
     public function test_success_maps_output_and_impact_and_context(): void

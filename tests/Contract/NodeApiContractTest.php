@@ -12,9 +12,11 @@ use Padosoft\LaravelFlow\Node\Exceptions\InvalidNodeDefinitionException;
 use Padosoft\LaravelFlow\Node\Exceptions\NodeInputValidationException;
 use Padosoft\LaravelFlow\Node\Exceptions\UnknownNodeTypeException;
 use Padosoft\LaravelFlow\Node\FlowNodeHandler;
+use Padosoft\LaravelFlow\Node\NodeCatalog;
 use Padosoft\LaravelFlow\Node\NodeContext;
 use Padosoft\LaravelFlow\Node\NodeDefinition;
 use Padosoft\LaravelFlow\Node\NodeDefinitionFactory;
+use Padosoft\LaravelFlow\Node\NodeDiscovery;
 use Padosoft\LaravelFlow\Node\NodeInputHydrator;
 use Padosoft\LaravelFlow\Node\NodeInputValidator;
 use Padosoft\LaravelFlow\Node\NodeRegistry;
@@ -54,6 +56,8 @@ final class NodeApiContractTest extends TestCase
             NodeRegistry::class,
             DuplicateNodeTypeException::class,
             UnknownNodeTypeException::class,
+            NodeDiscovery::class,
+            NodeCatalog::class,
         ];
 
         foreach ($classes as $class) {
@@ -68,5 +72,10 @@ final class NodeApiContractTest extends TestCase
         foreach (['success', 'failed', 'dryRunSkipped', 'paused'] as $factory) {
             $this->assertTrue((new ReflectionClass(NodeResult::class))->getMethod($factory)->isStatic(), $factory);
         }
+    }
+
+    public function test_node_catalog_schema_version_is_pinned(): void
+    {
+        $this->assertSame(1, NodeCatalog::SCHEMA_VERSION);
     }
 }

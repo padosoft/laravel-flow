@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\Date;
 use Illuminate\Support\ServiceProvider;
 use Padosoft\LaravelFlow\Console\ApproveFlowCommand;
 use Padosoft\LaravelFlow\Console\DeliverWebhookOutboxCommand;
+use Padosoft\LaravelFlow\Console\NodeCatalogCommand;
 use Padosoft\LaravelFlow\Console\PruneFlowRunsCommand;
 use Padosoft\LaravelFlow\Console\RejectFlowCommand;
 use Padosoft\LaravelFlow\Console\ReplayFlowRunCommand;
@@ -24,7 +25,10 @@ use Padosoft\LaravelFlow\Contracts\StepRunRepository;
 use Padosoft\LaravelFlow\Dashboard\Authorization\DashboardActionAuthorizer;
 use Padosoft\LaravelFlow\Dashboard\Authorization\DenyAllAuthorizer;
 use Padosoft\LaravelFlow\Dashboard\FlowDashboardReadModel;
+use Padosoft\LaravelFlow\Node\Exceptions\DuplicateNodeTypeException;
+use Padosoft\LaravelFlow\Node\NodeCatalog;
 use Padosoft\LaravelFlow\Node\NodeDefinitionFactory;
+use Padosoft\LaravelFlow\Node\NodeDiscovery;
 use Padosoft\LaravelFlow\Node\NodeRegistry;
 use Padosoft\LaravelFlow\Persistence\EloquentApprovalRepository;
 use Padosoft\LaravelFlow\Persistence\EloquentFlowStore;
@@ -152,9 +156,11 @@ final class LaravelFlowServiceProvider extends ServiceProvider
                 static fn (mixed $handler): bool => is_string($handler),
             ));
             $registry->registerMany($handlers);
+            $this->discoverNodes($registry, $app);
 
             return $registry;
         });
+        $this->app->singleton(NodeCatalog::class);
     }
 
     public function boot(): void
@@ -180,7 +186,66 @@ final class LaravelFlowServiceProvider extends ServiceProvider
             DeliverWebhookOutboxCommand::class,
             PruneFlowRunsCommand::class,
             ReplayFlowRunCommand::class,
+            NodeCatalogCommand::class,
         ]);
+    }
+
+    private function discoverNodes(NodeRegistry $registry, Container $app): void
+    {
+        /** @var mixed $configured */
+        $configured = $app['config']->get('laravel-flow.nodes.discovery', []);
+        $discovery = new NodeDiscovery;
+        $configRegisteredTypes = array_keys($registry->all());
+
+        foreach ($this->sanitizeDiscoveryRoots($configured) as $root) {
+            foreach ($discovery->discover($root['path'], $root['namespace']) as $class) {
+                try {
+                    $registry->register($class);
+                } catch (DuplicateNodeTypeException $e) {
+                    if (! in_array($e->type, $configRegisteredTypes, true)) {
+                        // Two discovered classes claim the same type: that is
+                        // a definition error and must fail fast like any other.
+                        throw $e;
+                    }
+
+                    // Config-registered handlers win over discovery; skip silently.
+                }
+            }
+        }
+    }
+
+    /**
+     * @return list<array{path: string, namespace: string}>
+     */
+    private function sanitizeDiscoveryRoots(mixed $configured): array
+    {
+        if (! is_array($configured)) {
+            return [];
+        }
+
+        $roots = [];
+
+        foreach ($configured as $root) {
+            if (! is_array($root) || ! isset($root['path'], $root['namespace'])) {
+                continue;
+            }
+
+            if (! is_string($root['path']) || ! is_string($root['namespace'])) {
+                continue;
+            }
+
+            // Blank paths would make realpath('') resolve to the CWD and
+            // scan the whole application; blank namespaces produce garbage
+            // FQCNs. Both are misconfigurations: skip them.
+            if (trim($root['path']) === '' || trim($root['namespace'], ' 	
+ \\') === '') {
+                continue;
+            }
+
+            $roots[] = ['path' => $root['path'], 'namespace' => $root['namespace']];
+        }
+
+        return $roots;
     }
 
     private function configPath(string $file): string

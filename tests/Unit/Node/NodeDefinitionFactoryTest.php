@@ -1,0 +1,118 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Padosoft\LaravelFlow\Tests\Unit\Node;
+
+use Padosoft\LaravelFlow\Node\Attributes\FlowNode;
+use Padosoft\LaravelFlow\Node\Attributes\Input;
+use Padosoft\LaravelFlow\Node\Attributes\Output;
+use Padosoft\LaravelFlow\Node\Exceptions\InvalidNodeDefinitionException;
+use Padosoft\LaravelFlow\Node\NodeDefinitionFactory;
+use Padosoft\LaravelFlow\Node\PortType;
+use Padosoft\LaravelFlow\Tests\Fixtures\Nodes\GreetNode;
+use PHPUnit\Framework\TestCase;
+
+final class NodeDefinitionFactoryTest extends TestCase
+{
+    private NodeDefinitionFactory $factory;
+
+    protected function setUp(): void
+    {
+        $this->factory = new NodeDefinitionFactory;
+    }
+
+    public function test_builds_definition_from_attributes(): void
+    {
+        $handler = new #[FlowNode(type: 'billing.refund', category: 'billing', icon: 'credit-card')] class
+        {
+            #[Input(type: PortType::Int, required: true)]
+            public int $orderId;
+
+            #[Input(type: PortType::Float, key: 'amount', label: 'Refund amount')]
+            public ?float $refundAmount = null;
+
+            #[Output(type: PortType::Json)]
+            public array $receipt;
+        };
+
+        $definition = $this->factory->fromClass($handler::class);
+
+        $this->assertSame('billing.refund', $definition->type);
+        $this->assertSame('billing', $definition->category);
+        $this->assertSame('credit-card', $definition->icon);
+        $this->assertCount(2, $definition->inputs);
+        $this->assertCount(1, $definition->outputs);
+
+        $orderId = $definition->input('orderId');
+        $this->assertNotNull($orderId);
+        $this->assertSame(PortType::Int, $orderId->type);
+        $this->assertTrue($orderId->required);
+        $this->assertSame('orderId', $orderId->propertyName);
+
+        $amount = $definition->input('amount');
+        $this->assertNotNull($amount);
+        $this->assertSame('refundAmount', $amount->propertyName);
+        $this->assertSame('Refund amount', $amount->label);
+
+        $this->assertNotNull($definition->output('receipt'));
+        $this->assertNull($definition->input('missing'));
+    }
+
+    public function test_name_defaults_to_class_basename(): void
+    {
+        $definition = $this->factory->fromClass(GreetNode::class);
+
+        $this->assertSame('GreetNode', $definition->name);
+        $this->assertSame(GreetNode::class, $definition->handlerClass);
+    }
+
+    public function test_to_array_exposes_catalog_shape(): void
+    {
+        $array = $this->factory->fromClass(GreetNode::class)->toArray();
+
+        $this->assertSame('test.greet', $array['type']);
+        $this->assertSame(
+            [['key' => 'name', 'type' => 'text', 'required' => true, 'label' => 'name']],
+            $array['inputs'],
+        );
+        $this->assertArrayHasKey('outputs', $array);
+        $this->assertArrayNotHasKey('handlerClass', $array);
+    }
+
+    public function test_rejects_class_without_flow_node_attribute(): void
+    {
+        $plain = new class {};
+
+        $this->expectException(InvalidNodeDefinitionException::class);
+        $this->expectExceptionMessageMatches('/missing.*FlowNode/i');
+        $this->factory->fromClass($plain::class);
+    }
+
+    public function test_rejects_unknown_class(): void
+    {
+        $this->expectException(InvalidNodeDefinitionException::class);
+        $this->factory->fromClass('App\\Does\\Not\\Exist');
+    }
+
+    // NOTE (A-PR1 local review): empty-type rejection now lives in the
+    // FlowNode attribute constructor itself and is covered by
+    // AttributesTest::test_flow_node_rejects_empty_type. No factory-level
+    // empty-type test or guard is needed here.
+
+    public function test_rejects_duplicate_input_port_keys(): void
+    {
+        $handler = new #[FlowNode(type: 'dup.node')] class
+        {
+            #[Input(type: PortType::Text, key: 'same')]
+            public string $a;
+
+            #[Input(type: PortType::Text, key: 'same')]
+            public string $b;
+        };
+
+        $this->expectException(InvalidNodeDefinitionException::class);
+        $this->expectExceptionMessageMatches('/duplicate input port.*same/i');
+        $this->factory->fromClass($handler::class);
+    }
+}

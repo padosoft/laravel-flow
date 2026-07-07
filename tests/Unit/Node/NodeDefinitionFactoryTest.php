@@ -115,4 +115,20 @@ final class NodeDefinitionFactoryTest extends TestCase
         $this->expectExceptionMessageMatches('/duplicate input port.*same/i');
         $this->factory->fromClass($handler::class);
     }
+
+    public function test_rejects_duplicate_output_port_keys(): void
+    {
+        $handler = new #[FlowNode(type: 'dup.out')] class
+        {
+            #[Output(type: PortType::Text, key: 'same')]
+            public string $a;
+
+            #[Output(type: PortType::Text, key: 'same')]
+            public string $b;
+        };
+
+        $this->expectException(InvalidNodeDefinitionException::class);
+        $this->expectExceptionMessageMatches('/duplicate output port.*same/i');
+        $this->factory->fromClass($handler::class);
+    }
 }

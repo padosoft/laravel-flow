@@ -6,6 +6,7 @@ namespace Padosoft\LaravelFlow\Tests\Unit\Node;
 
 use Orchestra\Testbench\TestCase;
 use Padosoft\LaravelFlow\LaravelFlowServiceProvider;
+use Padosoft\LaravelFlow\Node\Exceptions\InvalidNodeDefinitionException;
 use Padosoft\LaravelFlow\Node\NodeRegistry;
 use Padosoft\LaravelFlow\Tests\Fixtures\Nodes\GreetNode;
 
@@ -70,5 +71,19 @@ final class NodeRegistryWiringTest extends TestCase
         $this->assertTrue($registry->has('test.upper'));
         $this->assertCount(2, $registry->all());
         $this->assertSame(GreetNode::class, $registry->get('test.greet')->handlerClass);
+    }
+
+    public function test_malformed_discovered_node_fails_fast(): void
+    {
+        $this->app['config']->set('laravel-flow.nodes.handlers', []);
+        $this->app['config']->set('laravel-flow.nodes.discovery', [[
+            'path' => __DIR__.'/../../Fixtures/InvalidNodes',
+            'namespace' => 'Padosoft\\LaravelFlow\\Tests\\Fixtures\\InvalidNodes',
+        ]]);
+        $this->app->forgetInstance(NodeRegistry::class);
+
+        $this->expectException(InvalidNodeDefinitionException::class);
+        $this->expectExceptionMessageMatches('/duplicate input port/i');
+        $this->app->make(NodeRegistry::class);
     }
 }

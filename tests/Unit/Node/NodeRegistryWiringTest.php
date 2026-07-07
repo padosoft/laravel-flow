@@ -54,4 +54,21 @@ final class NodeRegistryWiringTest extends TestCase
         $this->assertTrue($registry->has('test.greet'));
         $this->assertTrue($registry->has('test.upper'));
     }
+
+    public function test_config_handlers_win_over_discovery_on_type_collision(): void
+    {
+        $this->app['config']->set('laravel-flow.nodes.handlers', [GreetNode::class]);
+        $this->app['config']->set('laravel-flow.nodes.discovery', [[
+            'path' => __DIR__.'/../../Fixtures/Nodes',
+            'namespace' => 'Padosoft\\LaravelFlow\\Tests\\Fixtures\\Nodes',
+        ]]);
+        $this->app->forgetInstance(NodeRegistry::class);
+
+        $registry = $this->app->make(NodeRegistry::class);
+
+        $this->assertTrue($registry->has('test.greet'));
+        $this->assertTrue($registry->has('test.upper'));
+        $this->assertCount(2, $registry->all());
+        $this->assertSame(GreetNode::class, $registry->get('test.greet')->handlerClass);
+    }
 }

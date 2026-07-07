@@ -30,6 +30,10 @@ final class NodeDiscovery
             return [];
         }
 
+        // Filesystem roots (e.g. "C:\" or "/") keep a trailing separator from
+        // realpath(); strip it so the offset math below stays correct.
+        $realPath = rtrim($realPath, DIRECTORY_SEPARATOR);
+
         $found = [];
         $iterator = new RecursiveIteratorIterator(
             new RecursiveDirectoryIterator($realPath, RecursiveDirectoryIterator::SKIP_DOTS)

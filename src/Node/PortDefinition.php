@@ -12,6 +12,9 @@ use InvalidArgumentException;
  * `$propertyName` is the handler property the port hydrates into; it is a
  * reflection detail and is deliberately excluded from {@see toArray()}.
  *
+ * Keys starting with `_` are reserved for engine-level buckets (for
+ * example the validator's `_unknown` violations group) and are rejected.
+ *
  * @api
  */
 final class PortDefinition
@@ -25,6 +28,10 @@ final class PortDefinition
     ) {
         if (trim($this->key) === '') {
             throw new InvalidArgumentException('Port key must not be empty.');
+        }
+
+        if (str_starts_with($this->key, '_')) {
+            throw new InvalidArgumentException('Port keys starting with "_" are reserved.');
         }
     }
 

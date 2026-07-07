@@ -35,4 +35,12 @@ final class PortDefinitionTest extends TestCase
 
         new PortDefinition(key: '  ', type: PortType::Text);
     }
+
+    public function test_rejects_reserved_underscore_prefixed_key(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Port keys starting with "_" are reserved.');
+
+        new PortDefinition(key: '_unknown', type: PortType::Text);
+    }
 }

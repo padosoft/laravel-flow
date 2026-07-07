@@ -195,12 +195,19 @@ final class LaravelFlowServiceProvider extends ServiceProvider
         /** @var mixed $configured */
         $configured = $app['config']->get('laravel-flow.nodes.discovery', []);
         $discovery = new NodeDiscovery;
+        $configRegisteredTypes = array_keys($registry->all());
 
         foreach ($this->sanitizeDiscoveryRoots($configured) as $root) {
             foreach ($discovery->discover($root['path'], $root['namespace']) as $class) {
                 try {
                     $registry->register($class);
-                } catch (DuplicateNodeTypeException) {
+                } catch (DuplicateNodeTypeException $e) {
+                    if (! in_array($e->type, $configRegisteredTypes, true)) {
+                        // Two discovered classes claim the same type: that is
+                        // a definition error and must fail fast like any other.
+                        throw $e;
+                    }
+
                     // Config-registered handlers win over discovery; skip silently.
                 }
             }

@@ -6,6 +6,7 @@ namespace Padosoft\LaravelFlow\Tests\Unit\Node;
 
 use Orchestra\Testbench\TestCase;
 use Padosoft\LaravelFlow\LaravelFlowServiceProvider;
+use Padosoft\LaravelFlow\Node\Exceptions\DuplicateNodeTypeException;
 use Padosoft\LaravelFlow\Node\Exceptions\InvalidNodeDefinitionException;
 use Padosoft\LaravelFlow\Node\NodeRegistry;
 use Padosoft\LaravelFlow\Tests\Fixtures\Nodes\GreetNode;
@@ -85,5 +86,38 @@ final class NodeRegistryWiringTest extends TestCase
         $this->expectException(InvalidNodeDefinitionException::class);
         $this->expectExceptionMessageMatches('/duplicate input port/i');
         $this->app->make(NodeRegistry::class);
+    }
+
+    public function test_discovery_vs_discovery_type_collision_fails_fast(): void
+    {
+        $this->app['config']->set('laravel-flow.nodes.handlers', []);
+        $this->app['config']->set('laravel-flow.nodes.discovery', [[
+            'path' => __DIR__.'/../../Fixtures/CollidingNodes',
+            'namespace' => 'Padosoft\\LaravelFlow\\Tests\\Fixtures\\CollidingNodes',
+        ]]);
+        $this->app->forgetInstance(NodeRegistry::class);
+
+        $this->expectException(DuplicateNodeTypeException::class);
+        $this->app->make(NodeRegistry::class);
+    }
+
+    public function test_malformed_discovery_roots_are_skipped(): void
+    {
+        $this->app['config']->set('laravel-flow.nodes.handlers', []);
+        $this->app['config']->set('laravel-flow.nodes.discovery', [
+            'not-an-array',
+            ['path' => __DIR__.'/../../Fixtures/Nodes'],
+            ['namespace' => 'App\\Nowhere'],
+            ['path' => 42, 'namespace' => 'App\\Nowhere'],
+            ['path' => __DIR__.'/../../Fixtures/Nodes', 'namespace' => ['nested']],
+            ['path' => __DIR__.'/../../Fixtures/Nodes', 'namespace' => 'Padosoft\\LaravelFlow\\Tests\\Fixtures\\Nodes'],
+        ]);
+        $this->app->forgetInstance(NodeRegistry::class);
+
+        $registry = $this->app->make(NodeRegistry::class);
+
+        $this->assertTrue($registry->has('test.greet'));
+        $this->assertTrue($registry->has('test.upper'));
+        $this->assertCount(2, $registry->all());
     }
 }

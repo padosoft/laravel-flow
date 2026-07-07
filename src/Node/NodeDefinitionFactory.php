@@ -20,6 +20,11 @@ use ReflectionClass;
  * property uninitialized and fatal on later reads. Required inputs need no
  * default because the hydrator always assigns them once validation passes.
  *
+ * Hydratability contract: `#[Input]` properties must be public and not
+ * readonly so {@see NodeInputHydrator} can assign them from outside, and
+ * `#[Output]` properties must be public (readonly allowed) so the executor
+ * can read them off the handler after execute.
+ *
  * @api
  */
 final class NodeDefinitionFactory
@@ -74,6 +79,10 @@ final class NodeDefinitionFactory
                     throw new InvalidNodeDefinitionException("Duplicate input port [{$key}] on [{$class}].");
                 }
 
+                if (! $property->isPublic() || $property->isReadOnly()) {
+                    throw new InvalidNodeDefinitionException("Input property [{$class}::\${$property->getName()}] must be public and not readonly.");
+                }
+
                 try {
                     $port = new PortDefinition($key, $input->type, $input->required, $input->label, $property->getName());
                 } catch (InvalidArgumentException $e) {
@@ -93,6 +102,10 @@ final class NodeDefinitionFactory
 
                 if (isset($outputs[$key])) {
                     throw new InvalidNodeDefinitionException("Duplicate output port [{$key}] on [{$class}].");
+                }
+
+                if (! $property->isPublic()) {
+                    throw new InvalidNodeDefinitionException("Output property [{$class}::\${$property->getName()}] must be public.");
                 }
 
                 try {

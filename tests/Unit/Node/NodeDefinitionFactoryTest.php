@@ -157,4 +157,43 @@ final class NodeDefinitionFactoryTest extends TestCase
         $this->expectExceptionMessageMatches('/must declare a default value/i');
         $this->factory->fromClass($handler::class);
     }
+
+    public function test_non_public_input_property_is_rejected(): void
+    {
+        $handler = new #[FlowNode(type: 'vis.in')] class
+        {
+            #[Input(type: PortType::Text, required: true)]
+            private string $a;
+        };
+
+        $this->expectException(InvalidNodeDefinitionException::class);
+        $this->expectExceptionMessageMatches('/must be public and not readonly/i');
+        $this->factory->fromClass($handler::class);
+    }
+
+    public function test_readonly_input_property_is_rejected(): void
+    {
+        $handler = new #[FlowNode(type: 'ro.in')] class
+        {
+            #[Input(type: PortType::Text, required: true)]
+            public readonly string $a;
+        };
+
+        $this->expectException(InvalidNodeDefinitionException::class);
+        $this->expectExceptionMessageMatches('/must be public and not readonly/i');
+        $this->factory->fromClass($handler::class);
+    }
+
+    public function test_non_public_output_property_is_rejected(): void
+    {
+        $handler = new #[FlowNode(type: 'vis.out')] class
+        {
+            #[Output(type: PortType::Text)]
+            protected string $o;
+        };
+
+        $this->expectException(InvalidNodeDefinitionException::class);
+        $this->expectExceptionMessageMatches('/must be public/i');
+        $this->factory->fromClass($handler::class);
+    }
 }

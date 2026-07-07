@@ -20,7 +20,7 @@ final class NodeInputValidationException extends RuntimeException
      */
     public function __construct(private readonly array $violations)
     {
-        parent::__construct('Node input validation failed: '.json_encode($violations));
+        parent::__construct('Node input validation failed: '.(json_encode($violations, JSON_INVALID_UTF8_SUBSTITUTE) ?: 'detail unavailable'));
     }
 
     /**

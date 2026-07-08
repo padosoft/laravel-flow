@@ -53,7 +53,7 @@ final class ExportFlowDefinitionCommand extends Command
 
         if ($stored === null) {
             $this->error(sprintf(
-                'Flow definition [%s] has no published version to export; pass --version for an explicit draft or archived version.',
+                'Flow definition [%s] has no published version to export; pass --definition-version for an explicit draft or archived version.',
                 $name,
             ));
 

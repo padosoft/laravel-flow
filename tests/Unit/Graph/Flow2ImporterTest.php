@@ -160,4 +160,20 @@ final class Flow2ImporterTest extends TestCase
 
         (new Flow2Importer)->import('[1,2,3]');
     }
+
+    public function test_blank_service_type_is_an_aggregated_violation(): void
+    {
+        try {
+            (new Flow2Importer)->import((string) json_encode([
+                'nodes' => [
+                    ['id' => 'a', 'serviceType' => '  ', 'data' => []],
+                    ['id' => 'b', 'serviceType' => 'x', 'data' => []],
+                ],
+                'connections' => [],
+            ]));
+            $this->fail('Expected InvalidGraphException');
+        } catch (InvalidGraphException $e) {
+            $this->assertStringContainsString('type must not be empty', implode(' | ', $e->violations()));
+        }
+    }
 }

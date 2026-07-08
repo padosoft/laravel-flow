@@ -41,6 +41,10 @@ final class LegacyStepNodeAdapter implements FlowNodeHandler
      */
     public static function definitionFor(string $nodeType, string $stepHandlerClass): NodeDefinition
     {
+        if (trim($nodeType) === '') {
+            throw new InvalidArgumentException('Node type must not be empty.');
+        }
+
         if (! class_exists($stepHandlerClass)) {
             throw new InvalidArgumentException("Legacy step class [{$stepHandlerClass}] does not exist.");
         }

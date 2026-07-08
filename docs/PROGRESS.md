@@ -88,8 +88,11 @@ Current validation baseline:
 
 ## 2026-07-08 - Macro A (Node Contract & Registry) — implementation complete
 
-- All 10 tasks of `docs/superpowers/plans/2026-07-07-macro-a-node-contract-registry.md` implemented on macro branch `task/v2a-node-contract` via 5 subtask PRs (#41, #42, #43, #44, A-PR5 pending).
+- All 10 tasks of `docs/superpowers/plans/2026-07-07-macro-a-node-contract-registry.md` implemented on macro branch `task/v2a-node-contract` via 5 subtask PRs, ALL MERGED (#41, #42, #43, #44, #45).
 - Delivered: `Padosoft\LaravelFlow\Node\` namespace — PortType/PortDefinition, attributes (FlowNode/Input/Output with fail-fast guards), reflection NodeDefinitionFactory (hydratability + default-value + instance-only contracts), NodeInputValidator/Hydrator (null semantics, reserved `_` keys), FlowNodeHandler + NodeContext/NodeResult (1:1 FlowStepResult parity), NodeRegistry (typed exceptions with payloads), PSR-4 NodeDiscovery (root-safe offsets, fail-fast on malformed nodes, config-over-discovery precedence), NodeCatalog + `flow:nodes`, LegacyStepNodeAdapter.
 - Quality trail: every subtask PR passed local Copilot CLI review loops (25 findings fixed pre-push across the macro), internal SDD task reviews, PR-level Copilot review and CI on PHP 8.3/8.4/8.5.
-- Gates at completion: `composer quality` green — Unit 313/1304, Architecture 3/9, Contract 69 tests.
-- Next: A-PR5 merge, whole-branch review, macro PR to main, G3 checklist, Macro B detailed plan.
+- Gates at completion (branch head 9e17195 + doc fixes): `composer quality` green — Unit 316/1310, Architecture 3/9, Contract 69/324, verified live on Herd PHP 8.5.7.
+- Final whole-branch review (45 commits, most-capable model): code merge-ready; doc syncs applied on the branch (UPGRADE.md Node-namespace @api bullet with explicit stability note, this PROGRESS refresh, docs-site deferral below). PR-level bot findings fixed along the way: definitionFor runtime guards, v1 throw-to-fail semantics preserved in the adapter.
+- docs-site decision: v2 Node-contract documentation (node authoring guide, `flow:nodes`) is DEFERRED to Macro G G-PR3 per master plan — the surface is a v2 preview with no end-user flow-authoring path until the graph engine (Macros B/C) lands; recorded here and in the macro PR description to satisfy rule-docmd-docs-sync explicitly.
+- Follow-ups folded into Macro B/C planning: factory-level PHP-property-type vs PortType compatibility check (biggest remaining host-app hole), friendlier duplicate-root diagnostics, NodeDefinition constructor-bypass note, structural every-class-annotated sweep test.
+- Next: macro PR `task/v2a-node-contract` -> main, G3 checklist, Macro B detailed plan.

@@ -51,6 +51,14 @@ final class LegacyStepNodeAdapterTest extends TestCase
         $this->assertSame('GlobalNamespaceLegacyStep', $global->name);
     }
 
+    public function test_definition_for_rejects_blank_node_type(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessageMatches('/type must not be empty/i');
+
+        LegacyStepNodeAdapter::definitionFor('  ', ApprovalGate::class);
+    }
+
     public function test_definition_for_rejects_nonexistent_class(): void
     {
         $this->expectException(\InvalidArgumentException::class);

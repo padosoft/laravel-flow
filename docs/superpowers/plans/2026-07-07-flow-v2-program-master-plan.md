@@ -78,7 +78,7 @@ Detailed, code-level TDD plans are written just-in-time: Macro A's exists now; e
 
 | Subtask PR | Deliverable | Gate criteria |
 |---|---|---|
-| B-PR1 | `GraphDefinition`/`GraphNode`/`Connection` VOs + structural validation | Rejects: duplicate node ids, dangling connections, unknown ports, port-type incompatibility (via `PortType::accepts`), cycles (topological check). Accepts diamond DAGs |
+| B-PR1 | `GraphDefinition`/`GraphNode`/`Connection` VOs + structural validation. Macro-A review follow-ups fold in here: factory-level PHP-property-type vs PortType compatibility check (definition-time, fail-fast); structural sweep test "every src/Node class carries exactly one of @api/@internal"; friendlier duplicate-discovery-root diagnostics; document NodeDefinitionFactory as the sanctioned construction path | Rejects: duplicate node ids, dangling connections, unknown ports, port-type incompatibility (via `PortType::accepts`), cycles (topological check). Accepts diamond DAGs |
 | B-PR2 | Canonical JSON schema v1: `fromArray`/`toArray`, envelope `{schema_version, kind, nodes, connections}`, sha-256 checksum | Round-trip property tests (`fromArray(toArray(x)) == x`); unknown `schema_version` rejected; checksum stable across key order |
 | B-PR3 | `flow_definitions` migration + `DefinitionRepository` contract (`@api`) with Eloquent impl (`@internal`) | `(name,version)` unique; `draft→published→archived` transitions enforced; published versions immutable (edit → new draft version); sqlite in-memory tests |
 | B-PR4 | Optional definition signing (HMAC-SHA256) + verify-on-load | With signing enabled, tampered graph fails load; disabled = no-op; secret handling mirrors webhook outbox pattern |

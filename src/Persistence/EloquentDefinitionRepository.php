@@ -33,6 +33,12 @@ final class EloquentDefinitionRepository implements DefinitionRepository
         $checksum = $this->serializer->checksum($graph);
 
         return DB::connection($this->connection)->transaction(function () use ($name, $payload, $checksum): StoredDefinition {
+            // Same name-group lock as publish(): serializes concurrent
+            // drafts of one name so max(version)+1 cannot collide (the
+            // unique index stays as the last-resort backstop; sqlite
+            // no-ops the lock but serializes writers anyway).
+            $this->newModel()->newQuery()->where('name', $name)->lockForUpdate()->get();
+
             $nextVersion = ((int) $this->newModel()->newQuery()->where('name', $name)->max('version')) + 1;
 
             $model = $this->newModel();

@@ -133,6 +133,19 @@ final class NodeDefinitionFactoryTest extends TestCase
         $this->factory->fromClass($handler::class);
     }
 
+    public function test_wraps_malformed_input_attribute_payload(): void
+    {
+        $handler = new #[FlowNode(type: 'bad.attrpayload')] class
+        {
+            #[Input(type: 'text')]
+            public string $a;
+        };
+
+        $this->expectException(InvalidNodeDefinitionException::class);
+        $this->expectExceptionMessageMatches('/invalid #\[Input\]/i');
+        $this->factory->fromClass($handler::class);
+    }
+
     public function test_wraps_invalid_port_key_from_attribute(): void
     {
         $handler = new #[FlowNode(type: 'bad.port')] class

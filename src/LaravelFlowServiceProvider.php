@@ -25,7 +25,7 @@ use Padosoft\LaravelFlow\Contracts\StepRunRepository;
 use Padosoft\LaravelFlow\Dashboard\Authorization\DashboardActionAuthorizer;
 use Padosoft\LaravelFlow\Dashboard\Authorization\DenyAllAuthorizer;
 use Padosoft\LaravelFlow\Dashboard\FlowDashboardReadModel;
-use Padosoft\LaravelFlow\Node\Exceptions\DuplicateNodeTypeException;
+use Padosoft\LaravelFlow\Node\Attributes\FlowNode;
 use Padosoft\LaravelFlow\Node\NodeCatalog;
 use Padosoft\LaravelFlow\Node\NodeDefinitionFactory;
 use Padosoft\LaravelFlow\Node\NodeDiscovery;
@@ -199,18 +199,37 @@ final class LaravelFlowServiceProvider extends ServiceProvider
 
         foreach ($this->sanitizeDiscoveryRoots($configured) as $root) {
             foreach ($discovery->discover($root['path'], $root['namespace']) as $class) {
-                try {
-                    $registry->register($class);
-                } catch (DuplicateNodeTypeException $e) {
-                    if (! in_array($e->type, $configRegisteredTypes, true)) {
-                        // Two discovered classes claim the same type: that is
-                        // a definition error and must fail fast like any other.
-                        throw $e;
-                    }
-
-                    // Config-registered handlers win over discovery; skip silently.
+                if (in_array($this->declaredNodeType($class), $configRegisteredTypes, true)) {
+                    // Config-registered handlers win over discovery: skip the
+                    // shadowed class BEFORE validating it, so a malformed
+                    // override target cannot fail application boot.
+                    continue;
                 }
+
+                // Any duplicate surfacing from register() is now necessarily
+                // discovery-vs-discovery: a definition error, fail fast.
+                $registry->register($class);
             }
+        }
+    }
+
+    /**
+     * @param  class-string  $class
+     */
+    private function declaredNodeType(string $class): ?string
+    {
+        $attributes = (new \ReflectionClass($class))->getAttributes(FlowNode::class);
+
+        if ($attributes === []) {
+            return null;
+        }
+
+        try {
+            return $attributes[0]->newInstance()->type;
+        } catch (Throwable) {
+            // Malformed payload: fall through so register() raises the
+            // canonical InvalidNodeDefinitionException.
+            return null;
         }
     }
 

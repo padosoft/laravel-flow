@@ -88,6 +88,22 @@ final class NodeRegistryWiringTest extends TestCase
         $this->app->make(NodeRegistry::class);
     }
 
+    public function test_config_wins_even_when_shadowed_discovered_class_is_malformed(): void
+    {
+        $this->app['config']->set('laravel-flow.nodes.handlers', [GreetNode::class]);
+        $this->app['config']->set('laravel-flow.nodes.discovery', [[
+            'path' => __DIR__.'/../../Fixtures/ShadowedNodes',
+            'namespace' => 'Padosoft\\LaravelFlow\\Tests\\Fixtures\\ShadowedNodes',
+        ]]);
+        $this->app->forgetInstance(NodeRegistry::class);
+
+        $registry = $this->app->make(NodeRegistry::class);
+
+        $this->assertTrue($registry->has('test.greet'));
+        $this->assertSame(GreetNode::class, $registry->get('test.greet')->handlerClass);
+        $this->assertCount(1, $registry->all());
+    }
+
     public function test_discovery_vs_discovery_type_collision_fails_fast(): void
     {
         $this->app['config']->set('laravel-flow.nodes.handlers', []);

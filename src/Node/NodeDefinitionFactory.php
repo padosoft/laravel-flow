@@ -48,7 +48,9 @@ final class NodeDefinitionFactory
 
         try {
             $node = $nodeAttributes[0]->newInstance();
-        } catch (InvalidArgumentException $e) {
+        } catch (\Throwable $e) {
+            // Covers both guard failures (InvalidArgumentException) and
+            // wrong-typed payloads such as #[FlowNode(type: 123)] (TypeError).
             throw new InvalidNodeDefinitionException("Invalid #[FlowNode] on [{$class}]: {$e->getMessage()}", previous: $e);
         }
 
@@ -77,7 +79,12 @@ final class NodeDefinitionFactory
 
         foreach ($reflection->getProperties() as $property) {
             foreach ($property->getAttributes(Input::class) as $attribute) {
-                $input = $attribute->newInstance();
+                try {
+                    $input = $attribute->newInstance();
+                } catch (\Throwable $e) {
+                    throw new InvalidNodeDefinitionException("Invalid #[Input] on [{$class}::\${$property->getName()}]: {$e->getMessage()}", previous: $e);
+                }
+
                 $key = $input->key ?? $property->getName();
 
                 if (isset($inputs[$key])) {
@@ -106,7 +113,12 @@ final class NodeDefinitionFactory
             }
 
             foreach ($property->getAttributes(Output::class) as $attribute) {
-                $output = $attribute->newInstance();
+                try {
+                    $output = $attribute->newInstance();
+                } catch (\Throwable $e) {
+                    throw new InvalidNodeDefinitionException("Invalid #[Output] on [{$class}::\${$property->getName()}]: {$e->getMessage()}", previous: $e);
+                }
+
                 $key = $output->key ?? $property->getName();
 
                 if (isset($outputs[$key])) {

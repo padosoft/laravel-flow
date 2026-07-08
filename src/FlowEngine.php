@@ -181,7 +181,16 @@ class FlowEngine
                 'version' => $stored->version,
                 'checksum' => $stored->checksum,
             ];
+
+            return;
         }
+
+        // Losing the checksum race must leave THIS registration unpinned
+        // even on a long-lived process (e.g. Octane) that already holds a
+        // pin for $name from an earlier, unrelated registration — otherwise
+        // the next run would silently reuse a stale version number instead
+        // of going unpinned.
+        unset($this->definitionVersionPins[$definition->name]);
     }
 
     /**

@@ -258,9 +258,10 @@ final class ReplayFlowRunCommandTest extends PersistenceTestCase
             'updated_at' => $timestamp,
         ];
 
-        // Only set on tables migrated with the version-pinning column
-        // (2026_07_08_000006); the legacy-schema test intentionally
-        // skips that migration to exercise the missing-column failure path.
+        // Omit the version-pinning columns entirely for callers that pass
+        // no pin, so legacy/unpinned run rows match production inserts
+        // (both columns absent, not present-and-null) rather than the
+        // insert differing only by an explicit null.
         if ($definitionVersion !== null || $definitionChecksum !== null) {
             $attributes['definition_version'] = $definitionVersion;
             $attributes['definition_checksum'] = $definitionChecksum;

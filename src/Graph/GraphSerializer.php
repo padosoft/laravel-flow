@@ -182,14 +182,17 @@ final class GraphSerializer
      */
     private function sortListsByIdentity(array &$canonical): void
     {
+        // strcmp everywhere: PHP's <=> compares numeric-looking strings
+        // numerically ("1" == "01"), which would leave such ids in input
+        // order and destabilize the checksum.
         if (isset($canonical['nodes']) && is_array($canonical['nodes'])) {
-            usort($canonical['nodes'], static fn (array $a, array $b): int => ($a['id'] ?? '') <=> ($b['id'] ?? ''));
+            usort($canonical['nodes'], static fn (array $a, array $b): int => strcmp((string) ($a['id'] ?? ''), (string) ($b['id'] ?? '')));
         }
 
         if (isset($canonical['connections']) && is_array($canonical['connections'])) {
             $identity = static fn (array $wire): string => ($wire['sourceNodeId'] ?? '').'.'.($wire['sourcePortKey'] ?? '').'>'.($wire['targetNodeId'] ?? '').'.'.($wire['targetPortKey'] ?? '');
 
-            usort($canonical['connections'], static fn (array $a, array $b): int => $identity($a) <=> $identity($b));
+            usort($canonical['connections'], static fn (array $a, array $b): int => strcmp($identity($a), $identity($b)));
         }
     }
 
@@ -198,7 +201,9 @@ final class GraphSerializer
      */
     private function ksortRecursive(array &$value): void
     {
-        ksort($value);
+        // SORT_STRING: default comparison treats "1" and "01" as equal,
+        // leaving numeric-looking keys order-sensitive.
+        ksort($value, SORT_STRING);
 
         foreach ($value as &$item) {
             if (is_array($item)) {

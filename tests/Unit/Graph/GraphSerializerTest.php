@@ -226,4 +226,20 @@ final class GraphSerializerTest extends TestCase
 
         $this->serializer->fromJson('[1, 2, 3]');
     }
+
+    public function test_checksum_is_stable_for_numeric_looking_ids_and_keys(): void
+    {
+        // PHP numeric string comparison treats "1" and "01" as equal:
+        // canonicalization must sort them as strings.
+        $a = new GraphDefinition(
+            [new GraphNode('1', 'test.greet', ['01' => 'x', '1' => 'y']), new GraphNode('01', 'test.greet')],
+            [],
+        );
+        $b = new GraphDefinition(
+            [new GraphNode('01', 'test.greet'), new GraphNode('1', 'test.greet', ['1' => 'y', '01' => 'x'])],
+            [],
+        );
+
+        $this->assertSame($this->serializer->checksum($a), $this->serializer->checksum($b));
+    }
 }

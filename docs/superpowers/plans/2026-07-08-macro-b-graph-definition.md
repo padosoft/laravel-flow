@@ -229,8 +229,8 @@ Add the private method + docblock note. **VERIFY IN CODE FIRST:** exact guard or
 
             $compatible = match ($portType) {
                 PortType::Text => $name === 'string',
-                PortType::Int => $name === 'int',
-                PortType::Float => $name === 'float' || $name === 'int',
+                PortType::Int => $name === 'int' || $name === 'float',
+                PortType::Float => $name === 'float',
                 PortType::Bool => $name === 'bool',
                 PortType::Json => $name === 'array',
                 PortType::Any => false, // only untyped/mixed can hold anything

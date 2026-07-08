@@ -139,4 +139,18 @@ final class NodeRegistryWiringTest extends TestCase
         $this->assertTrue($registry->has('test.upper'));
         $this->assertCount(2, $registry->all());
     }
+
+    public function test_duplicate_discovery_roots_are_deduplicated(): void
+    {
+        $root = ['path' => __DIR__.'/../../Fixtures/Nodes', 'namespace' => 'Padosoft\\LaravelFlow\\Tests\\Fixtures\\Nodes'];
+        $this->app['config']->set('laravel-flow.nodes.handlers', []);
+        $this->app['config']->set('laravel-flow.nodes.discovery', [$root, $root]);
+        $this->app->forgetInstance(NodeRegistry::class);
+
+        $registry = $this->app->make(NodeRegistry::class);
+
+        $this->assertTrue($registry->has('test.greet'));
+        $this->assertTrue($registry->has('test.upper'));
+        $this->assertCount(2, $registry->all());
+    }
 }

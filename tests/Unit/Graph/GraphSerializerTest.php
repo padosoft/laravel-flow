@@ -142,4 +142,61 @@ final class GraphSerializerTest extends TestCase
 
         $this->assertSame($this->serializer->checksum($graphA), $this->serializer->checksum($graphB));
     }
+
+    public function test_from_array_rejects_non_array_node_config(): void
+    {
+        $payload = [
+            'schema_version' => GraphSerializer::SCHEMA_VERSION,
+            'kind' => GraphSerializer::KIND,
+            'metadata' => [],
+            'nodes' => [
+                ['id' => 'n1', 'type' => 'test.greet', 'config' => 'this-should-be-an-array-but-is-a-string'],
+            ],
+            'connections' => [],
+        ];
+
+        try {
+            $this->serializer->fromArray($payload);
+            $this->fail('Expected InvalidGraphException to be thrown.');
+        } catch (InvalidGraphException $e) {
+            $this->assertStringContainsString('Node at index 0', implode(' | ', $e->violations()));
+            $this->assertStringContainsString('[config] must be an array', implode(' | ', $e->violations()));
+        }
+    }
+
+    public function test_from_array_rejects_non_array_non_null_node_position(): void
+    {
+        $payload = [
+            'schema_version' => GraphSerializer::SCHEMA_VERSION,
+            'kind' => GraphSerializer::KIND,
+            'metadata' => [],
+            'nodes' => [
+                ['id' => 'n1', 'type' => 'test.greet', 'position' => 'not-an-array-or-null'],
+            ],
+            'connections' => [],
+        ];
+
+        try {
+            $this->serializer->fromArray($payload);
+            $this->fail('Expected InvalidGraphException to be thrown.');
+        } catch (InvalidGraphException $e) {
+            $this->assertStringContainsString('Node at index 0', implode(' | ', $e->violations()));
+            $this->assertStringContainsString('[position] must be an array or null', implode(' | ', $e->violations()));
+        }
+    }
+
+    public function test_checksum_is_stable_across_node_and_connection_list_order(): void
+    {
+        $graphA = new GraphDefinition(
+            [new GraphNode('a', 'test.greet'), new GraphNode('b', 'test.greet'), new GraphNode('c', 'test.greet')],
+            [new Connection('a', 'out', 'b', 'in'), new Connection('b', 'out', 'c', 'in')],
+        );
+
+        $graphB = new GraphDefinition(
+            [new GraphNode('c', 'test.greet'), new GraphNode('a', 'test.greet'), new GraphNode('b', 'test.greet')],
+            [new Connection('b', 'out', 'c', 'in'), new Connection('a', 'out', 'b', 'in')],
+        );
+
+        $this->assertSame($this->serializer->checksum($graphA), $this->serializer->checksum($graphB));
+    }
 }

@@ -11,8 +11,11 @@ use Padosoft\LaravelFlow\Graph\Exceptions\InvalidGraphException;
 /**
  * Canonical JSON envelope for graph definitions (schema v1) and the
  * stable content checksum used by the definition store, signing and the
- * node-level cache. The checksum canonicalizes by recursively sorting
- * keys, so semantically identical payloads always hash the same.
+ * node-level cache. The checksum canonicalizes by sorting the `nodes`
+ * list by node id and the `connections` list by identity
+ * (`sourceNodeId.sourcePortKey>targetNodeId.targetPortKey`), then
+ * recursively sorting keys, so semantically identical payloads always
+ * hash the same regardless of list order.
  *
  * @api
  */
@@ -76,18 +79,26 @@ final class GraphSerializer
                 continue;
             }
 
-            try {
-                $nodes[] = new GraphNode(
-                    $node['id'],
-                    $node['type'],
-                    is_array($node['config'] ?? null) ? $node['config'] : [],
-                    is_array($node['position'] ?? null) ? $node['position'] : null,
-                );
-            } catch (InvalidArgumentException $e) {
-                if ($e instanceof InvalidGraphException) {
-                    throw $e;
-                }
+            $config = array_key_exists('config', $node) ? $node['config'] : [];
 
+            if (! is_array($config)) {
+                $violations[] = "Node at index {$index}: [config] must be an array.";
+
+                continue;
+            }
+
+            $position = array_key_exists('position', $node) ? $node['position'] : null;
+
+            if ($position !== null && ! is_array($position)) {
+                $violations[] = "Node at index {$index}: [position] must be an array or null.";
+
+                continue;
+            }
+
+            try {
+                // GraphNode/Connection only ever throw plain InvalidArgumentException, never InvalidGraphException.
+                $nodes[] = new GraphNode($node['id'], $node['type'], $config, $position);
+            } catch (InvalidArgumentException $e) {
                 $violations[] = "Node at index {$index}: {$e->getMessage()}";
             }
         }
@@ -104,12 +115,9 @@ final class GraphSerializer
             }
 
             try {
+                // GraphNode/Connection only ever throw plain InvalidArgumentException, never InvalidGraphException.
                 $connections[] = new Connection($wire['sourceNodeId'], $wire['sourcePortKey'], $wire['targetNodeId'], $wire['targetPortKey']);
             } catch (InvalidArgumentException $e) {
-                if ($e instanceof InvalidGraphException) {
-                    throw $e;
-                }
-
                 $violations[] = "Connection at index {$index}: {$e->getMessage()}";
             }
         }
@@ -153,9 +161,29 @@ final class GraphSerializer
     public function checksum(GraphDefinition $graph): string
     {
         $canonical = $this->toArray($graph);
+        $this->sortListsByIdentity($canonical);
         $this->ksortRecursive($canonical);
 
         return hash('sha256', json_encode($canonical, JSON_THROW_ON_ERROR));
+    }
+
+    /**
+     * Sorts the `nodes` and `connections` lists so list order never
+     * affects the checksum, only the graph's actual content does.
+     *
+     * @param  array<string, mixed>  $canonical
+     */
+    private function sortListsByIdentity(array &$canonical): void
+    {
+        if (isset($canonical['nodes']) && is_array($canonical['nodes'])) {
+            usort($canonical['nodes'], static fn (array $a, array $b): int => ($a['id'] ?? '') <=> ($b['id'] ?? ''));
+        }
+
+        if (isset($canonical['connections']) && is_array($canonical['connections'])) {
+            $identity = static fn (array $wire): string => ($wire['sourceNodeId'] ?? '').'.'.($wire['sourcePortKey'] ?? '').'>'.($wire['targetNodeId'] ?? '').'.'.($wire['targetPortKey'] ?? '');
+
+            usort($canonical['connections'], static fn (array $a, array $b): int => $identity($a) <=> $identity($b));
+        }
     }
 
     /**

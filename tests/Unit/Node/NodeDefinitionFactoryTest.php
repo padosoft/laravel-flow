@@ -270,6 +270,35 @@ final class NodeDefinitionFactoryTest extends TestCase
         $this->factory->fromClass($handler::class);
     }
 
+    public function test_int_property_on_float_port_is_rejected(): void
+    {
+        // Float ports deliver ints AND floats: a real float would TypeError
+        // on write into an int property under strict_types.
+        $handler = new #[FlowNode(type: 'compat.floatint')] class
+        {
+            #[Input(type: PortType::Float, required: true)]
+            public int $ratio;
+        };
+
+        $this->expectException(InvalidNodeDefinitionException::class);
+        $this->expectExceptionMessageMatches('/cannot hold values of port type \[float\]/i');
+        $this->factory->fromClass($handler::class);
+    }
+
+    public function test_float_property_on_int_port_is_accepted(): void
+    {
+        // Int ports only deliver ints; int→float widening is legal on write.
+        $handler = new #[FlowNode(type: 'compat.intfloat')] class
+        {
+            #[Input(type: PortType::Int, required: true)]
+            public float $count;
+        };
+
+        $definition = $this->factory->fromClass($handler::class);
+
+        $this->assertSame(PortType::Int, $definition->input('count')?->type);
+    }
+
     public function test_compatible_property_types_pass(): void
     {
         $handler = new #[FlowNode(type: 'compat.ok')] class

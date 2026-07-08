@@ -176,8 +176,12 @@ final class NodeDefinitionFactory
 
             $compatible = match ($portType) {
                 PortType::Text => $name === 'string',
-                PortType::Int => $name === 'int',
-                PortType::Float => $name === 'float' || $name === 'int',
+                // Int ports only ever deliver ints: an int OR float property
+                // is safe (strict_types allows int→float widening on write).
+                PortType::Int => $name === 'int' || $name === 'float',
+                // Float ports deliver ints AND floats (validates() widens),
+                // so only a float property can absorb both without TypeError.
+                PortType::Float => $name === 'float',
                 PortType::Bool => $name === 'bool',
                 PortType::Json => $name === 'array',
                 PortType::Any => false, // only untyped/mixed can hold anything

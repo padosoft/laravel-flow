@@ -15,6 +15,17 @@ use RuntimeException;
  * input array travels on the single `input` Json port and its output on
  * the `output` Json port; result semantics map 1:1.
  *
+ * v1 `stepOutputs` are deliberately NOT bridged: in a graph, upstream data
+ * reaches a node through its input ports, so adapted steps always see an
+ * empty `stepOutputs` array. Feed any upstream values through the `input`
+ * port instead.
+ *
+ * {@see definitionFor()} returns a descriptive definition whose
+ * `handlerClass` is the wrapped v1 step class; the registration and
+ * container-resolution wiring for legacy definitions ships with the graph
+ * executor (Macro C) — `NodeRegistry::register()` intentionally accepts
+ * only {@see FlowNodeHandler} classes until then.
+ *
  * @api
  */
 final class LegacyStepNodeAdapter implements FlowNodeHandler

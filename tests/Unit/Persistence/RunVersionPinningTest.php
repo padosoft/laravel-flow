@@ -204,6 +204,112 @@ final class RunVersionPinningTest extends PersistenceTestCase
         $this->assertNull($record->definition_checksum);
     }
 
+    /**
+     * Round-2 local Copilot review of the fix above: only SKIPPING the pin
+     * write on a lost race leaves a STALE pin from an earlier registration
+     * of the same name in place (e.g. Octane workers, host apps that
+     * re-register on every boot). The fix added an explicit unset(); this
+     * test proves it — unlike the test above (first-ever registration,
+     * where "never wrote" and "explicitly unset" are indistinguishable),
+     * this one succeeds a FIRST registration (populating a real pin), then
+     * loses the race on a SECOND registration of the same name, and
+     * asserts the run created after that second, lost-race registration is
+     * unpinned rather than reusing the first registration's pin.
+     */
+    public function test_losing_the_race_on_a_repeated_registration_clears_the_prior_pin_instead_of_reusing_it(): void
+    {
+        $this->migrateFlowTables();
+
+        $this->app['config']->set('laravel-flow.persistence.enabled', true);
+        $this->app['config']->set('laravel-flow.definitions.persist_registered', true);
+        $this->app->forgetInstance(FlowEngine::class);
+
+        $this->app->singleton(DefinitionRepository::class, function ($app) {
+            return new class($app->make(EloquentDefinitionRepository::class)) implements DefinitionRepository
+            {
+                private int $calls = 0;
+
+                public function __construct(private readonly EloquentDefinitionRepository $inner) {}
+
+                public function createDraftIfChanged(string $name, GraphDefinition $graph): ?StoredDefinition
+                {
+                    $this->calls++;
+
+                    // First registration: real dedupe-miss, real draft created.
+                    if ($this->calls === 1) {
+                        return $this->inner->createDraftIfChanged($name, $graph);
+                    }
+
+                    // Second registration: simulate a lost race (dedupe-skip
+                    // whose unlocked latest() fallback won't match below).
+                    return null;
+                }
+
+                public function latest(string $name, ?string $status = null): ?StoredDefinition
+                {
+                    if ($this->calls <= 1) {
+                        return $this->inner->latest($name, $status);
+                    }
+
+                    return new StoredDefinition(
+                        id: 999,
+                        name: $name,
+                        version: 7,
+                        status: StoredDefinition::STATUS_DRAFT,
+                        graph: [],
+                        checksum: 'mismatched-checksum-from-a-concurrent-writer',
+                        signature: null,
+                        publishedAt: null,
+                    );
+                }
+
+                public function createDraft(string $name, GraphDefinition $graph): StoredDefinition
+                {
+                    return $this->inner->createDraft($name, $graph);
+                }
+
+                public function find(string $name, int $version): StoredDefinition
+                {
+                    return $this->inner->find($name, $version);
+                }
+
+                public function publish(string $name, int $version): StoredDefinition
+                {
+                    return $this->inner->publish($name, $version);
+                }
+
+                public function archive(string $name, int $version): StoredDefinition
+                {
+                    return $this->inner->archive($name, $version);
+                }
+
+                public function versions(string $name): array
+                {
+                    return $this->inner->versions($name);
+                }
+            };
+        });
+
+        /** @var FlowEngine $engine */
+        $engine = $this->app->make(FlowEngine::class);
+
+        $engine->define('flow.pinned-stale-race')
+            ->step('one', AlwaysSucceedsHandler::class)
+            ->register();
+
+        // Second registration of the SAME name loses the simulated race.
+        $engine->define('flow.pinned-stale-race')
+            ->step('one', AlwaysSucceedsHandler::class)
+            ->register();
+
+        $run = $engine->execute('flow.pinned-stale-race', []);
+
+        $record = FlowRunRecord::query()->find($run->id);
+        $this->assertInstanceOf(FlowRunRecord::class, $record);
+        $this->assertNull($record->definition_version);
+        $this->assertNull($record->definition_checksum);
+    }
+
     private function enginePersistingRunsAndDefinitions(): FlowEngine
     {
         $this->app['config']->set('laravel-flow.persistence.enabled', true);

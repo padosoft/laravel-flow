@@ -59,6 +59,49 @@ final class GraphApiContractTest extends TestCase
         }
     }
 
+    public function test_graph_validator_exposes_validate(): void
+    {
+        $this->assertTrue((new ReflectionClass(GraphValidator::class))->hasMethod('validate'));
+    }
+
+    public function test_graph_definition_exposes_node_lookup_methods(): void
+    {
+        $reflection = new ReflectionClass(GraphDefinition::class);
+
+        foreach (['node', 'nodeIds', 'topologicalOrder'] as $method) {
+            $this->assertTrue($reflection->hasMethod($method), $method);
+        }
+    }
+
+    public function test_graph_node_exposes_readonly_properties(): void
+    {
+        $reflection = new ReflectionClass(GraphNode::class);
+
+        foreach (['id', 'type', 'config', 'position'] as $property) {
+            $this->assertTrue($reflection->hasProperty($property), $property);
+        }
+    }
+
+    public function test_connection_exposes_readonly_properties_and_identity(): void
+    {
+        $reflection = new ReflectionClass(Connection::class);
+
+        foreach (['sourceNodeId', 'sourcePortKey', 'targetNodeId', 'targetPortKey'] as $property) {
+            $this->assertTrue($reflection->hasProperty($property), $property);
+        }
+
+        $this->assertTrue($reflection->hasMethod('identity'));
+    }
+
+    public function test_stored_definition_exposes_readonly_properties(): void
+    {
+        $reflection = new ReflectionClass(StoredDefinition::class);
+
+        foreach (['id', 'name', 'version', 'status', 'graph', 'checksum', 'signature', 'publishedAt'] as $property) {
+            $this->assertTrue($reflection->hasProperty($property), $property);
+        }
+    }
+
     public function test_stored_definition_statuses_are_pinned(): void
     {
         $this->assertSame('draft', StoredDefinition::STATUS_DRAFT);

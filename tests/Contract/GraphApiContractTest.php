@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Padosoft\LaravelFlow\Tests\Contract;
 
 use Padosoft\LaravelFlow\Contracts\DefinitionRepository;
+use Padosoft\LaravelFlow\FlowDefinition;
 use Padosoft\LaravelFlow\Graph\Connection;
 use Padosoft\LaravelFlow\Graph\DefinitionSigner;
 use Padosoft\LaravelFlow\Graph\Exceptions\DefinitionLifecycleException;
@@ -97,5 +98,11 @@ final class GraphApiContractTest extends TestCase
     public function test_flow2_importer_exposes_import(): void
     {
         $this->assertTrue((new ReflectionClass(Flow2Importer::class))->hasMethod('import'));
+    }
+
+    public function test_flow_definition_exposes_to_graph_definition_and_legacy_node_type(): void
+    {
+        $this->assertTrue((new ReflectionClass(FlowDefinition::class))->hasMethod('toGraphDefinition'));
+        $this->assertSame('legacy.step', FlowDefinition::LEGACY_NODE_TYPE);
     }
 }

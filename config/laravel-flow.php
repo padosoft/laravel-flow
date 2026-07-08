@@ -216,9 +216,19 @@ return [
     | Turning signing off again is tolerant of already-signed rows: with no
     | secret configured, verification is skipped entirely.
     |
+    | `persist_registered`: when true, FlowEngine::registerDefinition()
+    | additionally compiles the registered v1 definition to a graph (see
+    | FlowDefinition::toGraphDefinition()) and persists it as a
+    | flow_definitions draft via DefinitionRepository::createDraft(),
+    | skipping the write when the latest stored version already has the
+    | same content checksum. Default off: registering a flow never writes
+    | to the database unless you opt in, and DefinitionRepository is only
+    | resolved from the container when this flag is true.
+    |
     */
     'definitions' => [
         'signing_secret' => env('LARAVEL_FLOW_DEFINITIONS_SIGNING_SECRET', null),
+        'persist_registered' => env('LARAVEL_FLOW_DEFINITIONS_PERSIST_REGISTERED', false),
     ],
 
 ];

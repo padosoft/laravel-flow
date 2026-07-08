@@ -17,6 +17,7 @@ use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Database\QueryException;
 use InvalidArgumentException;
 use Padosoft\LaravelFlow\Contracts\ConditionalRunRepository;
+use Padosoft\LaravelFlow\Contracts\DefinitionRepository;
 use Padosoft\LaravelFlow\Contracts\FlowStore;
 use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
 use Padosoft\LaravelFlow\Contracts\RedactorAwareFlowStore;
@@ -30,6 +31,7 @@ use Padosoft\LaravelFlow\Exceptions\FlowCompensationException;
 use Padosoft\LaravelFlow\Exceptions\FlowExecutionException;
 use Padosoft\LaravelFlow\Exceptions\FlowInputException;
 use Padosoft\LaravelFlow\Exceptions\FlowNotRegisteredException;
+use Padosoft\LaravelFlow\Graph\GraphSerializer;
 use Padosoft\LaravelFlow\Jobs\RunFlowJob;
 use Padosoft\LaravelFlow\Models\FlowApprovalRecord;
 use Padosoft\LaravelFlow\Models\FlowRunRecord;
@@ -74,6 +76,9 @@ class FlowEngine
          *         enabled?: bool,
          *         redaction?: array{enabled?: bool, keys?: array<int, string>, replacement?: string}
          *     },
+         *     definitions?: array{
+         *         persist_registered?: bool
+         *     },
          *     queue?: array{
          *         lock_store?: string|null,
          *         lock_seconds?: int,
@@ -99,6 +104,41 @@ class FlowEngine
     public function registerDefinition(FlowDefinition $definition): void
     {
         $this->definitions[$definition->name] = $definition;
+
+        $this->persistRegisteredDefinitionIfEnabled($definition);
+    }
+
+    /**
+     * Optional bridge to the v2 versioned definition store: compiles the
+     * just-registered v1 definition to a graph and saves it as a new
+     * `flow_definitions` draft, gated by `laravel-flow.definitions.persist_registered`
+     * (default off). `DefinitionRepository` is resolved from the
+     * container only when the flag is true, so the normal in-memory-only
+     * registration path never touches the database or the container for
+     * this feature. Re-registering an unchanged definition is a no-op:
+     * the content checksum is compared against the latest stored version
+     * (any status) before writing, so repeated boots of a host app that
+     * calls `register()` on every request/command do not pile up draft
+     * versions for a definition that never changed.
+     */
+    private function persistRegisteredDefinitionIfEnabled(FlowDefinition $definition): void
+    {
+        if (! (bool) ($this->config['definitions']['persist_registered'] ?? false)) {
+            return;
+        }
+
+        $graph = $definition->toGraphDefinition();
+        $checksum = (new GraphSerializer)->checksum($graph);
+
+        /** @var DefinitionRepository $repository */
+        $repository = $this->container->make(DefinitionRepository::class);
+        $latest = $repository->latest($definition->name);
+
+        if ($latest !== null && $latest->checksum === $checksum) {
+            return;
+        }
+
+        $repository->createDraft($definition->name, $graph);
     }
 
     /**

@@ -7,6 +7,9 @@ namespace Padosoft\LaravelFlow\Node;
 /**
  * Immutable, catalog-ready description of one node type.
  *
+ * NodeDefinitionFactory is the sanctioned construction path: this
+ * constructor performs no invariant checks of its own.
+ *
  * @api
  */
 final class NodeDefinition

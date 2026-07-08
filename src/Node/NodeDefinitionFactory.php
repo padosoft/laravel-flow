@@ -99,6 +99,8 @@ final class NodeDefinitionFactory
                     throw new InvalidNodeDefinitionException("Input property [{$class}::\${$property->getName()}] must be public and not readonly.");
                 }
 
+                $this->assertPropertyTypeCompatible($property, $input->type, $class, 'Input');
+
                 try {
                     $port = new PortDefinition($key, $input->type, $input->required, $input->label, $property->getName());
                 } catch (InvalidArgumentException $e) {
@@ -133,6 +135,8 @@ final class NodeDefinitionFactory
                     throw new InvalidNodeDefinitionException("Output property [{$class}::\${$property->getName()}] must be public.");
                 }
 
+                $this->assertPropertyTypeCompatible($property, $output->type, $class, 'Output');
+
                 try {
                     $outputs[$key] = new PortDefinition($key, $output->type, false, $output->label, $property->getName());
                 } catch (InvalidArgumentException $e) {
@@ -142,5 +146,55 @@ final class NodeDefinitionFactory
         }
 
         return [array_values($inputs), array_values($outputs)];
+    }
+
+    /**
+     * Definition-time hydratability type check: the PHP property must be
+     * able to hold every value its PortType validates at run time, so a
+     * mismatch fails fast at boot instead of a TypeError mid-hydration.
+     */
+    private function assertPropertyTypeCompatible(\ReflectionProperty $property, PortType $portType, string $class, string $attribute): void
+    {
+        $type = $property->getType();
+
+        if ($type === null) {
+            return; // untyped holds anything
+        }
+
+        $branches = $type instanceof \ReflectionUnionType ? $type->getTypes() : [$type];
+
+        foreach ($branches as $branch) {
+            if (! $branch instanceof \ReflectionNamedType) {
+                continue; // intersection types cannot match scalar ports
+            }
+
+            $name = $branch->getName();
+
+            if ($name === 'mixed') {
+                return;
+            }
+
+            $compatible = match ($portType) {
+                PortType::Text => $name === 'string',
+                PortType::Int => $name === 'int',
+                PortType::Float => $name === 'float' || $name === 'int',
+                PortType::Bool => $name === 'bool',
+                PortType::Json => $name === 'array',
+                PortType::Any => false, // only untyped/mixed can hold anything
+            };
+
+            if ($compatible) {
+                return;
+            }
+        }
+
+        throw new InvalidNodeDefinitionException(sprintf(
+            '%s property [%s::$%s] type [%s] cannot hold values of port type [%s].',
+            $attribute,
+            $class,
+            $property->getName(),
+            (string) $type,
+            $portType->value,
+        ));
     }
 }

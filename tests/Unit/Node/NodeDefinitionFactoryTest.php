@@ -243,4 +243,56 @@ final class NodeDefinitionFactoryTest extends TestCase
         $this->expectExceptionMessageMatches('/invalid #\[FlowNode\].*type must not be empty/i');
         $this->factory->fromClass(EmptyTypeNode::class);
     }
+
+    public function test_incompatible_property_type_for_port_is_rejected(): void
+    {
+        $handler = new #[FlowNode(type: 'compat.bad')] class
+        {
+            #[Input(type: PortType::Int, required: true)]
+            public string $count;
+        };
+
+        $this->expectException(InvalidNodeDefinitionException::class);
+        $this->expectExceptionMessageMatches('/cannot hold values of port type \[int\]/i');
+        $this->factory->fromClass($handler::class);
+    }
+
+    public function test_any_port_requires_untyped_or_mixed_property(): void
+    {
+        $handler = new #[FlowNode(type: 'compat.any')] class
+        {
+            #[Input(type: PortType::Any, required: true)]
+            public string $data;
+        };
+
+        $this->expectException(InvalidNodeDefinitionException::class);
+        $this->expectExceptionMessageMatches('/cannot hold values of port type \[any\]/i');
+        $this->factory->fromClass($handler::class);
+    }
+
+    public function test_compatible_property_types_pass(): void
+    {
+        $handler = new #[FlowNode(type: 'compat.ok')] class
+        {
+            #[Input(type: PortType::Float, required: true)]
+            public float $ratio;
+
+            #[Input(type: PortType::Json, key: 'meta')]
+            public ?array $metadata = null;
+
+            #[Input(type: PortType::Any, key: 'blob')]
+            public mixed $blob = null;
+
+            #[Input(type: PortType::Text, key: 'label')]
+            public string|int $labelish = '';
+
+            #[Output(type: PortType::Int)]
+            public int $total;
+        };
+
+        $definition = $this->factory->fromClass($handler::class);
+
+        $this->assertCount(4, $definition->inputs);
+        $this->assertCount(1, $definition->outputs);
+    }
 }

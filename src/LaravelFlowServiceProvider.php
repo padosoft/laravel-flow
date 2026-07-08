@@ -268,7 +268,13 @@ final class LaravelFlowServiceProvider extends ServiceProvider
             $roots[] = ['path' => $path, 'namespace' => $namespace];
         }
 
-        return $roots;
+        $unique = [];
+
+        foreach ($roots as $root) {
+            $unique[$root['path'].'|'.$root['namespace']] = $root;
+        }
+
+        return array_values($unique);
     }
 
     private function configPath(string $file): string

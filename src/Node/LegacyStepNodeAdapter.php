@@ -41,6 +41,16 @@ final class LegacyStepNodeAdapter implements FlowNodeHandler
      */
     public static function definitionFor(string $nodeType, string $stepHandlerClass): NodeDefinition
     {
+        if (! class_exists($stepHandlerClass)) {
+            throw new InvalidArgumentException("Legacy step class [{$stepHandlerClass}] does not exist.");
+        }
+
+        if (! is_a($stepHandlerClass, FlowStepHandler::class, true)) {
+            throw new InvalidArgumentException(
+                "Legacy step class [{$stepHandlerClass}] must implement ".FlowStepHandler::class.'.'
+            );
+        }
+
         return new NodeDefinition(
             type: $nodeType,
             name: self::classBasename($stepHandlerClass),

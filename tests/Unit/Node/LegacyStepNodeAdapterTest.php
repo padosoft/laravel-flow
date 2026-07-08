@@ -51,6 +51,22 @@ final class LegacyStepNodeAdapterTest extends TestCase
         $this->assertSame('GlobalNamespaceLegacyStep', $global->name);
     }
 
+    public function test_definition_for_rejects_nonexistent_class(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessageMatches('/does not exist/i');
+
+        LegacyStepNodeAdapter::definitionFor('legacy.missing', 'App\\Does\\Not\\ExistStep');
+    }
+
+    public function test_definition_for_rejects_non_step_class(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessageMatches('/must implement/i');
+
+        LegacyStepNodeAdapter::definitionFor('legacy.notstep', FlowContext::class);
+    }
+
     public function test_success_maps_output_and_impact_and_context(): void
     {
         $step = new class implements FlowStepHandler

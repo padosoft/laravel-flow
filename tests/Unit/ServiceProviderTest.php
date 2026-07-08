@@ -119,6 +119,10 @@ final class ServiceProviderTest extends TestCase
             realpath($packageRoot.'/database/migrations/2026_05_04_000004_add_previous_token_hash_to_flow_approvals.php'),
             $migrationSources,
         );
+        $this->assertContains(
+            realpath($packageRoot.'/database/migrations/2026_07_08_000005_create_flow_definitions_table.php'),
+            $migrationSources,
+        );
     }
 
     public function test_deliver_webhook_outbox_command_is_registered(): void

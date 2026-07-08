@@ -66,6 +66,10 @@ final class GraphDefinition
             $seenWires[$wire->identity()] = true;
         }
 
+        // Cycle detection runs only on a structurally sound graph: Kahn
+        // over dangling/duplicate references would produce spurious
+        // undefined-key failures. So when id/reference violations are
+        // reported, a coexisting cycle surfaces on the next attempt.
         $order = $violations === [] ? $this->computeTopologicalOrder($byId) : [];
 
         if ($order === [] && $violations === [] && $this->nodes !== []) {

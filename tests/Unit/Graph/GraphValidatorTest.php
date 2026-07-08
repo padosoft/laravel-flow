@@ -82,4 +82,25 @@ final class GraphValidatorTest extends TestCase
         $this->expectExceptionMessageMatches('/\[text\].*cannot feed.*\[int\]/i');
         $this->validator->validate($graph);
     }
+
+    public function test_fan_in_on_a_single_input_port_violates(): void
+    {
+        // Two sources into one input port would give the executor ambiguous
+        // last-write-wins semantics: rejected until explicit merge nodes.
+        $graph = new GraphDefinition(
+            [
+                new GraphNode('g1', 'test.greet', ['name' => 'Ada']),
+                new GraphNode('g2', 'test.greet', ['name' => 'Bob']),
+                new GraphNode('u', 'test.upper'),
+            ],
+            [
+                new Connection('g1', 'greeting', 'u', 'text'),
+                new Connection('g2', 'greeting', 'u', 'text'),
+            ],
+        );
+
+        $this->expectException(InvalidGraphException::class);
+        $this->expectExceptionMessageMatches('/input port \[text\] on node \[u\] is wired from multiple sources/i');
+        $this->validator->validate($graph);
+    }
 }

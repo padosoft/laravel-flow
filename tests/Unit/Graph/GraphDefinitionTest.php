@@ -71,4 +71,36 @@ final class GraphDefinitionTest extends TestCase
             [new Connection('a', 'out', 'b', 'in'), new Connection('b', 'out', 'a', 'in')],
         );
     }
+
+    public function test_longer_cycle_is_rejected(): void
+    {
+        $this->expectException(InvalidGraphException::class);
+        $this->expectExceptionMessageMatches('/cycle/i');
+
+        new GraphDefinition(
+            [new GraphNode('a', 't'), new GraphNode('b', 't'), new GraphNode('c', 't')],
+            [
+                new Connection('a', 'out', 'b', 'in'),
+                new Connection('b', 'out', 'c', 'in'),
+                new Connection('c', 'out', 'a', 'in'),
+            ],
+        );
+    }
+
+    public function test_structural_violations_defer_cycle_detection(): void
+    {
+        // A graph with both a duplicate id AND a cycle reports the
+        // structural problem; the cycle surfaces once structure is sound.
+        try {
+            new GraphDefinition(
+                [new GraphNode('a', 't'), new GraphNode('a', 't'), new GraphNode('b', 't')],
+                [new Connection('a', 'out', 'b', 'in'), new Connection('b', 'out', 'a', 'in')],
+            );
+            $this->fail('Expected InvalidGraphException');
+        } catch (InvalidGraphException $e) {
+            $joined = implode(' | ', $e->violations());
+            $this->assertStringContainsString('Duplicate node id [a]', $joined);
+            $this->assertStringNotContainsString('cycle', $joined);
+        }
+    }
 }

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Padosoft\LaravelFlow\Contracts;
 
+use Illuminate\Database\QueryException;
 use Padosoft\LaravelFlow\Graph\Exceptions\DefinitionLifecycleException;
 use Padosoft\LaravelFlow\Graph\Exceptions\DefinitionNotFoundException;
 use Padosoft\LaravelFlow\Graph\Exceptions\DefinitionSignatureException;
@@ -30,6 +31,8 @@ interface DefinitionRepository
      * Creates version = max(existing)+1 (or 1) for $name, in status 'draft'.
      *
      * @throws DefinitionSignatureException
+     * @throws QueryException when the persistence connection or the
+     *                        `flow_definitions` table is unavailable
      */
     public function createDraft(string $name, GraphDefinition $graph): StoredDefinition;
 
@@ -44,6 +47,8 @@ interface DefinitionRepository
      * Null when no matching version exists.
      *
      * @throws DefinitionSignatureException
+     * @throws QueryException when the persistence connection or the
+     *                        `flow_definitions` table is unavailable
      */
     public function latest(string $name, ?string $status = null): ?StoredDefinition;
 

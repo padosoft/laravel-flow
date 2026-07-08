@@ -223,7 +223,10 @@ return [
     | skipping the write when the latest stored version already has the
     | same content checksum. Default off: registering a flow never writes
     | to the database unless you opt in, and DefinitionRepository is only
-    | resolved from the container when this flag is true.
+    | resolved from the container when this flag is true. Enabling it
+    | requires the flow_definitions migration to be published and run;
+    | otherwise registerDefinition() throws a package-level exception
+    | instead of a raw database error.
     |
     */
     'definitions' => [

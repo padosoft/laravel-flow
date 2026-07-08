@@ -132,13 +132,18 @@ class FlowEngine
 
         /** @var DefinitionRepository $repository */
         $repository = $this->container->make(DefinitionRepository::class);
-        $latest = $repository->latest($definition->name);
 
-        if ($latest !== null && $latest->checksum === $checksum) {
-            return;
+        try {
+            $latest = $repository->latest($definition->name);
+
+            if ($latest !== null && $latest->checksum === $checksum) {
+                return;
+            }
+
+            $repository->createDraft($definition->name, $graph);
+        } catch (QueryException $e) {
+            throw $this->definitionPersistenceUnavailableException($e);
         }
-
-        $repository->createDraft($definition->name, $graph);
     }
 
     /**
@@ -1781,6 +1786,14 @@ class FlowEngine
     {
         return new FlowExecutionException(
             'Laravel Flow persistence requires published laravel-flow persistence tables and a reachable persistence connection. Run the package migrations and verify the persistence connection.',
+            previous: $e,
+        );
+    }
+
+    private function definitionPersistenceUnavailableException(QueryException $e): FlowExecutionException
+    {
+        return new FlowExecutionException(
+            'Persisting registered definitions (laravel-flow.definitions.persist_registered) requires the published flow_definitions persistence table and a reachable persistence connection. Run the package migrations and verify the persistence connection, or disable definitions.persist_registered.',
             previous: $e,
         );
     }

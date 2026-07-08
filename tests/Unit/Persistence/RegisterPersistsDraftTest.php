@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Padosoft\LaravelFlow\Tests\Unit\Persistence;
 
 use Padosoft\LaravelFlow\Contracts\DefinitionRepository;
+use Padosoft\LaravelFlow\Exceptions\FlowExecutionException;
 use Padosoft\LaravelFlow\FlowEngine;
 use Padosoft\LaravelFlow\Models\FlowDefinitionRecord;
 use Padosoft\LaravelFlow\Tests\Unit\Stubs\AlwaysSucceedsHandler;
@@ -91,5 +92,22 @@ final class RegisterPersistsDraftTest extends PersistenceTestCase
             ->register();
 
         $this->assertSame(0, FlowDefinitionRecord::query()->count());
+    }
+
+    public function test_register_with_flag_enabled_reports_missing_definitions_table_with_package_message(): void
+    {
+        $this->enablePersistRegistered();
+
+        /** @var FlowEngine $engine */
+        $engine = $this->app->make(FlowEngine::class);
+
+        try {
+            $engine->define('flow.persisted-without-migrations')
+                ->step('one', AlwaysSucceedsHandler::class)
+                ->register();
+            $this->fail('Missing flow_definitions table should be reported as a package-level configuration failure.');
+        } catch (FlowExecutionException $exception) {
+            $this->assertMatchesRegularExpression('/flow_definitions|migrations/i', $exception->getMessage());
+        }
     }
 }

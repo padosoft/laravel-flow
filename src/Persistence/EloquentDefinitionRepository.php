@@ -37,7 +37,7 @@ final class EloquentDefinitionRepository implements DefinitionRepository
             // drafts of one name so max(version)+1 cannot collide (the
             // unique index stays as the last-resort backstop; sqlite
             // no-ops the lock but serializes writers anyway).
-            $this->newModel()->newQuery()->where('name', $name)->lockForUpdate()->get();
+            $this->newModel()->newQuery()->where('name', $name)->select('id')->lockForUpdate()->get();
 
             $nextVersion = ((int) $this->newModel()->newQuery()->where('name', $name)->max('version')) + 1;
 

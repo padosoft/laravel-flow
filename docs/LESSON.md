@@ -1,5 +1,11 @@
 # Lessons
 
+## 2026-07-08
+
+- Copilot CLI stdout truncation is chronic with `-s`: the reliable pattern is the VERDICT FILE — instruct the CLI (read-only on the repo) to WRITE its full findings to a temp file outside the repo, `rm -f` it beforehand, `cat` it after, keep the git-status tree check. Side benefit: when writing a report file the CLI tends to REPRODUCE findings with real scripts against vendor/autoload.php instead of inferring from the diff.
+- Plan-authored code snippets are NOT gospel: two plan-level defects (inverted Float/Int compat direction; checksum canonicalization untested/order-sensitive) shipped verbatim through faithful implementers and were caught only by reviewers explicitly told to verify named risks rather than trust the brief. Keep dispatching reviewers with named risks aimed at the brief itself.
+- Content-addressing checksums over graph structures must sort the LISTS (nodes by id, connections by identity) before hashing, not just dictionary keys — ksort alone leaves sequential arrays order-sensitive and two semantically identical Studio saves would hash differently.
+
 ## 2026-07-07
 
 - PowerShell's phpunit `.bat` wrapper mangles `--filter 'A|B'` regex alternation on this machine: run filtered tests by passing explicit test-file paths instead (`vendor/bin/phpunit tests/Unit/Node/FooTest.php tests/Unit/Node/BarTest.php`).

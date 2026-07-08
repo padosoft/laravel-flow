@@ -31,6 +31,7 @@ use Padosoft\LaravelFlow\Exceptions\FlowCompensationException;
 use Padosoft\LaravelFlow\Exceptions\FlowExecutionException;
 use Padosoft\LaravelFlow\Exceptions\FlowInputException;
 use Padosoft\LaravelFlow\Exceptions\FlowNotRegisteredException;
+use Padosoft\LaravelFlow\Graph\GraphSerializer;
 use Padosoft\LaravelFlow\Graph\StoredDefinition;
 use Padosoft\LaravelFlow\Jobs\RunFlowJob;
 use Padosoft\LaravelFlow\Models\FlowApprovalRecord;
@@ -151,11 +152,26 @@ class FlowEngine
 
         try {
             // createDraftIfChanged() returns null when the graph is
-            // unchanged from the latest stored version (dedupe skip); the
-            // version pin still needs the MATCHED version in that case, so
-            // fall back to latest() rather than leaving the run unpinned.
-            $stored = $repository->createDraftIfChanged($definition->name, $graph)
-                ?? $repository->latest($definition->name);
+            // unchanged from the latest stored version (dedupe skip),
+            // inside the same name-group lock as its comparison. The
+            // version pin still needs the MATCHED version in that case,
+            // but latest() below is a second, UNLOCKED query issued after
+            // that lock is released: if another process drafts a new
+            // version for this name in between, latest() can return a row
+            // that does not match the graph just registered. Verifying the
+            // checksum here before trusting it as a pin turns that window
+            // into "leave unpinned" instead of silently mispinning the run
+            // to the wrong version/checksum.
+            $stored = $repository->createDraftIfChanged($definition->name, $graph);
+
+            if ($stored === null) {
+                $checksum = (new GraphSerializer)->checksum($graph);
+                $latest = $repository->latest($definition->name);
+
+                $stored = $latest instanceof StoredDefinition && $latest->checksum === $checksum
+                    ? $latest
+                    : null;
+            }
         } catch (QueryException $e) {
             throw $this->definitionPersistenceUnavailableException($e);
         }

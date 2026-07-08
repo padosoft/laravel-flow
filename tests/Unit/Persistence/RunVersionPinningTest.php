@@ -4,9 +4,13 @@ declare(strict_types=1);
 
 namespace Padosoft\LaravelFlow\Tests\Unit\Persistence;
 
+use Padosoft\LaravelFlow\Contracts\DefinitionRepository;
 use Padosoft\LaravelFlow\FlowEngine;
+use Padosoft\LaravelFlow\Graph\GraphDefinition;
 use Padosoft\LaravelFlow\Graph\GraphSerializer;
+use Padosoft\LaravelFlow\Graph\StoredDefinition;
 use Padosoft\LaravelFlow\Models\FlowRunRecord;
+use Padosoft\LaravelFlow\Persistence\EloquentDefinitionRepository;
 use Padosoft\LaravelFlow\Tests\Unit\Stubs\AlwaysSucceedsHandler;
 use Padosoft\LaravelFlow\Tests\Unit\Stubs\SecondHandler;
 
@@ -110,6 +114,94 @@ final class RunVersionPinningTest extends PersistenceTestCase
         $this->assertInstanceOf(FlowRunRecord::class, $secondRecord);
         $this->assertSame(2, $secondRecord->definition_version);
         $this->assertNotSame($firstRecord->definition_checksum, $secondRecord->definition_checksum);
+    }
+
+    /**
+     * Copilot verdict finding #1 (B-PR7 local review): createDraftIfChanged()
+     * skips (returns null) inside a locked comparison, but the fallback
+     * latest() call is a second, UNLOCKED query — if a concurrent writer
+     * drafts a new version for the same name in that window, latest() can
+     * return a row that does not match the graph just registered. Real
+     * concurrency cannot be interleaved on the shared-connection sqlite
+     * test database (same limitation documented in
+     * DefinitionRepositoryTest for the lock itself), so this test
+     * simulates the window directly: a fake repository returns null from
+     * createDraftIfChanged() (dedupe skip) but a latest() row whose
+     * checksum does NOT match the graph being registered. The run must
+     * stay unpinned rather than being pinned to that mismatched version.
+     */
+    public function test_a_latest_version_that_does_not_match_the_registered_graph_leaves_the_run_unpinned(): void
+    {
+        $this->migrateFlowTables();
+
+        $this->app['config']->set('laravel-flow.persistence.enabled', true);
+        $this->app['config']->set('laravel-flow.definitions.persist_registered', true);
+        $this->app->forgetInstance(FlowEngine::class);
+
+        $this->app->bind(DefinitionRepository::class, function ($app) {
+            return new class($app->make(EloquentDefinitionRepository::class)) implements DefinitionRepository
+            {
+                public function __construct(private readonly EloquentDefinitionRepository $inner) {}
+
+                public function createDraftIfChanged(string $name, GraphDefinition $graph): ?StoredDefinition
+                {
+                    return null;
+                }
+
+                public function latest(string $name, ?string $status = null): ?StoredDefinition
+                {
+                    return new StoredDefinition(
+                        id: 999,
+                        name: $name,
+                        version: 7,
+                        status: StoredDefinition::STATUS_DRAFT,
+                        graph: [],
+                        checksum: 'mismatched-checksum-from-a-concurrent-writer',
+                        signature: null,
+                        publishedAt: null,
+                    );
+                }
+
+                public function createDraft(string $name, GraphDefinition $graph): StoredDefinition
+                {
+                    return $this->inner->createDraft($name, $graph);
+                }
+
+                public function find(string $name, int $version): StoredDefinition
+                {
+                    return $this->inner->find($name, $version);
+                }
+
+                public function publish(string $name, int $version): StoredDefinition
+                {
+                    return $this->inner->publish($name, $version);
+                }
+
+                public function archive(string $name, int $version): StoredDefinition
+                {
+                    return $this->inner->archive($name, $version);
+                }
+
+                public function versions(string $name): array
+                {
+                    return $this->inner->versions($name);
+                }
+            };
+        });
+
+        /** @var FlowEngine $engine */
+        $engine = $this->app->make(FlowEngine::class);
+
+        $engine->define('flow.pinned-race')
+            ->step('one', AlwaysSucceedsHandler::class)
+            ->register();
+
+        $run = $engine->execute('flow.pinned-race', []);
+
+        $record = FlowRunRecord::query()->find($run->id);
+        $this->assertInstanceOf(FlowRunRecord::class, $record);
+        $this->assertNull($record->definition_version);
+        $this->assertNull($record->definition_checksum);
     }
 
     private function enginePersistingRunsAndDefinitions(): FlowEngine

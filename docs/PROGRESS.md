@@ -85,3 +85,11 @@ Current validation baseline:
 - Working mode codified (mandatory): `.claude/rules/rule-flow-v2-program-workflow.md` (DoR/DoD, Playwright guardrails on UI, Herd PHP 8.5, LESSON-to-subagents, knowhow consolidation final task) + new skill `.claude/skills/local-copilot-review/SKILL.md` (local Copilot CLI loop before every push; CLI 1.0.68 flags verified). AGENTS.md / CLAUDE.md updated; master plan updated with G1.5 gate and new macro order.
 - Reference-repo inventory (product_image_discovery_admin) captured in LESSON.md 2026-07-07 entries.
 - Next step: start Macro A on `task/v2a-node-contract` per `docs/superpowers/plans/2026-07-07-macro-a-node-contract-registry.md` (subagent-driven, 5 subtask PRs).
+
+## 2026-07-08 - Macro A (Node Contract & Registry) — implementation complete
+
+- All 10 tasks of `docs/superpowers/plans/2026-07-07-macro-a-node-contract-registry.md` implemented on macro branch `task/v2a-node-contract` via 5 subtask PRs (#41, #42, #43, #44, A-PR5 pending).
+- Delivered: `Padosoft\LaravelFlow\Node\` namespace — PortType/PortDefinition, attributes (FlowNode/Input/Output with fail-fast guards), reflection NodeDefinitionFactory (hydratability + default-value + instance-only contracts), NodeInputValidator/Hydrator (null semantics, reserved `_` keys), FlowNodeHandler + NodeContext/NodeResult (1:1 FlowStepResult parity), NodeRegistry (typed exceptions with payloads), PSR-4 NodeDiscovery (root-safe offsets, fail-fast on malformed nodes, config-over-discovery precedence), NodeCatalog + `flow:nodes`, LegacyStepNodeAdapter.
+- Quality trail: every subtask PR passed local Copilot CLI review loops (25 findings fixed pre-push across the macro), internal SDD task reviews, PR-level Copilot review and CI on PHP 8.3/8.4/8.5.
+- Gates at completion: `composer quality` green — Unit 313/1304, Architecture 3/9, Contract 69 tests.
+- Next: A-PR5 merge, whole-branch review, macro PR to main, G3 checklist, Macro B detailed plan.

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Padosoft\LaravelFlow\Tests\Unit;
 
 use Padosoft\LaravelFlow\ApprovalGate;
+use Padosoft\LaravelFlow\Exceptions\FlowExecutionException;
 use Padosoft\LaravelFlow\FlowDefinition;
 use Padosoft\LaravelFlow\FlowEngine;
 use Padosoft\LaravelFlow\Graph\Exceptions\InvalidGraphException;
@@ -144,5 +145,15 @@ final class FlowDefinitionCompilationTest extends TestCase
         $this->expectException(InvalidGraphException::class);
 
         $definition->toGraphDefinition();
+    }
+
+    public function test_blank_step_names_are_rejected_at_the_builder(): void
+    {
+        $this->expectException(FlowExecutionException::class);
+        $this->expectExceptionMessageMatches('/non-empty name/i');
+
+        /** @var FlowEngine $engine */
+        $engine = $this->app->make(FlowEngine::class);
+        $engine->define('blank-step')->step('  ', AlwaysSucceedsHandler::class);
     }
 }

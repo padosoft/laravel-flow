@@ -233,4 +233,35 @@ final class DefinitionTransferCommandTest extends PersistenceTestCase
             ->expectsOutputToContain('Unsupported --format [bogus]')
             ->assertExitCode(1);
     }
+
+    public function test_import_command_flow2_format_creates_a_structural_draft_from_the_fixture(): void
+    {
+        $this->migrateFlowTables();
+        $path = __DIR__.'/../../Fixtures/flow2/descrivi-immagine.json';
+
+        $this->artisan('flow:import', ['file' => $path, '--name' => 'descrivi-immagine', '--format' => 'flow2'])
+            ->expectsOutputToContain('Imported flow definition [descrivi-immagine] version [1] (draft).')
+            ->assertExitCode(0);
+
+        $imported = $this->repository()->find('descrivi-immagine', 1);
+        $this->assertSame(StoredDefinition::STATUS_DRAFT, $imported->status);
+        $this->assertSame(['flow-input-1', 'image-rater-1', 'output-1'], array_column($imported->graph['nodes'], 'id'));
+    }
+
+    public function test_import_command_flow2_format_with_publish_fails_semantic_validation(): void
+    {
+        // Documents the deferred-validation contract: Flow2Importer only
+        // enforces structural validity, so publishing immediately still
+        // runs GraphValidator against the LOCAL node catalog, which does
+        // not know the source app's serviceType values.
+        $this->migrateFlowTables();
+        $path = __DIR__.'/../../Fixtures/flow2/descrivi-immagine.json';
+
+        $this->artisan('flow:import', ['file' => $path, '--name' => 'descrivi-immagine', '--format' => 'flow2', '--publish' => true])
+            ->expectsOutputToContain('failed semantic validation on publish')
+            ->assertExitCode(1);
+
+        $stillDraft = $this->repository()->find('descrivi-immagine', 1);
+        $this->assertSame(StoredDefinition::STATUS_DRAFT, $stillDraft->status);
+    }
 }

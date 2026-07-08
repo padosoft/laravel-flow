@@ -8,6 +8,7 @@ use Illuminate\Console\Command;
 use Padosoft\LaravelFlow\Contracts\DefinitionRepository;
 use Padosoft\LaravelFlow\Graph\Exceptions\DefinitionSignatureException;
 use Padosoft\LaravelFlow\Graph\Exceptions\InvalidGraphException;
+use Padosoft\LaravelFlow\Graph\Flow2Importer;
 use Padosoft\LaravelFlow\Graph\GraphTransfer;
 use Throwable;
 
@@ -18,6 +19,8 @@ final class ImportFlowDefinitionCommand extends Command
 {
     private const FORMAT_NATIVE = 'laravel-flow';
 
+    private const FORMAT_FLOW2 = 'flow2';
+
     /**
      * @var string
      */
@@ -25,19 +28,19 @@ final class ImportFlowDefinitionCommand extends Command
         {file : Path to the JSON graph file to import}
         {--name= : Draft name; falls back to a "metadata.name" (or top-level "name") key in the JSON}
         {--publish : Publish the imported draft immediately}
-        {--format=laravel-flow : Import format: "laravel-flow" (native export)}';
+        {--format=laravel-flow : Import format: "laravel-flow" (native export) or "flow2" (ModelsGenerator Flow-v2 shape)}';
 
     /**
      * @var string
      */
     protected $description = 'Import a JSON graph as a new draft flow definition.';
 
-    public function handle(GraphTransfer $transfer, DefinitionRepository $definitions): int
+    public function handle(GraphTransfer $transfer, Flow2Importer $flow2Importer, DefinitionRepository $definitions): int
     {
         $format = (string) $this->option('format');
 
-        if ($format !== self::FORMAT_NATIVE) {
-            $this->error(sprintf('Unsupported --format [%s]; expected "%s".', $format, self::FORMAT_NATIVE));
+        if (! in_array($format, [self::FORMAT_NATIVE, self::FORMAT_FLOW2], true)) {
+            $this->error(sprintf('Unsupported --format [%s]; expected "%s" or "%s".', $format, self::FORMAT_NATIVE, self::FORMAT_FLOW2));
 
             return self::FAILURE;
         }
@@ -60,7 +63,15 @@ final class ImportFlowDefinitionCommand extends Command
         }
 
         try {
-            $stored = $transfer->importDraft($json, $name);
+            // flow2-format graphs use the source app's own serviceType
+            // catalog, which is foreign to this app's node registry: skip
+            // GraphValidator here and let publish() (below, when
+            // requested) apply semantic validation once matching node
+            // types are registered locally. The native format already
+            // gets full validation inside GraphTransfer::importDraft().
+            $stored = $format === self::FORMAT_FLOW2
+                ? $definitions->createDraft($name, $flow2Importer->import($json))
+                : $transfer->importDraft($json, $name);
         } catch (InvalidGraphException $e) {
             $this->reportViolations('Flow definition import failed with violations:', $e->violations());
 

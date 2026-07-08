@@ -142,6 +142,11 @@ class FlowEngine
     private function persistRegisteredDefinitionIfEnabled(FlowDefinition $definition): void
     {
         if (! (bool) ($this->config['definitions']['persist_registered'] ?? false)) {
+            // A long-lived FlowEngine instance (e.g. Octane) may already
+            // hold a pin for this name from a moment when the flag was on;
+            // turning the flag off must always mean unpinned going forward.
+            unset($this->definitionVersionPins[$definition->name]);
+
             return;
         }
 

@@ -182,10 +182,10 @@ final class ReplayFlowRunCommand extends Command
         }
 
         $this->warn(sprintf(
-            'Flow run [%s] was pinned to [%s] version [%d]; the registered definition has changed since then. Replay will use the currently registered definition (graph-exact re-execution ships with Macro C).',
+            'Flow run [%s] was pinned to [%s] version [%s]; the registered definition has changed since then. Replay will use the currently registered definition (graph-exact re-execution ships with Macro C).',
             $original->id,
             $definition->name,
-            $original->definition_version,
+            $original->definition_version === null ? 'unknown' : (string) $original->definition_version,
         ));
     }
 

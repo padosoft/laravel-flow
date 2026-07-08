@@ -15,8 +15,18 @@ return new class extends Migration
         }
 
         Schema::table('flow_runs', function (Blueprint $table): void {
-            $table->unsignedInteger('definition_version')->nullable()->after('replayed_from_run_id');
-            $table->string('definition_checksum', 64)->nullable()->after('definition_version');
+            $version = $table->unsignedInteger('definition_version')->nullable();
+            $checksum = $table->string('definition_checksum', 64)->nullable();
+
+            // Anchor after the replay-lineage column only when it actually
+            // exists: on MySQL/MariaDB, ->after() on a missing column fails
+            // the ALTER TABLE outright, whereas SQLite/Postgres ignore
+            // column placement. A host table that predates or otherwise
+            // lacks 2026_05_04_000002 must still get these columns appended.
+            if (Schema::hasColumn('flow_runs', 'replayed_from_run_id')) {
+                $version->after('replayed_from_run_id');
+                $checksum->after('definition_version');
+            }
         });
     }
 

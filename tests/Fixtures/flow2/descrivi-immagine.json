@@ -1,0 +1,80 @@
+{
+    "version": 1,
+    "kind": "flow2",
+    "id": "flw_descrivi_immagine",
+    "name": "descrivi-immagine",
+    "config": {
+        "nodes": [
+            {
+                "id": "flow-input-1",
+                "serviceType": "flow-input",
+                "position": {
+                    "x": 80,
+                    "y": 160
+                },
+                "data": {
+                    "input_keys": [
+                        "image_url"
+                    ]
+                }
+            },
+            {
+                "id": "image-rater-1",
+                "serviceType": "image_rater",
+                "position": {
+                    "x": 360,
+                    "y": 160
+                },
+                "data": {
+                    "model": "gpt-4o-mini",
+                    "prompt": "Describe the image and rate its quality from 0 to 1.",
+                    "param_schema": {
+                        "type": "object",
+                        "properties": {
+                            "description": {
+                                "type": "string"
+                            },
+                            "quality_score": {
+                                "type": "number"
+                            }
+                        },
+                        "required": [
+                            "description",
+                            "quality_score"
+                        ]
+                    }
+                }
+            },
+            {
+                "id": "output-1",
+                "serviceType": "output",
+                "position": {
+                    "x": 640,
+                    "y": 160
+                },
+                "data": {
+                    "output_keys": [
+                        "description",
+                        "quality_score"
+                    ]
+                }
+            }
+        ],
+        "connections": [
+            {
+                "id": "conn-1",
+                "sourceNodeId": "flow-input-1",
+                "sourcePortKey": "image_url",
+                "targetNodeId": "image-rater-1",
+                "targetPortKey": "image_url"
+            },
+            {
+                "id": "conn-2",
+                "sourceNodeId": "image-rater-1",
+                "sourcePortKey": "result",
+                "targetNodeId": "output-1",
+                "targetPortKey": "result"
+            }
+        ]
+    }
+}

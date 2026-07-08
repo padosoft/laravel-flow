@@ -394,6 +394,25 @@ Event::listen(function (FlowStepFailed $e) {
 });
 ```
 
+### Import / export flow definitions (v2 preview)
+
+The Flow 2.0 graph-definition store ships with two Artisan commands:
+
+```bash
+# Export the latest PUBLISHED version (or an explicit one) as canonical JSON
+php artisan flow:export order-refund --file=order-refund.json
+php artisan flow:export order-refund --definition-version=3   # --version is reserved by Symfony
+
+# Import a canonical JSON file as a NEW draft version (optionally publish it)
+php artisan flow:import order-refund.json --name=order-refund-copy --publish
+
+# Import a ModelsGenerator "Flow v2" export (structural mapping only:
+# semantic validation against your node catalog runs at publish time)
+php artisan flow:import descrivi-immagine.json --format=flow2 --name=describe-image
+```
+
+Errors (missing file, invalid JSON, graph violations, signature mismatches) are reported as aggregated human-readable messages with a non-zero exit code. Full authoring documentation for the v2 graph surface lands with the Flow Studio release.
+
 ---
 
 ## Configuration reference

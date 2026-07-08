@@ -152,7 +152,10 @@ final class GraphSerializer
             throw new InvalidGraphException(['Invalid JSON payload: '.$e->getMessage()]);
         }
 
-        if (! is_array($decoded)) {
+        // json_decode(..., true) yields arrays for BOTH objects and lists;
+        // a non-empty list is never a valid envelope. ({} and [] both decode
+        // to [] and proceed to fail the schema_version check, accurately.)
+        if (! is_array($decoded) || ($decoded !== [] && array_is_list($decoded))) {
             throw new InvalidGraphException(['Graph payload must decode to an object.']);
         }
 

@@ -218,4 +218,12 @@ final class GraphSerializerTest extends TestCase
         $this->assertSame([], $graph->metadata);
         $this->assertSame([], $graph->connections);
     }
+
+    public function test_from_json_rejects_list_payloads(): void
+    {
+        $this->expectException(InvalidGraphException::class);
+        $this->expectExceptionMessageMatches('/must decode to an object/i');
+
+        $this->serializer->fromJson('[1, 2, 3]');
+    }
 }

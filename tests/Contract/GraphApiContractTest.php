@@ -14,6 +14,7 @@ use Padosoft\LaravelFlow\Graph\Exceptions\InvalidGraphException;
 use Padosoft\LaravelFlow\Graph\GraphDefinition;
 use Padosoft\LaravelFlow\Graph\GraphNode;
 use Padosoft\LaravelFlow\Graph\GraphSerializer;
+use Padosoft\LaravelFlow\Graph\GraphTransfer;
 use Padosoft\LaravelFlow\Graph\GraphValidator;
 use Padosoft\LaravelFlow\Graph\StoredDefinition;
 use PHPUnit\Framework\TestCase;
@@ -36,6 +37,7 @@ final class GraphApiContractTest extends TestCase
             DefinitionLifecycleException::class,
             DefinitionSigner::class,
             DefinitionSignatureException::class,
+            GraphTransfer::class,
         ];
 
         foreach ($classes as $class) {
@@ -77,6 +79,15 @@ final class GraphApiContractTest extends TestCase
         $reflection = new ReflectionClass(DefinitionSigner::class);
 
         foreach (['isEnabled', 'sign', 'verify'] as $method) {
+            $this->assertTrue($reflection->hasMethod($method), $method);
+        }
+    }
+
+    public function test_graph_transfer_exposes_export_and_import_draft(): void
+    {
+        $reflection = new ReflectionClass(GraphTransfer::class);
+
+        foreach (['export', 'importDraft'] as $method) {
             $this->assertTrue($reflection->hasMethod($method), $method);
         }
     }

@@ -12,6 +12,8 @@ use Illuminate\Support\Facades\Date;
 use Illuminate\Support\ServiceProvider;
 use Padosoft\LaravelFlow\Console\ApproveFlowCommand;
 use Padosoft\LaravelFlow\Console\DeliverWebhookOutboxCommand;
+use Padosoft\LaravelFlow\Console\ExportFlowDefinitionCommand;
+use Padosoft\LaravelFlow\Console\ImportFlowDefinitionCommand;
 use Padosoft\LaravelFlow\Console\NodeCatalogCommand;
 use Padosoft\LaravelFlow\Console\PruneFlowRunsCommand;
 use Padosoft\LaravelFlow\Console\RejectFlowCommand;
@@ -210,6 +212,8 @@ final class LaravelFlowServiceProvider extends ServiceProvider
             PruneFlowRunsCommand::class,
             ReplayFlowRunCommand::class,
             NodeCatalogCommand::class,
+            ExportFlowDefinitionCommand::class,
+            ImportFlowDefinitionCommand::class,
         ]);
     }
 

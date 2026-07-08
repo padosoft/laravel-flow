@@ -26,6 +26,7 @@ use Padosoft\LaravelFlow\Contracts\StepRunRepository;
 use Padosoft\LaravelFlow\Dashboard\Authorization\DashboardActionAuthorizer;
 use Padosoft\LaravelFlow\Dashboard\Authorization\DenyAllAuthorizer;
 use Padosoft\LaravelFlow\Dashboard\FlowDashboardReadModel;
+use Padosoft\LaravelFlow\Graph\DefinitionSigner;
 use Padosoft\LaravelFlow\Graph\GraphValidator;
 use Padosoft\LaravelFlow\Node\Attributes\FlowNode;
 use Padosoft\LaravelFlow\Node\NodeCatalog;
@@ -147,6 +148,14 @@ final class LaravelFlowServiceProvider extends ServiceProvider
             return new FlowDashboardReadModel(connection: $connection);
         });
         $this->app->bind(DashboardActionAuthorizer::class, DenyAllAuthorizer::class);
+        $this->app->bind(DefinitionSigner::class, function (Container $app): DefinitionSigner {
+            /** @var mixed $secret */
+            $secret = $app['config']->get('laravel-flow.definitions.signing_secret');
+
+            return new DefinitionSigner(
+                secret: is_string($secret) && $secret !== '' ? $secret : null,
+            );
+        });
         $this->app->bind(DefinitionRepository::class, function (Container $app): DefinitionRepository {
             /** @var string|null $connection */
             $connection = $app['config']->get('laravel-flow.default_storage');
@@ -154,6 +163,7 @@ final class LaravelFlowServiceProvider extends ServiceProvider
             return new EloquentDefinitionRepository(
                 connection: $connection,
                 validator: $app->make(GraphValidator::class),
+                signer: $app->make(DefinitionSigner::class),
             );
         });
 

@@ -1,0 +1,85 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Padosoft\LaravelFlow\Tests\Unit\Graph;
+
+use Padosoft\LaravelFlow\Graph\Connection;
+use Padosoft\LaravelFlow\Graph\Exceptions\InvalidGraphException;
+use Padosoft\LaravelFlow\Graph\GraphDefinition;
+use Padosoft\LaravelFlow\Graph\GraphNode;
+use Padosoft\LaravelFlow\Graph\GraphValidator;
+use Padosoft\LaravelFlow\Node\NodeDefinitionFactory;
+use Padosoft\LaravelFlow\Node\NodeRegistry;
+use Padosoft\LaravelFlow\Tests\Fixtures\GraphNodes\CountNode;
+use Padosoft\LaravelFlow\Tests\Fixtures\Nodes\GreetNode;
+use Padosoft\LaravelFlow\Tests\Fixtures\Nodes\UpperNode;
+use PHPUnit\Framework\TestCase;
+
+final class GraphValidatorTest extends TestCase
+{
+    private GraphValidator $validator;
+
+    protected function setUp(): void
+    {
+        $registry = new NodeRegistry(new NodeDefinitionFactory);
+        $registry->registerMany([GreetNode::class, UpperNode::class, CountNode::class]);
+        $this->validator = new GraphValidator($registry);
+    }
+
+    public function test_valid_wired_graph_passes(): void
+    {
+        $graph = new GraphDefinition(
+            [new GraphNode('g', 'test.greet', ['name' => 'Ada']), new GraphNode('u', 'test.upper')],
+            [new Connection('g', 'greeting', 'u', 'text')],
+        );
+
+        $this->validator->validate($graph);
+        $this->addToAssertionCount(1);
+    }
+
+    public function test_unknown_node_type_violates(): void
+    {
+        $graph = new GraphDefinition([new GraphNode('x', 'missing.type', ['name' => 'v'])], []);
+
+        $this->expectException(InvalidGraphException::class);
+        $this->expectExceptionMessageMatches('/unknown node type \[missing\.type\]/i');
+        $this->validator->validate($graph);
+    }
+
+    public function test_unknown_ports_violate(): void
+    {
+        try {
+            $this->validator->validate(new GraphDefinition(
+                [new GraphNode('g', 'test.greet', ['name' => 'Ada']), new GraphNode('u', 'test.upper')],
+                [new Connection('g', 'nope', 'u', 'wrong')],
+            ));
+            $this->fail('Expected InvalidGraphException');
+        } catch (InvalidGraphException $e) {
+            $joined = implode(' | ', $e->violations());
+            $this->assertStringContainsString('output port [nope]', $joined);
+            $this->assertStringContainsString('input port [wrong]', $joined);
+        }
+    }
+
+    public function test_unwired_required_input_without_config_violates(): void
+    {
+        $graph = new GraphDefinition([new GraphNode('g', 'test.greet')], []);
+
+        $this->expectException(InvalidGraphException::class);
+        $this->expectExceptionMessageMatches('/required input \[name\].*unwired/i');
+        $this->validator->validate($graph);
+    }
+
+    public function test_port_type_incompatibility_violates(): void
+    {
+        $graph = new GraphDefinition(
+            [new GraphNode('g', 'test.greet', ['name' => 'Ada']), new GraphNode('c', 'test.count')],
+            [new Connection('g', 'greeting', 'c', 'seed')],
+        );
+
+        $this->expectException(InvalidGraphException::class);
+        $this->expectExceptionMessageMatches('/\[text\].*cannot feed.*\[int\]/i');
+        $this->validator->validate($graph);
+    }
+}

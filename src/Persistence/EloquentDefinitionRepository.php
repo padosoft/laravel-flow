@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Padosoft\LaravelFlow\Persistence;
 
 use DateTimeImmutable;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Padosoft\LaravelFlow\Contracts\DefinitionRepository;
 use Padosoft\LaravelFlow\Graph\Exceptions\DefinitionLifecycleException;
@@ -32,26 +33,38 @@ final class EloquentDefinitionRepository implements DefinitionRepository
         $payload = $this->serializer->toArray($graph);
         $checksum = $this->serializer->checksum($graph);
 
-        return DB::connection($this->connection)->transaction(function () use ($name, $payload, $checksum): StoredDefinition {
-            // Same name-group lock as publish(): serializes concurrent
-            // drafts of one name so max(version)+1 cannot collide (the
-            // unique index stays as the last-resort backstop; sqlite
-            // no-ops the lock but serializes writers anyway).
-            $this->newModel()->newQuery()->where('name', $name)->select('id')->lockForUpdate()->get();
+        // Bounded retry: the name-group lock below serializes drafts of an
+        // EXISTING name, but for a brand-new name the lock query returns
+        // (and therefore locks) zero rows on engines like Postgres, so two
+        // first drafts can both compute version 1. The unique(name,version)
+        // index makes the loser fail cleanly; retrying recomputes the next
+        // version. Not reproducible on sqlite (single writer) — by design.
+        $attempts = 0;
 
-            $nextVersion = ((int) $this->newModel()->newQuery()->where('name', $name)->max('version')) + 1;
+        while (true) {
+            try {
+                return DB::connection($this->connection)->transaction(function () use ($name, $payload, $checksum): StoredDefinition {
+                    $this->newModel()->newQuery()->where('name', $name)->select('id')->lockForUpdate()->get();
 
-            $model = $this->newModel();
-            $model->forceFill([
-                'checksum' => $checksum,
-                'graph' => $payload,
-                'name' => $name,
-                'status' => StoredDefinition::STATUS_DRAFT,
-                'version' => $nextVersion,
-            ])->save();
+                    $nextVersion = ((int) $this->newModel()->newQuery()->where('name', $name)->max('version')) + 1;
 
-            return $this->toStoredDefinition($model->refresh());
-        });
+                    $model = $this->newModel();
+                    $model->forceFill([
+                        'checksum' => $checksum,
+                        'graph' => $payload,
+                        'name' => $name,
+                        'status' => StoredDefinition::STATUS_DRAFT,
+                        'version' => $nextVersion,
+                    ])->save();
+
+                    return $this->toStoredDefinition($model->refresh());
+                });
+            } catch (UniqueConstraintViolationException $e) {
+                if (++$attempts >= 3) {
+                    throw $e;
+                }
+            }
+        }
     }
 
     public function find(string $name, int $version): StoredDefinition

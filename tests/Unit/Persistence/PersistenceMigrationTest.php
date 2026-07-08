@@ -35,6 +35,8 @@ final class PersistenceMigrationTest extends PersistenceTestCase
             'correlation_id',
             'idempotency_key',
             'replayed_from_run_id',
+            'definition_version',
+            'definition_checksum',
         ]));
         $this->assertTrue(Schema::hasColumns('flow_steps', [
             'run_id',
@@ -163,6 +165,23 @@ final class PersistenceMigrationTest extends PersistenceTestCase
         $migration->down();
 
         $this->assertFalse(Schema::hasColumn('flow_runs', 'replayed_from_run_id'));
+    }
+
+    public function test_definition_version_migration_adds_columns_to_existing_flow_runs_table(): void
+    {
+        Schema::create('flow_runs', function (Blueprint $table): void {
+            $table->string('id', 36)->primary();
+        });
+
+        $migration = require __DIR__.'/../../../database/migrations/2026_07_08_000006_add_definition_version_to_laravel_flow_runs.php';
+        $migration->up();
+
+        $this->assertTrue(Schema::hasColumns('flow_runs', ['definition_version', 'definition_checksum']));
+
+        $migration->down();
+
+        $this->assertFalse(Schema::hasColumn('flow_runs', 'definition_version'));
+        $this->assertFalse(Schema::hasColumn('flow_runs', 'definition_checksum'));
     }
 
     public function test_approval_and_webhook_tables_cascade_when_run_is_deleted(): void

@@ -31,6 +31,7 @@ use Padosoft\LaravelFlow\Exceptions\FlowCompensationException;
 use Padosoft\LaravelFlow\Exceptions\FlowExecutionException;
 use Padosoft\LaravelFlow\Exceptions\FlowInputException;
 use Padosoft\LaravelFlow\Exceptions\FlowNotRegisteredException;
+use Padosoft\LaravelFlow\Graph\StoredDefinition;
 use Padosoft\LaravelFlow\Jobs\RunFlowJob;
 use Padosoft\LaravelFlow\Models\FlowApprovalRecord;
 use Padosoft\LaravelFlow\Models\FlowRunRecord;
@@ -61,6 +62,18 @@ class FlowEngine
      * @var array<string, FlowDefinition>
      */
     private array $definitions = [];
+
+    /**
+     * Version+checksum pin recorded when `persist_registered` matched or
+     * produced a `flow_definitions` version for the definition during its
+     * most recent registration; absent when the flag is off. Consumed by
+     * {@see self::persistRunStarted()} to pin new `flow_runs` rows to the
+     * definition version/checksum that was active at registration time.
+     * Internal bookkeeping only — never exposed through {@see self::definitions()}.
+     *
+     * @var array<string, array{version: int, checksum: string}>
+     */
+    private array $definitionVersionPins = [];
 
     public function __construct(
         private readonly Container $container,
@@ -120,7 +133,10 @@ class FlowEngine
      * inside the same name-group lock as the insert, so repeated boots of
      * a host app that calls `register()` on every request/command — even
      * from concurrent workers — do not pile up draft versions for a
-     * definition that never changed.
+     * definition that never changed. Whichever version was matched or
+     * produced is recorded in {@see self::$definitionVersionPins} so the
+     * next run created for this definition name pins its `flow_runs` row
+     * to that version/checksum (see {@see self::persistRunStarted()}).
      */
     private function persistRegisteredDefinitionIfEnabled(FlowDefinition $definition): void
     {
@@ -134,9 +150,21 @@ class FlowEngine
         $repository = $this->container->make(DefinitionRepository::class);
 
         try {
-            $repository->createDraftIfChanged($definition->name, $graph);
+            // createDraftIfChanged() returns null when the graph is
+            // unchanged from the latest stored version (dedupe skip); the
+            // version pin still needs the MATCHED version in that case, so
+            // fall back to latest() rather than leaving the run unpinned.
+            $stored = $repository->createDraftIfChanged($definition->name, $graph)
+                ?? $repository->latest($definition->name);
         } catch (QueryException $e) {
             throw $this->definitionPersistenceUnavailableException($e);
+        }
+
+        if ($stored instanceof StoredDefinition) {
+            $this->definitionVersionPins[$definition->name] = [
+                'version' => $stored->version,
+                'checksum' => $stored->checksum,
+            ];
         }
     }
 
@@ -2653,6 +2681,13 @@ class FlowEngine
 
         if ($run->replayedFromRunId !== null) {
             $attributes['replayed_from_run_id'] = $run->replayedFromRunId;
+        }
+
+        $pin = $this->definitionVersionPins[$run->definitionName] ?? null;
+
+        if ($pin !== null) {
+            $attributes['definition_version'] = $pin['version'];
+            $attributes['definition_checksum'] = $pin['checksum'];
         }
 
         $store->runs()->create($attributes);

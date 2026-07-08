@@ -9,7 +9,9 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Padosoft\LaravelFlow\Facades\Flow;
+use Padosoft\LaravelFlow\FlowEngine;
 use Padosoft\LaravelFlow\FlowRun;
+use Padosoft\LaravelFlow\Graph\GraphSerializer;
 use Padosoft\LaravelFlow\Models\FlowRunRecord;
 use Padosoft\LaravelFlow\Tests\Unit\Stubs\AlwaysSucceedsHandler;
 use Padosoft\LaravelFlow\Tests\Unit\Stubs\SecondHandler;
@@ -92,6 +94,51 @@ final class ReplayFlowRunCommandTest extends PersistenceTestCase
         $this->artisan('flow:replay', ['runId' => 'prefix-failed'])
             ->doesntExpectOutputToContain('Definition drift detected')
             ->expectsOutputToContain('Replayed flow run [prefix-failed] as')
+            ->assertExitCode(0);
+    }
+
+    public function test_replay_command_does_not_warn_for_a_pinned_unchanged_flow(): void
+    {
+        $this->migrateFlowTables();
+        $this->app['config']->set('laravel-flow.persistence.enabled', true);
+
+        Flow::define('flow.replay')
+            ->withInput(['tenant'])
+            ->step('one', AlwaysSucceedsHandler::class)
+            ->register();
+
+        $definition = $this->app->make(FlowEngine::class)->definition('flow.replay');
+        $checksum = (new GraphSerializer)->checksum($definition->toGraphDefinition());
+
+        $this->insertRunGraph('pinned-unchanged', FlowRun::STATUS_FAILED, [
+            'tenant' => 'acme',
+        ], definitionVersion: 1, definitionChecksum: $checksum);
+
+        $this->artisan('flow:replay', ['runId' => 'pinned-unchanged'])
+            ->doesntExpectOutputToContain('Definition drift detected')
+            ->doesntExpectOutputToContain('was pinned to')
+            ->expectsOutputToContain('Replayed flow run [pinned-unchanged] as')
+            ->assertExitCode(0);
+    }
+
+    public function test_replay_command_warns_with_version_context_for_a_pinned_drifted_flow(): void
+    {
+        $this->migrateFlowTables();
+        $this->app['config']->set('laravel-flow.persistence.enabled', true);
+
+        Flow::define('flow.replay')
+            ->withInput(['tenant'])
+            ->step('one', AlwaysSucceedsHandler::class)
+            ->register();
+
+        $this->insertRunGraph('pinned-drifted', FlowRun::STATUS_FAILED, [
+            'tenant' => 'acme',
+        ], definitionVersion: 3, definitionChecksum: str_repeat('a', 64));
+
+        $this->artisan('flow:replay', ['runId' => 'pinned-drifted'])
+            ->doesntExpectOutputToContain('Definition drift detected for')
+            ->expectsOutputToContain('Flow run [pinned-drifted] was pinned to [flow.replay] version [3]')
+            ->expectsOutputToContain('Replayed flow run [pinned-drifted] as')
             ->assertExitCode(0);
     }
 
@@ -194,10 +241,12 @@ final class ReplayFlowRunCommandTest extends PersistenceTestCase
         string $definitionName = 'flow.replay',
         string $handler = AlwaysSucceedsHandler::class,
         ?string $finishedAt = '2026-05-03 10:00:00',
+        ?int $definitionVersion = null,
+        ?string $definitionChecksum = null,
     ): void {
         $timestamp = Carbon::parse('2026-05-03 09:00:00');
 
-        DB::table('flow_runs')->insert([
+        $attributes = [
             'created_at' => $timestamp,
             'definition_name' => $definitionName,
             'dry_run' => false,
@@ -207,7 +256,17 @@ final class ReplayFlowRunCommandTest extends PersistenceTestCase
             'started_at' => $timestamp,
             'status' => $status,
             'updated_at' => $timestamp,
-        ]);
+        ];
+
+        // Only set on tables migrated with the version-pinning column
+        // (2026_07_08_000006); the legacy-schema test intentionally
+        // skips that migration to exercise the missing-column failure path.
+        if ($definitionVersion !== null || $definitionChecksum !== null) {
+            $attributes['definition_version'] = $definitionVersion;
+            $attributes['definition_checksum'] = $definitionChecksum;
+        }
+
+        DB::table('flow_runs')->insert($attributes);
 
         DB::table('flow_steps')->insert([
             'created_at' => $timestamp,

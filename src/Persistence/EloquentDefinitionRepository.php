@@ -9,8 +9,10 @@ use Illuminate\Support\Facades\DB;
 use Padosoft\LaravelFlow\Contracts\DefinitionRepository;
 use Padosoft\LaravelFlow\Graph\Exceptions\DefinitionLifecycleException;
 use Padosoft\LaravelFlow\Graph\Exceptions\DefinitionNotFoundException;
+use Padosoft\LaravelFlow\Graph\Exceptions\InvalidGraphException;
 use Padosoft\LaravelFlow\Graph\GraphDefinition;
 use Padosoft\LaravelFlow\Graph\GraphSerializer;
+use Padosoft\LaravelFlow\Graph\GraphValidator;
 use Padosoft\LaravelFlow\Graph\StoredDefinition;
 use Padosoft\LaravelFlow\Models\FlowDefinitionRecord;
 
@@ -21,6 +23,7 @@ final class EloquentDefinitionRepository implements DefinitionRepository
 {
     public function __construct(
         private readonly ?string $connection,
+        private readonly GraphValidator $validator,
         private readonly GraphSerializer $serializer = new GraphSerializer,
     ) {}
 
@@ -63,21 +66,67 @@ final class EloquentDefinitionRepository implements DefinitionRepository
         return $model instanceof FlowDefinitionRecord ? $this->toStoredDefinition($model) : null;
     }
 
+    /**
+     * Concurrency: publishing must serialize on the WHOLE `name` group, not
+     * just the target row. If two draft versions of the same name were
+     * published in overlapping transactions and each only locked its own
+     * row, the "archive previously published" step could match zero rows
+     * in both transactions (neither published row exists yet), leaving two
+     * simultaneously published rows for one name. To prevent that, this
+     * method takes `lockForUpdate()` over EVERY row of `$name` up front —
+     * covering both the target draft and any currently published row — and
+     * finds the target among those already-locked models instead of
+     * issuing a second query. On InnoDB, a concurrent publish() for the
+     * same name blocks on this SELECT ... FOR UPDATE until the first
+     * transaction commits or rolls back, so the two-published-rows race is
+     * closed. On SQLite, `lockForUpdate()` is a no-op; the existing
+     * whole-connection write serialization already prevents the race in
+     * tests, so it cannot be exercised here (see DefinitionRepositoryTest).
+     *
+     * @throws InvalidGraphException when the stored graph fails semantic validation
+     */
     public function publish(string $name, int $version): StoredDefinition
     {
         return DB::connection($this->connection)->transaction(function () use ($name, $version): StoredDefinition {
-            $model = $this->lockedFindModel($name, $version);
+            $group = $this->newModel()->newQuery()
+                ->where('name', $name)
+                ->lockForUpdate()
+                ->get();
+
+            $model = null;
+
+            // foreach+instanceof instead of Collection::first(callback):
+            // Larastan cannot infer the model type through this builder
+            // chain (same gap as versions() below), so a callback closure
+            // typed against FlowDefinitionRecord fails argument.type.
+            foreach ($group as $record) {
+                if ($record instanceof FlowDefinitionRecord && $record->version === $version) {
+                    $model = $record;
+
+                    break;
+                }
+            }
+
+            if (! ($model instanceof FlowDefinitionRecord)) {
+                throw new DefinitionNotFoundException($name, $version);
+            }
 
             if ($model->status !== StoredDefinition::STATUS_DRAFT) {
                 throw new DefinitionLifecycleException($name, $version, $model->status, 'publish');
             }
 
+            // Drafts may be semantically incomplete (Studio saves
+            // work-in-progress); a published definition must be executable,
+            // so it is validated against the current node catalog here.
+            $this->validator->validate($this->serializer->fromArray($model->graph));
+
             $now = $model->freshTimestamp();
 
-            $this->newModel()->newQuery()
-                ->where('name', $name)
-                ->where('status', StoredDefinition::STATUS_PUBLISHED)
-                ->update(['status' => StoredDefinition::STATUS_ARCHIVED, 'updated_at' => $now]);
+            foreach ($group as $record) {
+                if ($record instanceof FlowDefinitionRecord && $record->status === StoredDefinition::STATUS_PUBLISHED) {
+                    $record->forceFill(['status' => StoredDefinition::STATUS_ARCHIVED, 'updated_at' => $now])->save();
+                }
+            }
 
             $model->forceFill([
                 'published_at' => $now,
@@ -88,6 +137,16 @@ final class EloquentDefinitionRepository implements DefinitionRepository
         });
     }
 
+    /**
+     * Concurrency: unlike {@see self::publish()}, archiving only ever
+     * writes to its OWN row and never depends on or mutates the state of
+     * any other version of `$name`, so there is no group invariant to
+     * protect — locking the single target row via {@see self::lockedFindModel()}
+     * is sufficient. A concurrent publish() for the same name still
+     * cannot race past this: publish() locks every row of `$name`
+     * (including this one) up front, so on InnoDB the two transactions
+     * serialize on whichever row they both touch.
+     */
     public function archive(string $name, int $version): StoredDefinition
     {
         return DB::connection($this->connection)->transaction(function () use ($name, $version): StoredDefinition {

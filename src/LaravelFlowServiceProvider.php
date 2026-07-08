@@ -26,6 +26,7 @@ use Padosoft\LaravelFlow\Contracts\StepRunRepository;
 use Padosoft\LaravelFlow\Dashboard\Authorization\DashboardActionAuthorizer;
 use Padosoft\LaravelFlow\Dashboard\Authorization\DenyAllAuthorizer;
 use Padosoft\LaravelFlow\Dashboard\FlowDashboardReadModel;
+use Padosoft\LaravelFlow\Graph\GraphValidator;
 use Padosoft\LaravelFlow\Node\Attributes\FlowNode;
 use Padosoft\LaravelFlow\Node\NodeCatalog;
 use Padosoft\LaravelFlow\Node\NodeDefinitionFactory;
@@ -150,7 +151,10 @@ final class LaravelFlowServiceProvider extends ServiceProvider
             /** @var string|null $connection */
             $connection = $app['config']->get('laravel-flow.default_storage');
 
-            return new EloquentDefinitionRepository(connection: $connection);
+            return new EloquentDefinitionRepository(
+                connection: $connection,
+                validator: $app->make(GraphValidator::class),
+            );
         });
 
         $this->app->singleton(NodeDefinitionFactory::class);

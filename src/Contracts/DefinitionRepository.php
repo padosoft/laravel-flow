@@ -6,6 +6,7 @@ namespace Padosoft\LaravelFlow\Contracts;
 
 use Padosoft\LaravelFlow\Graph\Exceptions\DefinitionLifecycleException;
 use Padosoft\LaravelFlow\Graph\Exceptions\DefinitionNotFoundException;
+use Padosoft\LaravelFlow\Graph\Exceptions\InvalidGraphException;
 use Padosoft\LaravelFlow\Graph\GraphDefinition;
 use Padosoft\LaravelFlow\Graph\StoredDefinition;
 
@@ -37,9 +38,13 @@ interface DefinitionRepository
 
     /**
      * draft -> published; archives any previously published version of
-     * the same name.
+     * the same name. The stored graph is rebuilt and semantically
+     * validated against the current node catalog before the transition;
+     * a draft may be semantically incomplete, but a published definition
+     * must be executable.
      *
      * @throws DefinitionLifecycleException when the version is not a draft
+     * @throws InvalidGraphException when the stored graph fails semantic validation
      */
     public function publish(string $name, int $version): StoredDefinition;
 

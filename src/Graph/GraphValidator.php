@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Padosoft\LaravelFlow\Graph;
 
+use Padosoft\LaravelFlow\Contracts\DefinitionRepository;
 use Padosoft\LaravelFlow\Graph\Exceptions\InvalidGraphException;
 use Padosoft\LaravelFlow\Node\Exceptions\UnknownNodeTypeException;
 use Padosoft\LaravelFlow\Node\NodeRegistry;
@@ -11,8 +12,14 @@ use Padosoft\LaravelFlow\Node\NodeRegistry;
 /**
  * Semantic graph validation against the node catalog: every node type
  * registered, every wire lands on real ports with compatible types, and
- * every required input is fed by a wire or a config literal. Studio and
- * the definition repository run this before persisting/publishing.
+ * every required input is fed by a wire or a config literal.
+ *
+ * The internal {@see DefinitionRepository} implementation runs this on
+ * {@see DefinitionRepository::publish()} only — a draft may be
+ * semantically incomplete (Studio saves work-in-progress graphs), but a
+ * published, executable definition must pass validation. Studio (live
+ * authoring feedback) and importers may also call this directly ahead of
+ * persisting.
  *
  * @api
  */

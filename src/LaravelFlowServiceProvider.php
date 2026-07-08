@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\Date;
 use Illuminate\Support\ServiceProvider;
 use Padosoft\LaravelFlow\Console\ApproveFlowCommand;
 use Padosoft\LaravelFlow\Console\DeliverWebhookOutboxCommand;
+use Padosoft\LaravelFlow\Console\NodeCatalogCommand;
 use Padosoft\LaravelFlow\Console\PruneFlowRunsCommand;
 use Padosoft\LaravelFlow\Console\RejectFlowCommand;
 use Padosoft\LaravelFlow\Console\ReplayFlowRunCommand;
@@ -24,6 +25,11 @@ use Padosoft\LaravelFlow\Contracts\StepRunRepository;
 use Padosoft\LaravelFlow\Dashboard\Authorization\DashboardActionAuthorizer;
 use Padosoft\LaravelFlow\Dashboard\Authorization\DenyAllAuthorizer;
 use Padosoft\LaravelFlow\Dashboard\FlowDashboardReadModel;
+use Padosoft\LaravelFlow\Node\Attributes\FlowNode;
+use Padosoft\LaravelFlow\Node\NodeCatalog;
+use Padosoft\LaravelFlow\Node\NodeDefinitionFactory;
+use Padosoft\LaravelFlow\Node\NodeDiscovery;
+use Padosoft\LaravelFlow\Node\NodeRegistry;
 use Padosoft\LaravelFlow\Persistence\EloquentApprovalRepository;
 use Padosoft\LaravelFlow\Persistence\EloquentFlowStore;
 use Padosoft\LaravelFlow\Persistence\EloquentWebhookOutboxRepository;
@@ -138,6 +144,23 @@ final class LaravelFlowServiceProvider extends ServiceProvider
             return new FlowDashboardReadModel(connection: $connection);
         });
         $this->app->bind(DashboardActionAuthorizer::class, DenyAllAuthorizer::class);
+
+        $this->app->singleton(NodeDefinitionFactory::class);
+        $this->app->singleton(NodeRegistry::class, function (Container $app): NodeRegistry {
+            $registry = new NodeRegistry($app->make(NodeDefinitionFactory::class));
+            /** @var mixed $configured */
+            $configured = $app['config']->get('laravel-flow.nodes.handlers', []);
+            /** @var list<class-string> $handlers */
+            $handlers = array_values(array_filter(
+                is_array($configured) ? $configured : [],
+                static fn (mixed $handler): bool => is_string($handler),
+            ));
+            $registry->registerMany($handlers);
+            $this->discoverNodes($registry, $app);
+
+            return $registry;
+        });
+        $this->app->singleton(NodeCatalog::class);
     }
 
     public function boot(): void
@@ -163,7 +186,89 @@ final class LaravelFlowServiceProvider extends ServiceProvider
             DeliverWebhookOutboxCommand::class,
             PruneFlowRunsCommand::class,
             ReplayFlowRunCommand::class,
+            NodeCatalogCommand::class,
         ]);
+    }
+
+    private function discoverNodes(NodeRegistry $registry, Container $app): void
+    {
+        /** @var mixed $configured */
+        $configured = $app['config']->get('laravel-flow.nodes.discovery', []);
+        $discovery = new NodeDiscovery;
+        $configRegisteredTypes = array_keys($registry->all());
+
+        foreach ($this->sanitizeDiscoveryRoots($configured) as $root) {
+            foreach ($discovery->discover($root['path'], $root['namespace']) as $class) {
+                if (in_array($this->declaredNodeType($class), $configRegisteredTypes, true)) {
+                    // Config-registered handlers win over discovery: skip the
+                    // shadowed class BEFORE validating it, so a malformed
+                    // override target cannot fail application boot.
+                    continue;
+                }
+
+                // Any duplicate surfacing from register() is now necessarily
+                // discovery-vs-discovery: a definition error, fail fast.
+                $registry->register($class);
+            }
+        }
+    }
+
+    /**
+     * @param  class-string  $class
+     */
+    private function declaredNodeType(string $class): ?string
+    {
+        $attributes = (new \ReflectionClass($class))->getAttributes(FlowNode::class);
+
+        if ($attributes === []) {
+            return null;
+        }
+
+        try {
+            return $attributes[0]->newInstance()->type;
+        } catch (Throwable) {
+            // Malformed payload: fall through so register() raises the
+            // canonical InvalidNodeDefinitionException.
+            return null;
+        }
+    }
+
+    /**
+     * @return list<array{path: string, namespace: string}>
+     */
+    private function sanitizeDiscoveryRoots(mixed $configured): array
+    {
+        if (! is_array($configured)) {
+            return [];
+        }
+
+        $roots = [];
+
+        foreach ($configured as $root) {
+            if (! is_array($root) || ! isset($root['path'], $root['namespace'])) {
+                continue;
+            }
+
+            if (! is_string($root['path']) || ! is_string($root['namespace'])) {
+                continue;
+            }
+
+            // Blank paths would make realpath('') resolve to the CWD and
+            // scan the whole application; blank namespaces produce garbage
+            // FQCNs. Both are misconfigurations: skip them. Store the
+            // trimmed values so padded entries cannot silently no-op later
+            // (realpath/class_exists would fail on the padded originals).
+            $path = trim($root['path']);
+            $namespace = trim($root['namespace']);
+
+            if ($path === '' || trim($namespace, '\\') === '') {
+                continue;
+            }
+
+            $roots[] = ['path' => $path, 'namespace' => $namespace];
+        }
+
+        return $roots;
     }
 
     private function configPath(string $file): string

@@ -12,6 +12,7 @@ This document describes how to upgrade `padosoft/laravel-flow` between minor and
   - Exceptions: everything in `Padosoft\LaravelFlow\Exceptions\*`.
   - Step / compensator hooks: `FlowStepHandler`, `FlowCompensator`.
   - Dashboard contracts: everything in `Padosoft\LaravelFlow\Dashboard\*` plus the `Authorization\*` sub-namespace.
+  - Node contract (v2 graph-engine preview, added by Macro A of the Flow 2.0 program): everything in `Padosoft\LaravelFlow\Node\*` including `Attributes\*` and `Exceptions\*` — pinned by `tests/Contract/NodeApiContractTest`. Stability note: this surface ships ahead of its first consumer (the graph engine, Macros B/C) and is covered by SemVer from the first tagged release that includes it; until v2.0.0 ships, additive evolution may occur (new `PortType` cases are documented as open-for-extension, and `NodeContext` may gain trailing defaulted constructor parameters). The legacy-definition registration wiring for `LegacyStepNodeAdapter::definitionFor()` intentionally arrives with the graph executor (Macro C).
 - **`@internal`** — Implementation detail. Host applications must not extend, type-hint, or reflect on these classes:
   - `Padosoft\LaravelFlow\Persistence\*` (Eloquent stores, redactor scopes, pruner, repositories).
   - `Padosoft\LaravelFlow\Models\*` (Eloquent records).

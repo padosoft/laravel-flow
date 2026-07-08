@@ -78,7 +78,7 @@ Detailed, code-level TDD plans are written just-in-time: Macro A's exists now; e
 
 | Subtask PR | Deliverable | Gate criteria |
 |---|---|---|
-| B-PR1 | `GraphDefinition`/`GraphNode`/`Connection` VOs + structural validation | Rejects: duplicate node ids, dangling connections, unknown ports, port-type incompatibility (via `PortType::accepts`), cycles (topological check). Accepts diamond DAGs |
+| B-PR1 | `GraphDefinition`/`GraphNode`/`Connection` VOs + structural validation. Macro-A review follow-ups fold in here: factory-level PHP-property-type vs PortType compatibility check (definition-time, fail-fast); structural sweep test "every src/Node class carries exactly one of @api/@internal"; friendlier duplicate-discovery-root diagnostics; document NodeDefinitionFactory as the sanctioned construction path | Rejects: duplicate node ids, dangling connections, unknown ports, port-type incompatibility (via `PortType::accepts`), cycles (topological check). Accepts diamond DAGs |
 | B-PR2 | Canonical JSON schema v1: `fromArray`/`toArray`, envelope `{schema_version, kind, nodes, connections}`, sha-256 checksum | Round-trip property tests (`fromArray(toArray(x)) == x`); unknown `schema_version` rejected; checksum stable across key order |
 | B-PR3 | `flow_definitions` migration + `DefinitionRepository` contract (`@api`) with Eloquent impl (`@internal`) | `(name,version)` unique; `draft→published→archived` transitions enforced; published versions immutable (edit → new draft version); sqlite in-memory tests |
 | B-PR4 | Optional definition signing (HMAC-SHA256) + verify-on-load | With signing enabled, tampered graph fails load; disabled = no-op; secret handling mirrors webhook outbox pattern |
@@ -97,7 +97,7 @@ Detailed, code-level TDD plans are written just-in-time: Macro A's exists now; e
 |---|---|---|
 | C-PR1 | `NodeState`/`RunState` state machines (adds `blocked`, `invalid_input`, `partially_succeeded`, `dead_letter`) + transition guards | Exhaustive legal/illegal transition tests |
 | C-PR2 | Readiness resolver (Kahn) + input routing (connection mapping, coalescing) + blocked propagation | Diamond/parallel-wave planning tests; failed node ⇒ downstream `blocked`, not silent pending |
-| C-PR3 | Sync in-memory graph executor | End-to-end graph runs incl. gate-branch skip; `invalid_input` short-circuits before handler executes; per-node timing recorded |
+| C-PR3 | Sync in-memory graph executor (incl. the legacy-node resolution strategy: definitions from `LegacyStepNodeAdapter::definitionFor()` must resolve to the adapter wrapping the container-built v1 step — registry/executor wiring deferred here from Macro A by design) | End-to-end graph runs incl. gate-branch skip; `invalid_input` short-circuits before handler executes; per-node timing recorded; a v1 step runs inside a graph via the adapter |
 | C-PR4 | `#[Retry]` attribute + graph-level override: tries/backoff/timeout, `dead_letter` | Fake-clock backoff tests; timeout → failed → retries → dead_letter |
 | C-PR5 | Queue coordinator + per-node jobs, `lockForUpdate` advance, idempotent dispatch | Race simulations: duplicate coordinator/node dispatch never double-executes or double-completes (locked join pattern from Flow v2) |
 | C-PR6 | `flow_node_children` migration; `SubFlowNode`, `ForEachNode`/`MapNode` (maxConcurrency); locked join | Nested flow + fan-out tests; child failure aggregation; parent resumes exactly once |
@@ -125,7 +125,8 @@ Detailed, code-level TDD plans are written just-in-time: Macro A's exists now; e
 
 ## Macro E — Flow Studio (PENULTIMATE — runs after F-core)
 
-- **Branch:** in `laravel-flow-admin` repo (`task/v2e-studio`) · **Depends on:** B, D, F-core (core released as v2-dev tag or path repo) **+ the Claude Design UI template supplied by the user** (ask for its path when starting E if not yet provided; brief: `docs/design/2026-07-07-flow-studio-ui-design-brief.md`)
+- **Branch:** in `laravel-flow-admin` repo (`task/v2e-studio`) · **Depends on:** B, D, F-core (core released as v2-dev tag or path repo)
+- **UI template (DELIVERED 2026-07-07):** the user downloaded the Claude Design handoff bundle locally (path recorded in the agent's persistent memory and available from the user on request — not committed here to keep the plan machine-agnostic). First action of Macro E: copy the bundle into the admin repo under `design/claude-design-template/` so it is version-controlled, then read `project/index.html` IN FULL and follow its imports (`app.jsx`, `canvas.jsx`, `flow-data.jsx`, `pages.jsx`, `run-monitor.jsx`, `shell.jsx`, `studio.jsx`, `tweaks-panel.jsx`, `ui.jsx`, `studio.css`, `styles.css`). Per the bundle README: prototypes are mockups — recreate pixel-perfectly in the target stack (Blade shell + React island + React Flow), match visual output, do NOT copy prototype internals, do NOT screenshot. The user delegated the integrate-vs-redo decision: default is full re-skin using the template as visual source of truth (E-PR0 hygiene + rewrite already planned); confirm only if the template conflicts with working-console needs.
 - **Objective:** Visual composer (React Flow island) + working operating console (spec §5), plus admin hygiene fixes, plus the Advisor/builder UI (formerly F-PR9). Every UI interaction ships with a Playwright scenario.
 
 | Subtask PR | Deliverable | Gate criteria |

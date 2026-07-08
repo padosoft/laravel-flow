@@ -32,8 +32,10 @@ git diff origin/main...HEAD --stat | tail -1        # sanity: size + files count
 ### 3. Run the non-interactive review
 
 ```bash
-copilot --autopilot --yolo -s -p "/review Review the FULL branch diff of branch '${branch}' vs origin/main for this Laravel 13 / PHP ^8.3 package. The complete unified diff is in the file: ${diff_file} — read that file first. Focus on: real bugs, security issues, race conditions, Laravel 13 / PHP 8.3-8.5 compatibility, missing/weak tests for new behavior, @api/@internal contract violations, secrets in code or logs. Reply ONLY with a numbered list of actionable findings in the form 'file:line — issue — suggested fix'. If nothing is actionable, reply exactly: NO_FINDINGS"
+copilot --autopilot --yolo -s -p "/review STRICTLY READ-ONLY ANALYSIS: you MUST NOT modify, create, or delete ANY file — report findings only, never implement fixes. Review the FULL branch diff of branch '${branch}' vs origin/main for this Laravel 13 / PHP ^8.3 package. The complete unified diff is in the file: ${diff_file} — read that file first. Focus on: real bugs, security issues, race conditions, Laravel 13 / PHP 8.3-8.5 compatibility, missing/weak tests for new behavior, @api/@internal contract violations, secrets in code or logs. Reply ONLY with a numbered list of actionable findings in the form 'file:line — issue — suggested fix'. If nothing is actionable, reply exactly: NO_FINDINGS"
 ```
+
+**After EVERY run: `git status --short` MUST be clean.** With `--yolo` the CLI has write permissions and has been observed starting to "fix" its own findings mid-review; discard any modification it made (`git checkout -- <file>`) before proceeding — such edits are unreviewed and partial. Capture the CLI output to a file (`... | tee "$TEMP/copilot-findings.txt"`) so findings survive network drops: on DNS/network errors the CLI dies mid-stream and un-teed findings are lost.
 
 ### 4. Triage findings (same taxonomy as the PR loop)
 - **must-fix** (bug, security, race, test gap, contract violation): fix now.

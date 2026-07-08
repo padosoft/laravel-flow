@@ -434,7 +434,7 @@ Then run the copilot-pr-review-loop skill until G2 is green; merge into the macr
 
 **Interfaces:**
 - Consumes: attributes (Task 2), `PortDefinition`/`PortType` (Task 1).
-- Produces: `NodeDefinition` readonly VO (`type, name, category, icon, description, inputs: list<PortDefinition>, outputs: list<PortDefinition>, handlerClass`) with `input(string $key): ?PortDefinition`, `output(string $key): ?PortDefinition`, `toArray(): array`; `NodeDefinitionFactory::fromClass(string $class): NodeDefinition` throwing `InvalidNodeDefinitionException` (extends `\InvalidArgumentException`) on: unknown class, missing `#[FlowNode]`, empty `type`, duplicate input/output port key.
+- Produces: `NodeDefinition` readonly VO (`type, name, category, icon, description, inputs: list<PortDefinition>, outputs: list<PortDefinition>, handlerClass`) with `input(string $key): ?PortDefinition`, `output(string $key): ?PortDefinition`, `toArray(): array`; `NodeDefinitionFactory::fromClass(string $class): NodeDefinition` throwing `InvalidNodeDefinitionException` (extends `\InvalidArgumentException`) on: unknown class, missing `#[FlowNode]`, duplicate input/output port key. (Empty `type` is rejected by the `FlowNode` attribute constructor itself — guard added in A-PR1 — so `fromClass` surfaces a plain `InvalidArgumentException` from `newInstance()` for that case; no factory guard.)
 
 - [ ] **Step 1: Write the failing test**
 
@@ -535,14 +535,10 @@ final class NodeDefinitionFactoryTest extends TestCase
         $this->factory->fromClass('App\\Does\\Not\\Exist');
     }
 
-    public function testRejectsEmptyType(): void
-    {
-        $handler = new #[FlowNode(type: '')] class {};
-
-        $this->expectException(InvalidNodeDefinitionException::class);
-        $this->expectExceptionMessageMatches('/type must not be empty/i');
-        $this->factory->fromClass($handler::class);
-    }
+    // NOTE (A-PR1 local review): empty-type rejection now lives in the
+    // FlowNode attribute constructor itself and is covered by
+    // AttributesTest::test_flow_node_rejects_empty_type. No factory-level
+    // empty-type test or guard is needed here.
 
     public function testRejectsDuplicateInputPortKeys(): void
     {
@@ -722,10 +718,6 @@ final class NodeDefinitionFactory
         }
 
         $node = $nodeAttributes[0]->newInstance();
-
-        if ($node->type === '') {
-            throw new InvalidNodeDefinitionException("Node type must not be empty on [{$class}].");
-        }
 
         [$inputs, $outputs] = $this->collectPorts($reflection, $class);
 

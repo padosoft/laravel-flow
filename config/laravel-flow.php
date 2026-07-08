@@ -180,4 +180,24 @@ return [
     */
     'compensation_parallel_driver' => env('LARAVEL_FLOW_COMPENSATION_PARALLEL_DRIVER', 'process'),
 
+    /*
+    |--------------------------------------------------------------------------
+    | Node catalog (v2 graph engine)
+    |--------------------------------------------------------------------------
+    |
+    | `handlers`: FlowNodeHandler class-strings registered at boot. On a
+    | node-type collision, config handlers win over discovered classes.
+    | `discovery`: PSR-4 roots scanned for #[FlowNode] handlers, e.g.
+    |   ['path' => app_path('Flow/Nodes'), 'namespace' => 'App\\Flow\\Nodes'].
+    | Scope roots tightly (every PHP file under a root is autoloaded during
+    | the scan) and note discovery is fail-fast by design: one malformed
+    | node class fails boot with InvalidNodeDefinitionException so broken
+    | definitions surface in dev/CI, never silently at run time.
+    |
+    */
+    'nodes' => [
+        'handlers' => [],
+        'discovery' => [],
+    ],
+
 ];

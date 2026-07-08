@@ -24,7 +24,10 @@ final class UpperNode implements FlowNodeHandler
     public function execute(NodeContext $context): NodeResult
     {
         $text = $context->inputs['text'];
-        assert(is_string($text));
+
+        if (! is_string($text)) {
+            return NodeResult::failed(new \InvalidArgumentException('Input [text] must be a string.'));
+        }
 
         return NodeResult::success(['upper' => mb_strtoupper($text)]);
     }

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Padosoft\LaravelFlow\Graph;
 
+use InvalidArgumentException;
 use JsonException;
 use Padosoft\LaravelFlow\Graph\Exceptions\InvalidGraphException;
 
@@ -58,19 +59,37 @@ final class GraphSerializer
             throw new InvalidGraphException(["Unsupported or missing kind; expected '".self::KIND."'."]);
         }
 
+        $violations = [];
+
+        foreach (['nodes', 'connections', 'metadata'] as $field) {
+            if (array_key_exists($field, $payload) && ! is_array($payload[$field])) {
+                $violations[] = "Envelope field [{$field}] must be an array.";
+            }
+        }
+
         $nodes = [];
 
         foreach (is_array($payload['nodes'] ?? null) ? $payload['nodes'] : [] as $index => $node) {
             if (! is_array($node) || ! is_string($node['id'] ?? null) || ! is_string($node['type'] ?? null)) {
-                throw new InvalidGraphException(["Malformed node entry at index {$index}."]);
+                $violations[] = "Malformed node entry at index {$index}.";
+
+                continue;
             }
 
-            $nodes[] = new GraphNode(
-                $node['id'],
-                $node['type'],
-                is_array($node['config'] ?? null) ? $node['config'] : [],
-                is_array($node['position'] ?? null) ? $node['position'] : null,
-            );
+            try {
+                $nodes[] = new GraphNode(
+                    $node['id'],
+                    $node['type'],
+                    is_array($node['config'] ?? null) ? $node['config'] : [],
+                    is_array($node['position'] ?? null) ? $node['position'] : null,
+                );
+            } catch (InvalidArgumentException $e) {
+                if ($e instanceof InvalidGraphException) {
+                    throw $e;
+                }
+
+                $violations[] = "Node at index {$index}: {$e->getMessage()}";
+            }
         }
 
         $connections = [];
@@ -79,10 +98,24 @@ final class GraphSerializer
             if (! is_array($wire)
                 || ! is_string($wire['sourceNodeId'] ?? null) || ! is_string($wire['sourcePortKey'] ?? null)
                 || ! is_string($wire['targetNodeId'] ?? null) || ! is_string($wire['targetPortKey'] ?? null)) {
-                throw new InvalidGraphException(["Malformed connection entry at index {$index}."]);
+                $violations[] = "Malformed connection entry at index {$index}.";
+
+                continue;
             }
 
-            $connections[] = new Connection($wire['sourceNodeId'], $wire['sourcePortKey'], $wire['targetNodeId'], $wire['targetPortKey']);
+            try {
+                $connections[] = new Connection($wire['sourceNodeId'], $wire['sourcePortKey'], $wire['targetNodeId'], $wire['targetPortKey']);
+            } catch (InvalidArgumentException $e) {
+                if ($e instanceof InvalidGraphException) {
+                    throw $e;
+                }
+
+                $violations[] = "Connection at index {$index}: {$e->getMessage()}";
+            }
+        }
+
+        if ($violations !== []) {
+            throw new InvalidGraphException($violations);
         }
 
         $metadata = is_array($payload['metadata'] ?? null) ? $payload['metadata'] : [];
@@ -114,6 +147,9 @@ final class GraphSerializer
         return $this->fromArray($decoded);
     }
 
+    /**
+     * @throws JsonException
+     */
     public function checksum(GraphDefinition $graph): string
     {
         $canonical = $this->toArray($graph);
@@ -134,5 +170,6 @@ final class GraphSerializer
                 $this->ksortRecursive($item);
             }
         }
+        unset($item);
     }
 }

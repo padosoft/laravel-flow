@@ -54,7 +54,7 @@ final class GraphApiContractTest extends TestCase
     {
         $reflection = new ReflectionClass(DefinitionRepository::class);
 
-        foreach (['createDraft', 'find', 'latest', 'publish', 'archive', 'versions'] as $method) {
+        foreach (['createDraft', 'createDraftIfChanged', 'find', 'latest', 'publish', 'archive', 'versions'] as $method) {
             $this->assertTrue($reflection->hasMethod($method), $method);
         }
     }

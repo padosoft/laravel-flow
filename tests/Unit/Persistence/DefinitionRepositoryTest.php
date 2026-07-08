@@ -250,6 +250,47 @@ final class DefinitionRepositoryTest extends PersistenceTestCase
     // on InnoDB. The lock itself, not a test, is the protection; see the
     // docblock on EloquentDefinitionRepository::publish().
 
+    public function test_create_draft_if_changed_creates_once_and_skips_an_identical_second_call(): void
+    {
+        $this->migrateFlowTables();
+
+        $repository = $this->repository();
+        $graph = $this->graph();
+
+        $created = $repository->createDraftIfChanged('onboarding', $graph);
+        $this->assertNotNull($created);
+        $this->assertSame(1, $created->version);
+
+        $skipped = $repository->createDraftIfChanged('onboarding', $graph);
+        $this->assertNull($skipped);
+
+        $this->assertCount(1, $repository->versions('onboarding'));
+    }
+
+    public function test_create_draft_if_changed_creates_a_new_version_when_the_graph_differs(): void
+    {
+        $this->migrateFlowTables();
+
+        $repository = $this->repository();
+
+        $repository->createDraftIfChanged('onboarding', $this->graph());
+        $second = $repository->createDraftIfChanged('onboarding', $this->graph('second'));
+
+        $this->assertNotNull($second);
+        $this->assertSame(2, $second->version);
+        $this->assertCount(2, $repository->versions('onboarding'));
+    }
+
+    // Note: same limitation as the publish() race above — the atomic
+    // checksum-compare-then-insert in createDraftIfChanged() (the fix for
+    // FlowEngine::persistRegisteredDefinitionIfEnabled() double-drafting
+    // an unchanged flow under concurrent registration) needs two
+    // interleaved transactions to demonstrate the closed race, which
+    // SQLite's whole-connection write serialization cannot open here. The
+    // name-group lockForUpdate() acquired before the comparison, not a
+    // test, is the protection; see the docblock on
+    // EloquentDefinitionRepository::createDraftIfChanged().
+
     public function test_signing_disabled_by_default_stores_a_null_signature(): void
     {
         $this->migrateFlowTables();

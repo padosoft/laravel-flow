@@ -31,7 +31,6 @@ use Padosoft\LaravelFlow\Exceptions\FlowCompensationException;
 use Padosoft\LaravelFlow\Exceptions\FlowExecutionException;
 use Padosoft\LaravelFlow\Exceptions\FlowInputException;
 use Padosoft\LaravelFlow\Exceptions\FlowNotRegisteredException;
-use Padosoft\LaravelFlow\Graph\GraphSerializer;
 use Padosoft\LaravelFlow\Jobs\RunFlowJob;
 use Padosoft\LaravelFlow\Models\FlowApprovalRecord;
 use Padosoft\LaravelFlow\Models\FlowRunRecord;
@@ -116,10 +115,12 @@ class FlowEngine
      * container only when the flag is true, so the normal in-memory-only
      * registration path never touches the database or the container for
      * this feature. Re-registering an unchanged definition is a no-op:
-     * the content checksum is compared against the latest stored version
-     * (any status) before writing, so repeated boots of a host app that
-     * calls `register()` on every request/command do not pile up draft
-     * versions for a definition that never changed.
+     * {@see DefinitionRepository::createDraftIfChanged()} compares the
+     * content checksum against the latest stored version (any status)
+     * inside the same name-group lock as the insert, so repeated boots of
+     * a host app that calls `register()` on every request/command — even
+     * from concurrent workers — do not pile up draft versions for a
+     * definition that never changed.
      */
     private function persistRegisteredDefinitionIfEnabled(FlowDefinition $definition): void
     {
@@ -128,19 +129,12 @@ class FlowEngine
         }
 
         $graph = $definition->toGraphDefinition();
-        $checksum = (new GraphSerializer)->checksum($graph);
 
         /** @var DefinitionRepository $repository */
         $repository = $this->container->make(DefinitionRepository::class);
 
         try {
-            $latest = $repository->latest($definition->name);
-
-            if ($latest !== null && $latest->checksum === $checksum) {
-                return;
-            }
-
-            $repository->createDraft($definition->name, $graph);
+            $repository->createDraftIfChanged($definition->name, $graph);
         } catch (QueryException $e) {
             throw $this->definitionPersistenceUnavailableException($e);
         }

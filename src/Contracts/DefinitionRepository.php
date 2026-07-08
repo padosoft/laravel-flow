@@ -37,6 +37,21 @@ interface DefinitionRepository
     public function createDraft(string $name, GraphDefinition $graph): StoredDefinition;
 
     /**
+     * Creates a new draft ONLY when $graph's checksum differs from the
+     * latest stored version of $name; returns null when skipped. Unlike a
+     * caller-side dedupe (read {@see self::latest()}, compare, then call
+     * {@see self::createDraft()}), the comparison and the insert run
+     * inside the SAME name-group lock, so two callers registering the
+     * same unchanged definition concurrently cannot both pass the check
+     * and each create a duplicate draft version.
+     *
+     * @throws DefinitionSignatureException
+     * @throws QueryException when the persistence connection or the
+     *                        `flow_definitions` table is unavailable
+     */
+    public function createDraftIfChanged(string $name, GraphDefinition $graph): ?StoredDefinition;
+
+    /**
      * @throws DefinitionNotFoundException
      * @throws DefinitionSignatureException
      */

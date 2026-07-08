@@ -18,6 +18,7 @@ use Padosoft\LaravelFlow\Console\RejectFlowCommand;
 use Padosoft\LaravelFlow\Console\ReplayFlowRunCommand;
 use Padosoft\LaravelFlow\Contracts\ApprovalRepository;
 use Padosoft\LaravelFlow\Contracts\AuditRepository;
+use Padosoft\LaravelFlow\Contracts\DefinitionRepository;
 use Padosoft\LaravelFlow\Contracts\FlowStore;
 use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
 use Padosoft\LaravelFlow\Contracts\RunRepository;
@@ -31,6 +32,7 @@ use Padosoft\LaravelFlow\Node\NodeDefinitionFactory;
 use Padosoft\LaravelFlow\Node\NodeDiscovery;
 use Padosoft\LaravelFlow\Node\NodeRegistry;
 use Padosoft\LaravelFlow\Persistence\EloquentApprovalRepository;
+use Padosoft\LaravelFlow\Persistence\EloquentDefinitionRepository;
 use Padosoft\LaravelFlow\Persistence\EloquentFlowStore;
 use Padosoft\LaravelFlow\Persistence\EloquentWebhookOutboxRepository;
 use Padosoft\LaravelFlow\Persistence\ExecutionScopedPayloadRedactor;
@@ -144,6 +146,12 @@ final class LaravelFlowServiceProvider extends ServiceProvider
             return new FlowDashboardReadModel(connection: $connection);
         });
         $this->app->bind(DashboardActionAuthorizer::class, DenyAllAuthorizer::class);
+        $this->app->bind(DefinitionRepository::class, function (Container $app): DefinitionRepository {
+            /** @var string|null $connection */
+            $connection = $app['config']->get('laravel-flow.default_storage');
+
+            return new EloquentDefinitionRepository(connection: $connection);
+        });
 
         $this->app->singleton(NodeDefinitionFactory::class);
         $this->app->singleton(NodeRegistry::class, function (Container $app): NodeRegistry {

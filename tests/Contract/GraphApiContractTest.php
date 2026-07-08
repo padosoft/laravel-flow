@@ -4,12 +4,16 @@ declare(strict_types=1);
 
 namespace Padosoft\LaravelFlow\Tests\Contract;
 
+use Padosoft\LaravelFlow\Contracts\DefinitionRepository;
 use Padosoft\LaravelFlow\Graph\Connection;
+use Padosoft\LaravelFlow\Graph\Exceptions\DefinitionLifecycleException;
+use Padosoft\LaravelFlow\Graph\Exceptions\DefinitionNotFoundException;
 use Padosoft\LaravelFlow\Graph\Exceptions\InvalidGraphException;
 use Padosoft\LaravelFlow\Graph\GraphDefinition;
 use Padosoft\LaravelFlow\Graph\GraphNode;
 use Padosoft\LaravelFlow\Graph\GraphSerializer;
 use Padosoft\LaravelFlow\Graph\GraphValidator;
+use Padosoft\LaravelFlow\Graph\StoredDefinition;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
 
@@ -24,6 +28,10 @@ final class GraphApiContractTest extends TestCase
             GraphValidator::class,
             InvalidGraphException::class,
             GraphSerializer::class,
+            DefinitionRepository::class,
+            StoredDefinition::class,
+            DefinitionNotFoundException::class,
+            DefinitionLifecycleException::class,
         ];
 
         foreach ($classes as $class) {
@@ -31,6 +39,22 @@ final class GraphApiContractTest extends TestCase
             $this->assertStringContainsString('@api', $doc, $class);
             $this->assertStringNotContainsString('@internal', $doc, $class);
         }
+    }
+
+    public function test_definition_repository_exposes_lifecycle_methods(): void
+    {
+        $reflection = new ReflectionClass(DefinitionRepository::class);
+
+        foreach (['createDraft', 'find', 'latest', 'publish', 'archive', 'versions'] as $method) {
+            $this->assertTrue($reflection->hasMethod($method), $method);
+        }
+    }
+
+    public function test_stored_definition_statuses_are_pinned(): void
+    {
+        $this->assertSame('draft', StoredDefinition::STATUS_DRAFT);
+        $this->assertSame('published', StoredDefinition::STATUS_PUBLISHED);
+        $this->assertSame('archived', StoredDefinition::STATUS_ARCHIVED);
     }
 
     public function test_graph_definition_exposes_topological_order(): void

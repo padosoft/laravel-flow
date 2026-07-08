@@ -200,4 +200,17 @@ return [
         'discovery' => [],
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Flow definitions (v2 graph engine)
+    |--------------------------------------------------------------------------
+    |
+    | Reserved for the versioned flow_definitions store. Optional HMAC
+    | signing of stored graphs is configured here in a later slice.
+    |
+    */
+    'definitions' => [
+        //
+    ],
+
 ];

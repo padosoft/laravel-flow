@@ -101,3 +101,5 @@ Playwright is required only when UI/UX changes are in scope.
 - `DashboardActionAuthorizer` ships as deny-by-default (`DenyAllAuthorizer`). Production deployments must override; `AllowAllAuthorizer` is the explicit dev opt-in.
 - Approval tokens are SHA-256 hashed at rest. Plain tokens are returned only on the immediate `FlowRun` at issuance time. The dashboard authorizer takes a token hash via `ApprovalTokenManager::hashToken($plainToken)`.
 - Read DTOs (`RunDetail`, `ApprovalSummary`) return whatever is stored. The package only redacts JSON payloads when `laravel-flow.persistence.redaction.enabled` is true. Documentation must always reference that gate when describing redaction behavior.
+
+- Flow DEFINITIONS (`flow_definitions.graph`) are authored, versioned, diffable artifacts and are intentionally NOT redacted (unlike runtime run/step/approval payloads). Corollary: node `config` must never carry literal secrets — use env()/reference indirection; importers (ModelsGenerator, JSON files) must be treated as untrusted input but not secret-bearing.

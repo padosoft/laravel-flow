@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Padosoft\LaravelFlow\Tests\Unit\Persistence;
 
+use Illuminate\Database\QueryException;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -19,6 +20,7 @@ final class PersistenceMigrationTest extends PersistenceTestCase
         $this->assertTrue(Schema::hasTable('flow_audit'));
         $this->assertTrue(Schema::hasTable('flow_approvals'));
         $this->assertTrue(Schema::hasTable('flow_webhook_outbox'));
+        $this->assertTrue(Schema::hasTable('flow_definitions'));
 
         $this->assertTrue(Schema::hasColumns('flow_runs', [
             'id',
@@ -80,14 +82,48 @@ final class PersistenceMigrationTest extends PersistenceTestCase
             'failed_at',
             'last_error',
         ]));
+        $this->assertTrue(Schema::hasColumns('flow_definitions', [
+            'id',
+            'name',
+            'version',
+            'status',
+            'graph',
+            'checksum',
+            'signature',
+            'published_at',
+        ]));
 
         $this->dropFlowTables();
 
+        $this->assertFalse(Schema::hasTable('flow_definitions'));
         $this->assertFalse(Schema::hasTable('flow_webhook_outbox'));
         $this->assertFalse(Schema::hasTable('flow_approvals'));
         $this->assertFalse(Schema::hasTable('flow_audit'));
         $this->assertFalse(Schema::hasTable('flow_steps'));
         $this->assertFalse(Schema::hasTable('flow_runs'));
+    }
+
+    public function test_flow_definitions_enforces_unique_name_version(): void
+    {
+        $this->migrateFlowTables();
+
+        DB::table('flow_definitions')->insert([
+            'checksum' => str_repeat('a', 64),
+            'graph' => json_encode(['schema_version' => 1]),
+            'name' => 'onboarding',
+            'status' => 'draft',
+            'version' => 1,
+        ]);
+
+        $this->expectException(QueryException::class);
+
+        DB::table('flow_definitions')->insert([
+            'checksum' => str_repeat('b', 64),
+            'graph' => json_encode(['schema_version' => 1]),
+            'name' => 'onboarding',
+            'status' => 'draft',
+            'version' => 1,
+        ]);
     }
 
     public function test_audit_rows_cascade_when_run_is_deleted(): void

@@ -18,6 +18,7 @@ use Padosoft\LaravelFlow\Console\RejectFlowCommand;
 use Padosoft\LaravelFlow\Console\ReplayFlowRunCommand;
 use Padosoft\LaravelFlow\Contracts\ApprovalRepository;
 use Padosoft\LaravelFlow\Contracts\AuditRepository;
+use Padosoft\LaravelFlow\Contracts\DefinitionRepository;
 use Padosoft\LaravelFlow\Contracts\FlowStore;
 use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
 use Padosoft\LaravelFlow\Contracts\RunRepository;
@@ -25,12 +26,14 @@ use Padosoft\LaravelFlow\Contracts\StepRunRepository;
 use Padosoft\LaravelFlow\Dashboard\Authorization\DashboardActionAuthorizer;
 use Padosoft\LaravelFlow\Dashboard\Authorization\DenyAllAuthorizer;
 use Padosoft\LaravelFlow\Dashboard\FlowDashboardReadModel;
+use Padosoft\LaravelFlow\Graph\GraphValidator;
 use Padosoft\LaravelFlow\Node\Attributes\FlowNode;
 use Padosoft\LaravelFlow\Node\NodeCatalog;
 use Padosoft\LaravelFlow\Node\NodeDefinitionFactory;
 use Padosoft\LaravelFlow\Node\NodeDiscovery;
 use Padosoft\LaravelFlow\Node\NodeRegistry;
 use Padosoft\LaravelFlow\Persistence\EloquentApprovalRepository;
+use Padosoft\LaravelFlow\Persistence\EloquentDefinitionRepository;
 use Padosoft\LaravelFlow\Persistence\EloquentFlowStore;
 use Padosoft\LaravelFlow\Persistence\EloquentWebhookOutboxRepository;
 use Padosoft\LaravelFlow\Persistence\ExecutionScopedPayloadRedactor;
@@ -144,6 +147,15 @@ final class LaravelFlowServiceProvider extends ServiceProvider
             return new FlowDashboardReadModel(connection: $connection);
         });
         $this->app->bind(DashboardActionAuthorizer::class, DenyAllAuthorizer::class);
+        $this->app->bind(DefinitionRepository::class, function (Container $app): DefinitionRepository {
+            /** @var string|null $connection */
+            $connection = $app['config']->get('laravel-flow.default_storage');
+
+            return new EloquentDefinitionRepository(
+                connection: $connection,
+                validator: $app->make(GraphValidator::class),
+            );
+        });
 
         $this->app->singleton(NodeDefinitionFactory::class);
         $this->app->singleton(NodeRegistry::class, function (Container $app): NodeRegistry {
@@ -178,6 +190,7 @@ final class LaravelFlowServiceProvider extends ServiceProvider
             __DIR__.'/../database/migrations/2026_05_04_000002_add_replay_lineage_to_laravel_flow_runs.php' => $this->app->databasePath('migrations/2026_05_04_000002_add_replay_lineage_to_laravel_flow_runs.php'),
             __DIR__.'/../database/migrations/2026_05_04_000003_create_laravel_flow_approval_and_webhook_tables.php' => $this->app->databasePath('migrations/2026_05_04_000003_create_laravel_flow_approval_and_webhook_tables.php'),
             __DIR__.'/../database/migrations/2026_05_04_000004_add_previous_token_hash_to_flow_approvals.php' => $this->app->databasePath('migrations/2026_05_04_000004_add_previous_token_hash_to_flow_approvals.php'),
+            __DIR__.'/../database/migrations/2026_07_08_000005_create_flow_definitions_table.php' => $this->app->databasePath('migrations/2026_07_08_000005_create_flow_definitions_table.php'),
         ], 'laravel-flow-migrations');
 
         $this->commands([

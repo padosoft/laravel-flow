@@ -97,7 +97,7 @@ Detailed, code-level TDD plans are written just-in-time: Macro A's exists now; e
 |---|---|---|
 | C-PR1 | `NodeState`/`RunState` state machines (adds `blocked`, `invalid_input`, `partially_succeeded`, `dead_letter`) + transition guards | Exhaustive legal/illegal transition tests |
 | C-PR2 | Readiness resolver (Kahn) + input routing (connection mapping, coalescing) + blocked propagation | Diamond/parallel-wave planning tests; failed node ⇒ downstream `blocked`, not silent pending |
-| C-PR3 | Sync in-memory graph executor | End-to-end graph runs incl. gate-branch skip; `invalid_input` short-circuits before handler executes; per-node timing recorded |
+| C-PR3 | Sync in-memory graph executor (incl. the legacy-node resolution strategy: definitions from `LegacyStepNodeAdapter::definitionFor()` must resolve to the adapter wrapping the container-built v1 step — registry/executor wiring deferred here from Macro A by design) | End-to-end graph runs incl. gate-branch skip; `invalid_input` short-circuits before handler executes; per-node timing recorded; a v1 step runs inside a graph via the adapter |
 | C-PR4 | `#[Retry]` attribute + graph-level override: tries/backoff/timeout, `dead_letter` | Fake-clock backoff tests; timeout → failed → retries → dead_letter |
 | C-PR5 | Queue coordinator + per-node jobs, `lockForUpdate` advance, idempotent dispatch | Race simulations: duplicate coordinator/node dispatch never double-executes or double-completes (locked join pattern from Flow v2) |
 | C-PR6 | `flow_node_children` migration; `SubFlowNode`, `ForEachNode`/`MapNode` (maxConcurrency); locked join | Nested flow + fan-out tests; child failure aggregation; parent resumes exactly once |

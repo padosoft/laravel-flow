@@ -1,0 +1,116 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Padosoft\LaravelFlow\Node;
+
+use InvalidArgumentException;
+use Padosoft\LaravelFlow\FlowContext;
+use Padosoft\LaravelFlow\FlowStepHandler;
+use Padosoft\LaravelFlow\FlowStepResult;
+use RuntimeException;
+
+/**
+ * Runs a v1 {@see FlowStepHandler} as a v2 graph node. The step's whole
+ * input array travels on the single `input` Json port and its output on
+ * the `output` Json port; result semantics map 1:1.
+ *
+ * v1 `stepOutputs` are deliberately NOT bridged: in a graph, upstream data
+ * reaches a node through its input ports, so adapted steps always see an
+ * empty `stepOutputs` array. Feed any upstream values through the `input`
+ * port instead.
+ *
+ * {@see definitionFor()} returns a descriptive definition whose
+ * `handlerClass` is the wrapped v1 step class; the registration and
+ * container-resolution wiring for legacy definitions ships with the graph
+ * executor (Macro C) — `NodeRegistry::register()` intentionally accepts
+ * only {@see FlowNodeHandler} classes until then.
+ *
+ * This class deliberately carries no `#[FlowNode]` attribute: it is never
+ * resolved through `NodeRegistry`/`NodeDiscovery` (one adapter instance
+ * wraps one injected step), only described via {@see definitionFor()}.
+ *
+ * @api
+ */
+final class LegacyStepNodeAdapter implements FlowNodeHandler
+{
+    public function __construct(private readonly FlowStepHandler $step) {}
+
+    /**
+     * @param  class-string<FlowStepHandler>  $stepHandlerClass
+     */
+    public static function definitionFor(string $nodeType, string $stepHandlerClass): NodeDefinition
+    {
+        if (! class_exists($stepHandlerClass)) {
+            throw new InvalidArgumentException("Legacy step class [{$stepHandlerClass}] does not exist.");
+        }
+
+        if (! is_a($stepHandlerClass, FlowStepHandler::class, true)) {
+            throw new InvalidArgumentException(
+                "Legacy step class [{$stepHandlerClass}] must implement ".FlowStepHandler::class.'.'
+            );
+        }
+
+        return new NodeDefinition(
+            type: $nodeType,
+            name: self::classBasename($stepHandlerClass),
+            category: 'legacy',
+            icon: null,
+            description: 'v1 FlowStepHandler adapter for '.$stepHandlerClass,
+            inputs: [new PortDefinition('input', PortType::Json)],
+            outputs: [new PortDefinition('output', PortType::Json)],
+            handlerClass: $stepHandlerClass,
+        );
+    }
+
+    private static function classBasename(string $class): string
+    {
+        $pos = strrpos($class, '\\');
+
+        // Global-namespace classes have no separator: use the name as-is.
+        return $pos === false ? $class : substr($class, $pos + 1);
+    }
+
+    public function execute(NodeContext $context): NodeResult
+    {
+        $input = $context->inputs['input'] ?? [];
+
+        if (! is_array($input)) {
+            return NodeResult::failed(new InvalidArgumentException('Legacy input port must carry an array payload.'));
+        }
+
+        try {
+            $result = $this->step->execute(new FlowContext(
+                flowRunId: $context->flowRunId,
+                definitionName: $context->definitionName,
+                input: $input,
+                stepOutputs: [],
+                dryRun: $context->dryRun,
+            ));
+        } catch (\Throwable $error) {
+            // v1 contract: a step may signal failure by throwing — the
+            // engine catches both paths. Preserve that here so adapted
+            // steps run unchanged without executor special-casing.
+            return NodeResult::failed($error);
+        }
+
+        return $this->mapResult($result);
+    }
+
+    private function mapResult(FlowStepResult $result): NodeResult
+    {
+        if ($result->dryRunSkipped) {
+            return NodeResult::dryRunSkipped();
+        }
+
+        if ($result->paused) {
+            return NodeResult::paused(['output' => $result->output], $result->businessImpact);
+        }
+
+        if (! $result->success) {
+            return NodeResult::failed($result->error ?? new RuntimeException('Legacy step failed without error detail.'));
+        }
+
+        return NodeResult::success(['output' => $result->output], $result->businessImpact);
+    }
+}

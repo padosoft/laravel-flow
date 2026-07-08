@@ -54,6 +54,14 @@ final class ImportFlowDefinitionCommand extends Command
             return self::FAILURE;
         }
 
+        if (! json_validate($json)) {
+            // Fail on the real problem before name resolution: a missing
+            // --name would otherwise mask the invalid-JSON diagnosis.
+            $this->error(sprintf('Flow definition file [%s] does not contain valid JSON.', $path));
+
+            return self::FAILURE;
+        }
+
         $name = $this->resolveName($json);
 
         if ($name === null) {

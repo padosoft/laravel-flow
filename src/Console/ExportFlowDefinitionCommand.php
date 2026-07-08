@@ -35,7 +35,7 @@ final class ExportFlowDefinitionCommand extends Command
         $name = (string) $this->argument('name');
         $rawVersion = $this->option('definition-version');
 
-        if ($rawVersion !== null && (! is_string($rawVersion) || ! ctype_digit($rawVersion))) {
+        if ($rawVersion !== null && (! is_string($rawVersion) || ! ctype_digit($rawVersion) || (int) $rawVersion < 1)) {
             $this->error('--definition-version must be a positive integer.');
 
             return self::FAILURE;

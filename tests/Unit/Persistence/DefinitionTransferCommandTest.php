@@ -264,4 +264,24 @@ final class DefinitionTransferCommandTest extends PersistenceTestCase
         $stillDraft = $this->repository()->find('descrivi-immagine', 1);
         $this->assertSame(StoredDefinition::STATUS_DRAFT, $stillDraft->status);
     }
+
+    public function test_export_rejects_zero_definition_version(): void
+    {
+        $this->migrateFlowTables();
+
+        $this->artisan('flow:export', ['name' => 'whatever', '--definition-version' => '0'])
+            ->expectsOutputToContain('--definition-version must be a positive integer.')
+            ->assertExitCode(1);
+    }
+
+    public function test_import_reports_invalid_json_even_without_name(): void
+    {
+        $this->migrateFlowTables();
+        $path = $this->tempPath('broken.json');
+        file_put_contents($path, '{not json');
+
+        $this->artisan('flow:import', ['file' => $path])
+            ->expectsOutputToContain('does not contain valid JSON')
+            ->assertExitCode(1);
+    }
 }

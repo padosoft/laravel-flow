@@ -64,8 +64,11 @@ final class GraphSerializer
 
         $violations = [];
 
+        // Explicit JSON null is treated exactly like an absent key: common
+        // producers emit null for empty maps/lists. Only wrong non-null
+        // types are rejected.
         foreach (['nodes', 'connections', 'metadata'] as $field) {
-            if (array_key_exists($field, $payload) && ! is_array($payload[$field])) {
+            if (($payload[$field] ?? null) !== null && ! is_array($payload[$field])) {
                 $violations[] = "Envelope field [{$field}] must be an array.";
             }
         }
@@ -79,7 +82,8 @@ final class GraphSerializer
                 continue;
             }
 
-            $config = array_key_exists('config', $node) ? $node['config'] : [];
+            // ?? coalesces both absent keys and explicit JSON null to [].
+            $config = $node['config'] ?? [];
 
             if (! is_array($config)) {
                 $violations[] = "Node at index {$index}: [config] must be an array.";

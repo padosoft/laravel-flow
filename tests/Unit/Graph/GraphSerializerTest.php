@@ -199,4 +199,23 @@ final class GraphSerializerTest extends TestCase
 
         $this->assertSame($this->serializer->checksum($graphA), $this->serializer->checksum($graphB));
     }
+
+    public function test_explicit_null_fields_are_treated_as_absent(): void
+    {
+        // Common JSON producers emit null for empty maps/lists.
+        $graph = $this->serializer->fromArray([
+            'schema_version' => GraphSerializer::SCHEMA_VERSION,
+            'kind' => GraphSerializer::KIND,
+            'metadata' => null,
+            'nodes' => [
+                ['id' => 'n1', 'type' => 'test.greet', 'config' => null, 'position' => null],
+            ],
+            'connections' => null,
+        ]);
+
+        $this->assertSame([], $graph->node('n1')?->config);
+        $this->assertNull($graph->node('n1')?->position);
+        $this->assertSame([], $graph->metadata);
+        $this->assertSame([], $graph->connections);
+    }
 }

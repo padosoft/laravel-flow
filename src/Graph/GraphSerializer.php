@@ -1,0 +1,138 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Padosoft\LaravelFlow\Graph;
+
+use JsonException;
+use Padosoft\LaravelFlow\Graph\Exceptions\InvalidGraphException;
+
+/**
+ * Canonical JSON envelope for graph definitions (schema v1) and the
+ * stable content checksum used by the definition store, signing and the
+ * node-level cache. The checksum canonicalizes by recursively sorting
+ * keys, so semantically identical payloads always hash the same.
+ *
+ * @api
+ */
+final class GraphSerializer
+{
+    public const SCHEMA_VERSION = 1;
+
+    public const KIND = 'laravel-flow';
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function toArray(GraphDefinition $graph): array
+    {
+        return [
+            'schema_version' => self::SCHEMA_VERSION,
+            'kind' => self::KIND,
+            'metadata' => $graph->metadata,
+            'nodes' => array_map(static fn (GraphNode $node): array => [
+                'id' => $node->id,
+                'type' => $node->type,
+                'config' => $node->config,
+                'position' => $node->position,
+            ], $graph->nodes),
+            'connections' => array_map(static fn (Connection $wire): array => [
+                'sourceNodeId' => $wire->sourceNodeId,
+                'sourcePortKey' => $wire->sourcePortKey,
+                'targetNodeId' => $wire->targetNodeId,
+                'targetPortKey' => $wire->targetPortKey,
+            ], $graph->connections),
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    public function fromArray(array $payload): GraphDefinition
+    {
+        if (($payload['schema_version'] ?? null) !== self::SCHEMA_VERSION) {
+            throw new InvalidGraphException(['Unsupported or missing schema_version; expected '.self::SCHEMA_VERSION.'.']);
+        }
+
+        if (($payload['kind'] ?? null) !== self::KIND) {
+            throw new InvalidGraphException(["Unsupported or missing kind; expected '".self::KIND."'."]);
+        }
+
+        $nodes = [];
+
+        foreach (is_array($payload['nodes'] ?? null) ? $payload['nodes'] : [] as $index => $node) {
+            if (! is_array($node) || ! is_string($node['id'] ?? null) || ! is_string($node['type'] ?? null)) {
+                throw new InvalidGraphException(["Malformed node entry at index {$index}."]);
+            }
+
+            $nodes[] = new GraphNode(
+                $node['id'],
+                $node['type'],
+                is_array($node['config'] ?? null) ? $node['config'] : [],
+                is_array($node['position'] ?? null) ? $node['position'] : null,
+            );
+        }
+
+        $connections = [];
+
+        foreach (is_array($payload['connections'] ?? null) ? $payload['connections'] : [] as $index => $wire) {
+            if (! is_array($wire)
+                || ! is_string($wire['sourceNodeId'] ?? null) || ! is_string($wire['sourcePortKey'] ?? null)
+                || ! is_string($wire['targetNodeId'] ?? null) || ! is_string($wire['targetPortKey'] ?? null)) {
+                throw new InvalidGraphException(["Malformed connection entry at index {$index}."]);
+            }
+
+            $connections[] = new Connection($wire['sourceNodeId'], $wire['sourcePortKey'], $wire['targetNodeId'], $wire['targetPortKey']);
+        }
+
+        $metadata = is_array($payload['metadata'] ?? null) ? $payload['metadata'] : [];
+
+        return new GraphDefinition($nodes, $connections, $metadata);
+    }
+
+    /**
+     * @throws JsonException
+     */
+    public function toJson(GraphDefinition $graph, int $flags = 0): string
+    {
+        return json_encode($this->toArray($graph), $flags | JSON_THROW_ON_ERROR);
+    }
+
+    public function fromJson(string $json): GraphDefinition
+    {
+        try {
+            /** @var mixed $decoded */
+            $decoded = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
+        } catch (JsonException $e) {
+            throw new InvalidGraphException(['Invalid JSON payload: '.$e->getMessage()]);
+        }
+
+        if (! is_array($decoded)) {
+            throw new InvalidGraphException(['Graph payload must decode to an object.']);
+        }
+
+        return $this->fromArray($decoded);
+    }
+
+    public function checksum(GraphDefinition $graph): string
+    {
+        $canonical = $this->toArray($graph);
+        $this->ksortRecursive($canonical);
+
+        return hash('sha256', json_encode($canonical, JSON_THROW_ON_ERROR));
+    }
+
+    /**
+     * @param  array<array-key, mixed>  $value
+     */
+    private function ksortRecursive(array &$value): void
+    {
+        ksort($value);
+
+        foreach ($value as &$item) {
+            if (is_array($item)) {
+                $this->ksortRecursive($item);
+            }
+        }
+    }
+}

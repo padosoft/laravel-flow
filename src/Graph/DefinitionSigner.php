@@ -20,6 +20,8 @@ use Padosoft\LaravelFlow\WebhookDeliveryClient;
  * signature always fails, including for rows written before signing was
  * turned on.
  *
+ * Config shape deviates from the original plan (single nullable `definitions.signing_secret` instead of enabled+secret pair) to eliminate the enabled-without-secret misconfiguration; see docs/superpowers/plans/2026-07-08-macro-b-graph-definition.md Task 7.
+ *
  * @api
  */
 final class DefinitionSigner
@@ -40,7 +42,7 @@ final class DefinitionSigner
      */
     public function sign(string $checksum): ?string
     {
-        if (($this->secret ?? '') === '') {
+        if (! $this->isEnabled()) {
             return null;
         }
 

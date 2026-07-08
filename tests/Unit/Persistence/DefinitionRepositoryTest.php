@@ -341,6 +341,20 @@ final class DefinitionRepositoryTest extends PersistenceTestCase
         $this->assertSame($created->signature, $found->signature);
     }
 
+    public function test_publish_rejects_tampered_draft_when_signing_enabled(): void
+    {
+        $this->migrateFlowTables();
+        $this->configureSigningSecret('top-secret');
+
+        $repository = $this->repository();
+        $created = $repository->createDraft('onboarding', $this->graph());
+        $this->tamperGraph($created->id, $this->graph('tampered'));
+
+        $this->expectException(DefinitionSignatureException::class);
+
+        $repository->publish('onboarding', $created->version);
+    }
+
     private function configureSigningSecret(?string $secret): void
     {
         $this->app['config']->set('laravel-flow.definitions.signing_secret', $secret);

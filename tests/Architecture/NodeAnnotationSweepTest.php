@@ -33,7 +33,9 @@ final class NodeAnnotationSweepTest extends TestCase
                     continue;
                 }
 
-                $source = (string) file_get_contents($file->getPathname());
+                $source = file_get_contents($file->getPathname());
+                $this->assertNotFalse($source, "Unable to read {$file->getPathname()}.");
+
                 $hasApi = str_contains($source, '@api');
                 $hasInternal = str_contains($source, '@internal');
 

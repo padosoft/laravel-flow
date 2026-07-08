@@ -42,4 +42,13 @@ final class GraphNodeTest extends TestCase
 
         new GraphNode('n1', 'test.greet', [], ['x' => 'left']);
     }
+
+    public function test_rejects_numeric_string_position(): void
+    {
+        // The documented shape is int|float: numeric strings are not allowed.
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessageMatches('/position must carry int\|float/i');
+
+        new GraphNode('n1', 'test.greet', [], ['x' => '10', 'y' => 20]);
+    }
 }

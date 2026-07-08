@@ -83,6 +83,32 @@ final class GraphValidatorTest extends TestCase
         $this->validator->validate($graph);
     }
 
+    public function test_config_literal_with_wrong_type_violates(): void
+    {
+        $graph = new GraphDefinition([new GraphNode('c', 'test.count', ['seed' => 'abc'])], []);
+
+        $this->expectException(InvalidGraphException::class);
+        $this->expectExceptionMessageMatches('/config value for input \[seed\] on node \[c\] must be of type \[int\]/i');
+        $this->validator->validate($graph);
+    }
+
+    public function test_null_config_literal_on_required_input_violates(): void
+    {
+        $graph = new GraphDefinition([new GraphNode('c', 'test.count', ['seed' => null])], []);
+
+        $this->expectException(InvalidGraphException::class);
+        $this->expectExceptionMessageMatches('/config value for required input \[seed\] on node \[c\] must not be null/i');
+        $this->validator->validate($graph);
+    }
+
+    public function test_valid_config_literal_passes(): void
+    {
+        $graph = new GraphDefinition([new GraphNode('c', 'test.count', ['seed' => 5])], []);
+
+        $this->validator->validate($graph);
+        $this->addToAssertionCount(1);
+    }
+
     public function test_fan_in_on_a_single_input_port_violates(): void
     {
         // Two sources into one input port would give the executor ambiguous

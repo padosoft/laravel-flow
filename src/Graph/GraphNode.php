@@ -34,8 +34,10 @@ final class GraphNode
             throw new InvalidArgumentException('Graph node type must not be empty.');
         }
 
-        if ($this->position !== null && (! is_numeric($this->position['x'] ?? null) || ! is_numeric($this->position['y'] ?? null))) {
-            throw new InvalidArgumentException("Graph node [{$this->id}] position must carry numeric x and y.");
+        $isCoordinate = static fn (mixed $v): bool => is_int($v) || is_float($v);
+
+        if ($this->position !== null && (! $isCoordinate($this->position['x'] ?? null) || ! $isCoordinate($this->position['y'] ?? null))) {
+            throw new InvalidArgumentException("Graph node [{$this->id}] position must carry int|float x and y.");
         }
     }
 }

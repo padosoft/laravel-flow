@@ -75,10 +75,31 @@ final class GraphValidator
             }
 
             foreach ($definition->inputs as $port) {
-                $satisfied = isset($wiredInputs[$node->id][$port->key]) || array_key_exists($port->key, $node->config);
+                $hasConfig = array_key_exists($port->key, $node->config);
+                $satisfied = isset($wiredInputs[$node->id][$port->key]) || $hasConfig;
 
                 if ($port->required && ! $satisfied) {
                     $violations[] = "Required input [{$port->key}] on node [{$node->id}] is unwired and has no config value.";
+                }
+
+                if (! $hasConfig) {
+                    continue;
+                }
+
+                // Config literals are validated here so a graph that cannot
+                // pass runtime input validation is rejected at publish time.
+                $value = $node->config[$port->key];
+
+                if ($value === null) {
+                    if ($port->required) {
+                        $violations[] = "Config value for required input [{$port->key}] on node [{$node->id}] must not be null.";
+                    }
+
+                    continue;
+                }
+
+                if (! $port->type->validates($value)) {
+                    $violations[] = "Config value for input [{$port->key}] on node [{$node->id}] must be of type [{$port->type->value}], got [".get_debug_type($value).'].';
                 }
             }
         }

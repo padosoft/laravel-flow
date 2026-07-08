@@ -137,8 +137,9 @@ final class GraphDefinition
 
         $order = [];
 
-        while ($queue !== []) {
-            $id = array_shift($queue);
+        // Index-based FIFO keeps Kahn O(V+E); array_shift would be O(V²).
+        for ($i = 0; $i < count($queue); $i++) {
+            $id = $queue[$i];
             $order[] = $id;
 
             foreach ($adjacency[$id] ?? [] as $next) {

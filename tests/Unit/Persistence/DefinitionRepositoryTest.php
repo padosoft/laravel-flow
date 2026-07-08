@@ -366,4 +366,40 @@ final class DefinitionRepositoryTest extends PersistenceTestCase
         $record->graph = (new GraphSerializer)->toArray($replacement);
         $record->save();
     }
+
+    public function test_signing_enabled_returns_recomputed_checksum_when_column_is_tampered(): void
+    {
+        $this->migrateFlowTables();
+        $this->configureSigningSecret('top-secret');
+        $created = $this->repository()->createDraft('signed.checksum', $this->graph('original'));
+
+        $record = FlowDefinitionRecord::query()->findOrFail($created->id);
+        $record->checksum = str_repeat('0', 64);
+        $record->save();
+
+        $loaded = $this->repository()->find('signed.checksum', $created->version);
+
+        // graph+signature intact: verification passes and the DTO carries
+        // the checksum recomputed from the verified graph, not the column.
+        $this->assertSame($created->checksum, $loaded->checksum);
+        $this->assertNotSame(str_repeat('0', 64), $loaded->checksum);
+    }
+
+    public function test_signing_enabled_wraps_unreadable_graph_in_signature_exception(): void
+    {
+        $this->migrateFlowTables();
+        $this->configureSigningSecret('top-secret');
+        $created = $this->repository()->createDraft('signed.broken', $this->graph('original'));
+
+        $record = FlowDefinitionRecord::query()->findOrFail($created->id);
+        $record->graph = ['schema_version' => 999, 'kind' => 'nope'];
+        $record->save();
+
+        try {
+            $this->repository()->find('signed.broken', $created->version);
+            $this->fail('Expected DefinitionSignatureException');
+        } catch (DefinitionSignatureException $e) {
+            $this->assertNotNull($e->getPrevious());
+        }
+    }
 }

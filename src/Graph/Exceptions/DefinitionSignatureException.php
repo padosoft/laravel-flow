@@ -18,8 +18,11 @@ use RuntimeException;
  */
 final class DefinitionSignatureException extends RuntimeException
 {
-    public function __construct(public readonly string $name, public readonly int $version)
+    public function __construct(public readonly string $name, public readonly int $version, ?\Throwable $previous = null)
     {
-        parent::__construct("Flow definition [{$name}] version [{$version}] failed signature verification.");
+        parent::__construct(
+            "Flow definition [{$name}] version [{$version}] failed signature verification.",
+            previous: $previous,
+        );
     }
 }

@@ -239,26 +239,39 @@ final class EloquentDefinitionRepository implements DefinitionRepository
      * @throws DefinitionSignatureException when signing is enabled and the
      *                                      recomputed checksum does not verify against the stored signature
      */
-    private function verifySignature(FlowDefinitionRecord $model): void
+    /**
+     * Returns the checksum recomputed from the stored graph when signing
+     * is enabled, null when disabled (no recompute on the fast path).
+     */
+    private function verifySignature(FlowDefinitionRecord $model): ?string
     {
         if (! $this->signer->isEnabled()) {
             // Skips the fromArray()/checksum() recompute entirely: while
             // disabled, verification is a no-op regardless of whether a
             // signature is present (see DefinitionSigner's tolerant-read
             // design decision), so there is nothing worth computing here.
-            return;
+            return null;
         }
 
-        $checksum = $this->serializer->checksum($this->serializer->fromArray($model->graph));
+        try {
+            $checksum = $this->serializer->checksum($this->serializer->fromArray($model->graph));
+        } catch (\Throwable $e) {
+            // With signing enabled, an unreadable stored graph IS a
+            // verification failure: surface it under the documented
+            // contract exception instead of leaking serializer errors.
+            throw new DefinitionSignatureException($model->name, $model->version, previous: $e);
+        }
 
         if (! $this->signer->verify($checksum, $model->signature)) {
             throw new DefinitionSignatureException($model->name, $model->version);
         }
+
+        return $checksum;
     }
 
     private function toStoredDefinition(FlowDefinitionRecord $model): StoredDefinition
     {
-        $this->verifySignature($model);
+        $verifiedChecksum = $this->verifySignature($model);
 
         return new StoredDefinition(
             id: $model->id,
@@ -266,7 +279,10 @@ final class EloquentDefinitionRepository implements DefinitionRepository
             version: $model->version,
             status: $model->status,
             graph: $model->graph,
-            checksum: $model->checksum,
+            // With signing enabled, return the checksum recomputed from the
+            // verified graph: the raw column is unsigned and could have been
+            // tampered independently of graph+signature.
+            checksum: $verifiedChecksum ?? $model->checksum,
             signature: $model->signature,
             publishedAt: $model->published_at instanceof DateTimeImmutable ? $model->published_at : null,
         );

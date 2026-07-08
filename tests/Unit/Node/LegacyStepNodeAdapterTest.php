@@ -137,6 +137,25 @@ final class LegacyStepNodeAdapterTest extends TestCase
         $this->assertSame(['output' => ['echo' => []]], $result->outputs);
     }
 
+    public function test_thrown_step_failure_maps_to_failed_result(): void
+    {
+        $error = new RuntimeException('v1 throw-to-fail');
+        $step = new class($error) implements FlowStepHandler
+        {
+            public function __construct(private readonly \Throwable $error) {}
+
+            public function execute(FlowContext $context): FlowStepResult
+            {
+                throw $this->error;
+            }
+        };
+
+        $result = (new LegacyStepNodeAdapter($step))->execute($this->context(['input' => []]));
+
+        $this->assertFalse($result->success);
+        $this->assertSame($error, $result->error);
+    }
+
     public function test_non_array_input_payload_fails_without_reaching_the_step(): void
     {
         $step = new class implements FlowStepHandler

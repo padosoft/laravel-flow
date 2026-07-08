@@ -79,13 +79,20 @@ final class LegacyStepNodeAdapter implements FlowNodeHandler
             return NodeResult::failed(new InvalidArgumentException('Legacy input port must carry an array payload.'));
         }
 
-        $result = $this->step->execute(new FlowContext(
-            flowRunId: $context->flowRunId,
-            definitionName: $context->definitionName,
-            input: $input,
-            stepOutputs: [],
-            dryRun: $context->dryRun,
-        ));
+        try {
+            $result = $this->step->execute(new FlowContext(
+                flowRunId: $context->flowRunId,
+                definitionName: $context->definitionName,
+                input: $input,
+                stepOutputs: [],
+                dryRun: $context->dryRun,
+            ));
+        } catch (\Throwable $error) {
+            // v1 contract: a step may signal failure by throwing — the
+            // engine catches both paths. Preserve that here so adapted
+            // steps run unchanged without executor special-casing.
+            return NodeResult::failed($error);
+        }
 
         return $this->mapResult($result);
     }

@@ -26,6 +26,10 @@ use RuntimeException;
  * executor (Macro C) — `NodeRegistry::register()` intentionally accepts
  * only {@see FlowNodeHandler} classes until then.
  *
+ * This class deliberately carries no `#[FlowNode]` attribute: it is never
+ * resolved through `NodeRegistry`/`NodeDiscovery` (one adapter instance
+ * wraps one injected step), only described via {@see definitionFor()}.
+ *
  * @api
  */
 final class LegacyStepNodeAdapter implements FlowNodeHandler

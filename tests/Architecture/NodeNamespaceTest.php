@@ -34,13 +34,15 @@ final class NodeNamespaceTest extends TestCase
 
             $source = (string) file_get_contents($file->getPathname());
 
-            if (str_contains($source, 'use Illuminate\\')) {
+            // Word boundary catches imports AND fully-qualified inline
+            // references (type hints, instanceof, catch) alike.
+            if (preg_match('/\bIlluminate\\\\/', $source) === 1) {
                 $offenders[] = $file->getPathname();
             }
         }
 
         $this->assertSame([], $offenders, sprintf(
-            "Illuminate imports found in src/Node:\n%s\nsrc/Node must stay standalone-agnostic; framework wiring belongs in Console.",
+            "Illuminate references found in src/Node:\n%s\nsrc/Node must stay standalone-agnostic; framework wiring belongs in Console.",
             implode("\n", $offenders),
         ));
     }

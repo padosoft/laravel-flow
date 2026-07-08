@@ -7,11 +7,13 @@ namespace Padosoft\LaravelFlow\Tests\Unit\Persistence;
 use Padosoft\LaravelFlow\Contracts\DefinitionRepository;
 use Padosoft\LaravelFlow\Graph\Exceptions\DefinitionLifecycleException;
 use Padosoft\LaravelFlow\Graph\Exceptions\DefinitionNotFoundException;
+use Padosoft\LaravelFlow\Graph\Exceptions\DefinitionSignatureException;
 use Padosoft\LaravelFlow\Graph\Exceptions\InvalidGraphException;
 use Padosoft\LaravelFlow\Graph\GraphDefinition;
 use Padosoft\LaravelFlow\Graph\GraphNode;
 use Padosoft\LaravelFlow\Graph\GraphSerializer;
 use Padosoft\LaravelFlow\Graph\StoredDefinition;
+use Padosoft\LaravelFlow\Models\FlowDefinitionRecord;
 use Padosoft\LaravelFlow\Tests\Fixtures\Nodes\GreetNode;
 
 final class DefinitionRepositoryTest extends PersistenceTestCase
@@ -247,4 +249,107 @@ final class DefinitionRepositoryTest extends PersistenceTestCase
     // this suite can open the race window that the lock protects against
     // on InnoDB. The lock itself, not a test, is the protection; see the
     // docblock on EloquentDefinitionRepository::publish().
+
+    public function test_signing_disabled_by_default_stores_a_null_signature(): void
+    {
+        $this->migrateFlowTables();
+
+        $created = $this->repository()->createDraft('onboarding', $this->graph());
+
+        $this->assertNull($created->signature);
+    }
+
+    public function test_signing_disabled_leaves_a_tampered_graph_column_loadable(): void
+    {
+        // Design decision: signature verification is skipped entirely while
+        // disabled, so tampering that has nothing to do with signing (or a
+        // signature left over from before signing was disabled) must not
+        // block ordinary reads.
+        $this->migrateFlowTables();
+
+        $created = $this->repository()->createDraft('onboarding', $this->graph());
+        $this->tamperGraph($created->id, $this->graph('tampered'));
+
+        $found = $this->repository()->find('onboarding', $created->version);
+
+        $this->assertSame(['tampered'], (new GraphSerializer)->fromArray($found->graph)->nodeIds());
+    }
+
+    public function test_signing_enabled_persists_and_verifies_the_signature_on_every_read_path(): void
+    {
+        $this->migrateFlowTables();
+        $this->configureSigningSecret('top-secret');
+
+        $repository = $this->repository();
+        $created = $repository->createDraft('onboarding', $this->graph());
+
+        $this->assertNotNull($created->signature);
+
+        $found = $repository->find('onboarding', $created->version);
+        $this->assertSame($created->signature, $found->signature);
+
+        $latest = $repository->latest('onboarding');
+        $this->assertNotNull($latest);
+        $this->assertSame($created->signature, $latest->signature);
+
+        $versions = $repository->versions('onboarding');
+        $this->assertSame($created->signature, $versions[0]->signature);
+    }
+
+    public function test_signing_enabled_rejects_a_tampered_graph_column(): void
+    {
+        $this->migrateFlowTables();
+        $this->configureSigningSecret('top-secret');
+
+        $created = $this->repository()->createDraft('onboarding', $this->graph());
+        $this->tamperGraph($created->id, $this->graph('tampered'));
+
+        $this->expectException(DefinitionSignatureException::class);
+
+        $this->repository()->find('onboarding', $created->version);
+    }
+
+    public function test_enabling_signing_after_unsigned_rows_exist_fails_to_load_them(): void
+    {
+        $this->migrateFlowTables();
+
+        $created = $this->repository()->createDraft('onboarding', $this->graph());
+        $this->assertNull($created->signature);
+
+        $this->configureSigningSecret('top-secret');
+
+        $this->expectException(DefinitionSignatureException::class);
+
+        $this->repository()->find('onboarding', $created->version);
+    }
+
+    public function test_disabling_signing_after_signed_rows_exist_still_loads_them(): void
+    {
+        // Design decision: disabling signing is tolerant of rows signed
+        // while it was enabled — verification is skipped entirely once no
+        // secret is configured, so previously signed rows keep loading.
+        $this->migrateFlowTables();
+        $this->configureSigningSecret('top-secret');
+
+        $created = $this->repository()->createDraft('onboarding', $this->graph());
+        $this->assertNotNull($created->signature);
+
+        $this->configureSigningSecret(null);
+
+        $found = $this->repository()->find('onboarding', $created->version);
+
+        $this->assertSame($created->signature, $found->signature);
+    }
+
+    private function configureSigningSecret(?string $secret): void
+    {
+        $this->app['config']->set('laravel-flow.definitions.signing_secret', $secret);
+    }
+
+    private function tamperGraph(int $id, GraphDefinition $replacement): void
+    {
+        $record = FlowDefinitionRecord::query()->findOrFail($id);
+        $record->graph = (new GraphSerializer)->toArray($replacement);
+        $record->save();
+    }
 }

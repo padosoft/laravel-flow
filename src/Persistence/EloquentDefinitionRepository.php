@@ -8,8 +8,10 @@ use DateTimeImmutable;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Padosoft\LaravelFlow\Contracts\DefinitionRepository;
+use Padosoft\LaravelFlow\Graph\DefinitionSigner;
 use Padosoft\LaravelFlow\Graph\Exceptions\DefinitionLifecycleException;
 use Padosoft\LaravelFlow\Graph\Exceptions\DefinitionNotFoundException;
+use Padosoft\LaravelFlow\Graph\Exceptions\DefinitionSignatureException;
 use Padosoft\LaravelFlow\Graph\Exceptions\InvalidGraphException;
 use Padosoft\LaravelFlow\Graph\GraphDefinition;
 use Padosoft\LaravelFlow\Graph\GraphSerializer;
@@ -26,12 +28,14 @@ final class EloquentDefinitionRepository implements DefinitionRepository
         private readonly ?string $connection,
         private readonly GraphValidator $validator,
         private readonly GraphSerializer $serializer = new GraphSerializer,
+        private readonly DefinitionSigner $signer = new DefinitionSigner,
     ) {}
 
     public function createDraft(string $name, GraphDefinition $graph): StoredDefinition
     {
         $payload = $this->serializer->toArray($graph);
         $checksum = $this->serializer->checksum($graph);
+        $signature = $this->signer->sign($checksum);
 
         // Bounded retry: the name-group lock below serializes drafts of an
         // EXISTING name, but for a brand-new name the lock query returns
@@ -43,7 +47,7 @@ final class EloquentDefinitionRepository implements DefinitionRepository
 
         while (true) {
             try {
-                return DB::connection($this->connection)->transaction(function () use ($name, $payload, $checksum): StoredDefinition {
+                return DB::connection($this->connection)->transaction(function () use ($name, $payload, $checksum, $signature): StoredDefinition {
                     $this->newModel()->newQuery()->where('name', $name)->select('id')->lockForUpdate()->get();
 
                     $nextVersion = ((int) $this->newModel()->newQuery()->where('name', $name)->max('version')) + 1;
@@ -53,6 +57,7 @@ final class EloquentDefinitionRepository implements DefinitionRepository
                         'checksum' => $checksum,
                         'graph' => $payload,
                         'name' => $name,
+                        'signature' => $signature,
                         'status' => StoredDefinition::STATUS_DRAFT,
                         'version' => $nextVersion,
                     ])->save();
@@ -230,8 +235,31 @@ final class EloquentDefinitionRepository implements DefinitionRepository
         return $model;
     }
 
+    /**
+     * @throws DefinitionSignatureException when signing is enabled and the
+     *                                      recomputed checksum does not verify against the stored signature
+     */
+    private function verifySignature(FlowDefinitionRecord $model): void
+    {
+        if (! $this->signer->isEnabled()) {
+            // Skips the fromArray()/checksum() recompute entirely: while
+            // disabled, verification is a no-op regardless of whether a
+            // signature is present (see DefinitionSigner's tolerant-read
+            // design decision), so there is nothing worth computing here.
+            return;
+        }
+
+        $checksum = $this->serializer->checksum($this->serializer->fromArray($model->graph));
+
+        if (! $this->signer->verify($checksum, $model->signature)) {
+            throw new DefinitionSignatureException($model->name, $model->version);
+        }
+    }
+
     private function toStoredDefinition(FlowDefinitionRecord $model): StoredDefinition
     {
+        $this->verifySignature($model);
+
         return new StoredDefinition(
             id: $model->id,
             name: $model->name,

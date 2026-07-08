@@ -205,12 +205,19 @@ return [
     | Flow definitions (v2 graph engine)
     |--------------------------------------------------------------------------
     |
-    | Reserved for the versioned flow_definitions store. Optional HMAC
-    | signing of stored graphs is configured here in a later slice.
+    | Optional HMAC-SHA256 signing for the versioned flow_definitions store,
+    | mirroring the webhook secret pattern above: a null/blank secret disables
+    | signing entirely, no separate enabled flag needed. When a secret is
+    | configured, createDraft() signs the graph checksum and find()/latest()/
+    | versions() recompute the checksum and verify it against the stored
+    | signature before returning, throwing DefinitionSignatureException on a
+    | mismatch (for example, a `graph` column edited outside the repository).
+    | Turning signing off again is tolerant of already-signed rows: with no
+    | secret configured, verification is skipped entirely.
     |
     */
     'definitions' => [
-        //
+        'signing_secret' => env('LARAVEL_FLOW_DEFINITIONS_SIGNING_SECRET', null),
     ],
 
 ];

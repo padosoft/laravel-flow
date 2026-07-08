@@ -6,8 +6,10 @@ namespace Padosoft\LaravelFlow\Tests\Contract;
 
 use Padosoft\LaravelFlow\Contracts\DefinitionRepository;
 use Padosoft\LaravelFlow\Graph\Connection;
+use Padosoft\LaravelFlow\Graph\DefinitionSigner;
 use Padosoft\LaravelFlow\Graph\Exceptions\DefinitionLifecycleException;
 use Padosoft\LaravelFlow\Graph\Exceptions\DefinitionNotFoundException;
+use Padosoft\LaravelFlow\Graph\Exceptions\DefinitionSignatureException;
 use Padosoft\LaravelFlow\Graph\Exceptions\InvalidGraphException;
 use Padosoft\LaravelFlow\Graph\GraphDefinition;
 use Padosoft\LaravelFlow\Graph\GraphNode;
@@ -32,6 +34,8 @@ final class GraphApiContractTest extends TestCase
             StoredDefinition::class,
             DefinitionNotFoundException::class,
             DefinitionLifecycleException::class,
+            DefinitionSigner::class,
+            DefinitionSignatureException::class,
         ];
 
         foreach ($classes as $class) {
@@ -66,5 +70,14 @@ final class GraphApiContractTest extends TestCase
     {
         $this->assertSame(1, GraphSerializer::SCHEMA_VERSION);
         $this->assertSame('laravel-flow', GraphSerializer::KIND);
+    }
+
+    public function test_definition_signer_exposes_sign_and_verify(): void
+    {
+        $reflection = new ReflectionClass(DefinitionSigner::class);
+
+        foreach (['isEnabled', 'sign', 'verify'] as $method) {
+            $this->assertTrue($reflection->hasMethod($method), $method);
+        }
     }
 }

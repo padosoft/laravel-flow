@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Padosoft\LaravelFlow\Persistence;
 
+use Closure;
 use DateTimeImmutable;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
@@ -37,32 +38,91 @@ final class EloquentDefinitionRepository implements DefinitionRepository
         $checksum = $this->serializer->checksum($graph);
         $signature = $this->signer->sign($checksum);
 
-        // Bounded retry: the name-group lock below serializes drafts of an
-        // EXISTING name, but for a brand-new name the lock query returns
-        // (and therefore locks) zero rows on engines like Postgres, so two
-        // first drafts can both compute version 1. The unique(name,version)
-        // index makes the loser fail cleanly; retrying recomputes the next
-        // version. Not reproducible on sqlite (single writer) — by design.
+        return $this->withLockedLatestVersion(
+            $name,
+            fn (?FlowDefinitionRecord $latest): StoredDefinition => $this->insertNextDraftVersion($name, $latest, $payload, $checksum, $signature),
+        );
+    }
+
+    /**
+     * Atomic checksum dedupe for `persist_registered`-style callers: the
+     * comparison against the latest stored version and the insert of the
+     * next version both happen inside the SAME name-group lock acquired
+     * by {@see self::withLockedLatestVersion()}, so two workers registering
+     * the same unchanged flow concurrently cannot both observe "unchanged"
+     * and each create a duplicate draft version — the second one blocks on
+     * the lock until the first commits, then re-reads the (now current)
+     * latest checksum. Not reproducible on sqlite: the whole-connection
+     * write serialization used by the test suite already forces the two
+     * writers to run sequentially rather than interleaved, so there is no
+     * window in which both could observe the pre-insert state (see
+     * DefinitionRepositoryTest).
+     *
+     * @throws DefinitionSignatureException
+     */
+    public function createDraftIfChanged(string $name, GraphDefinition $graph): ?StoredDefinition
+    {
+        $payload = $this->serializer->toArray($graph);
+        $checksum = $this->serializer->checksum($graph);
+        $signature = $this->signer->sign($checksum);
+
+        return $this->withLockedLatestVersion(
+            $name,
+            function (?FlowDefinitionRecord $latest) use ($name, $payload, $checksum, $signature): ?StoredDefinition {
+                // Mirrors toStoredDefinition()'s checksum resolution: while
+                // signing is enabled the raw column is unsigned and could
+                // have been tampered independently of graph+signature, so
+                // the comparison must use the checksum recomputed (and
+                // signature-verified) from the stored graph, not the column.
+                if ($latest !== null && ($this->verifySignature($latest) ?? $latest->checksum) === $checksum) {
+                    return null;
+                }
+
+                return $this->insertNextDraftVersion($name, $latest, $payload, $checksum, $signature);
+            },
+        );
+    }
+
+    /**
+     * Runs $body inside a transaction holding lockForUpdate() over every
+     * row of $name, passing it the locked latest version (or null when
+     * none exists yet), and retries up to 3 attempts total on unique
+     * constraint violations.
+     *
+     * Bounded retry: the lock above serializes drafts of an EXISTING name,
+     * but for a brand-new name the lock query returns (and therefore
+     * locks) zero rows on engines like Postgres, so two first drafts can
+     * both compute version 1. The unique(name,version) index makes the
+     * loser fail cleanly; retrying re-resolves the latest version and
+     * therefore the next version number. Not reproducible on sqlite
+     * (single writer) — by design.
+     *
+     * @template T
+     *
+     * @param  Closure(?FlowDefinitionRecord): T  $body
+     * @return T
+     */
+    private function withLockedLatestVersion(string $name, Closure $body): mixed
+    {
         $attempts = 0;
 
         while (true) {
             try {
-                return DB::connection($this->connection)->transaction(function () use ($name, $payload, $checksum, $signature): StoredDefinition {
-                    $this->newModel()->newQuery()->where('name', $name)->select('id')->lockForUpdate()->get();
+                return DB::connection($this->connection)->transaction(function () use ($name, $body) {
+                    $group = $this->newModel()->newQuery()->where('name', $name)->lockForUpdate()->get();
 
-                    $nextVersion = ((int) $this->newModel()->newQuery()->where('name', $name)->max('version')) + 1;
+                    $latest = null;
 
-                    $model = $this->newModel();
-                    $model->forceFill([
-                        'checksum' => $checksum,
-                        'graph' => $payload,
-                        'name' => $name,
-                        'signature' => $signature,
-                        'status' => StoredDefinition::STATUS_DRAFT,
-                        'version' => $nextVersion,
-                    ])->save();
+                    // foreach+instanceof instead of a Collection callback:
+                    // same Larastan model-type-inference gap noted on
+                    // publish()/versions() below.
+                    foreach ($group as $record) {
+                        if ($record instanceof FlowDefinitionRecord && ($latest === null || $record->version > $latest->version)) {
+                            $latest = $record;
+                        }
+                    }
 
-                    return $this->toStoredDefinition($model->refresh());
+                    return $body($latest);
                 });
             } catch (UniqueConstraintViolationException $e) {
                 if (++$attempts >= 3) {
@@ -70,6 +130,24 @@ final class EloquentDefinitionRepository implements DefinitionRepository
                 }
             }
         }
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    private function insertNextDraftVersion(string $name, ?FlowDefinitionRecord $latest, array $payload, string $checksum, ?string $signature): StoredDefinition
+    {
+        $model = $this->newModel();
+        $model->forceFill([
+            'checksum' => $checksum,
+            'graph' => $payload,
+            'name' => $name,
+            'signature' => $signature,
+            'status' => StoredDefinition::STATUS_DRAFT,
+            'version' => $latest !== null ? $latest->version + 1 : 1,
+        ])->save();
+
+        return $this->toStoredDefinition($model->refresh());
     }
 
     public function find(string $name, int $version): StoredDefinition

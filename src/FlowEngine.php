@@ -17,6 +17,7 @@ use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Database\QueryException;
 use InvalidArgumentException;
 use Padosoft\LaravelFlow\Contracts\ConditionalRunRepository;
+use Padosoft\LaravelFlow\Contracts\DefinitionRepository;
 use Padosoft\LaravelFlow\Contracts\FlowStore;
 use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
 use Padosoft\LaravelFlow\Contracts\RedactorAwareFlowStore;
@@ -74,6 +75,9 @@ class FlowEngine
          *         enabled?: bool,
          *         redaction?: array{enabled?: bool, keys?: array<int, string>, replacement?: string}
          *     },
+         *     definitions?: array{
+         *         persist_registered?: bool
+         *     },
          *     queue?: array{
          *         lock_store?: string|null,
          *         lock_seconds?: int,
@@ -99,6 +103,41 @@ class FlowEngine
     public function registerDefinition(FlowDefinition $definition): void
     {
         $this->definitions[$definition->name] = $definition;
+
+        $this->persistRegisteredDefinitionIfEnabled($definition);
+    }
+
+    /**
+     * Optional bridge to the v2 versioned definition store: compiles the
+     * just-registered v1 definition to a graph and saves it as a new
+     * `flow_definitions` draft, gated by `laravel-flow.definitions.persist_registered`
+     * (default off). `DefinitionRepository` is resolved from the
+     * container only when the flag is true, so the normal in-memory-only
+     * registration path never touches the database or the container for
+     * this feature. Re-registering an unchanged definition is a no-op:
+     * {@see DefinitionRepository::createDraftIfChanged()} compares the
+     * content checksum against the latest stored version (any status)
+     * inside the same name-group lock as the insert, so repeated boots of
+     * a host app that calls `register()` on every request/command — even
+     * from concurrent workers — do not pile up draft versions for a
+     * definition that never changed.
+     */
+    private function persistRegisteredDefinitionIfEnabled(FlowDefinition $definition): void
+    {
+        if (! (bool) ($this->config['definitions']['persist_registered'] ?? false)) {
+            return;
+        }
+
+        $graph = $definition->toGraphDefinition();
+
+        /** @var DefinitionRepository $repository */
+        $repository = $this->container->make(DefinitionRepository::class);
+
+        try {
+            $repository->createDraftIfChanged($definition->name, $graph);
+        } catch (QueryException $e) {
+            throw $this->definitionPersistenceUnavailableException($e);
+        }
     }
 
     /**
@@ -1741,6 +1780,14 @@ class FlowEngine
     {
         return new FlowExecutionException(
             'Laravel Flow persistence requires published laravel-flow persistence tables and a reachable persistence connection. Run the package migrations and verify the persistence connection.',
+            previous: $e,
+        );
+    }
+
+    private function definitionPersistenceUnavailableException(QueryException $e): FlowExecutionException
+    {
+        return new FlowExecutionException(
+            'Persisting registered definitions (laravel-flow.definitions.persist_registered) requires the published flow_definitions persistence table and a reachable persistence connection. Run the package migrations and verify the persistence connection, or disable definitions.persist_registered.',
             previous: $e,
         );
     }

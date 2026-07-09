@@ -21,8 +21,8 @@ use Padosoft\LaravelFlow\Contracts\CurrentPayloadRedactorProvider;
 use Padosoft\LaravelFlow\Contracts\FlowStore;
 use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
 use Padosoft\LaravelFlow\Contracts\RedactorAwareFlowStore;
+use Padosoft\LaravelFlow\Contracts\RunNodeRepository;
 use Padosoft\LaravelFlow\Contracts\RunRepository;
-use Padosoft\LaravelFlow\Contracts\StepRunRepository;
 use Padosoft\LaravelFlow\Events\FlowCompensated;
 use Padosoft\LaravelFlow\Events\FlowPaused;
 use Padosoft\LaravelFlow\Events\FlowStepCompleted;
@@ -35,8 +35,8 @@ use Padosoft\LaravelFlow\FlowExecutionOptions;
 use Padosoft\LaravelFlow\FlowRun;
 use Padosoft\LaravelFlow\Models\FlowApprovalRecord;
 use Padosoft\LaravelFlow\Models\FlowAuditRecord;
+use Padosoft\LaravelFlow\Models\FlowRunNodeRecord;
 use Padosoft\LaravelFlow\Models\FlowRunRecord;
-use Padosoft\LaravelFlow\Models\FlowStepRecord;
 use Padosoft\LaravelFlow\Tests\Unit\Stubs\AlwaysFailsHandler;
 use Padosoft\LaravelFlow\Tests\Unit\Stubs\AlwaysSucceedsHandler;
 use Padosoft\LaravelFlow\Tests\Unit\Stubs\ApprovalPayloadCapturingHandler;
@@ -100,20 +100,20 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         $this->assertNotNull($runRecord->finished_at);
         $this->assertIsInt($runRecord->duration_ms);
 
-        $steps = FlowStepRecord::query()
+        $steps = FlowRunNodeRecord::query()
             ->where('run_id', $run->id)
             ->orderBy('sequence')
             ->get();
 
         $this->assertCount(2, $steps);
-        $this->assertSame(['create', 'impact'], $steps->pluck('step_name')->all());
+        $this->assertSame(['create', 'impact'], $steps->pluck('node_id')->all());
         $this->assertSame(['succeeded', 'succeeded'], $steps->pluck('status')->all());
         $this->assertSame($frozen->getTimestamp(), $steps[0]->started_at->getTimestamp());
         $this->assertIsInt($steps[0]->sequence);
         $this->assertIsInt($steps[0]->duration_ms);
-        $this->assertSame('[redacted]', $steps[0]->input['flow_input']['token']);
-        $this->assertSame(['create'], $steps[1]->input['step_output_keys']);
-        $this->assertArrayNotHasKey('step_outputs', $steps[1]->input);
+        $this->assertSame('[redacted]', $steps[0]->inputs['flow_input']['token']);
+        $this->assertSame(['create'], $steps[1]->inputs['step_output_keys']);
+        $this->assertArrayNotHasKey('step_outputs', $steps[1]->inputs);
         $this->assertSame(['projected_writes' => 5], $steps[1]->business_impact);
 
         $auditEvents = FlowAuditRecord::query()
@@ -177,7 +177,7 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         $this->assertTrue($secondRun->stepResults['create']->success);
         $this->assertSame($firstRun->stepResults['create']->output, $secondRun->stepResults['create']->output);
         $this->assertSame(1, (int) FlowRunRecord::query()->where('idempotency_key', 'identity-once')->count());
-        $this->assertSame(1, (int) FlowStepRecord::query()->where('run_id', $firstRun->id)->count());
+        $this->assertSame(1, (int) FlowRunNodeRecord::query()->where('run_id', $firstRun->id)->count());
     }
 
     public function test_idempotency_create_race_returns_existing_run_before_side_effects(): void
@@ -249,9 +249,9 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
                 };
             }
 
-            public function steps(): StepRunRepository
+            public function runNodes(): RunNodeRepository
             {
-                return $this->inner->steps();
+                return $this->inner->runNodes();
             }
 
             public function audit(): AuditRepository
@@ -283,7 +283,7 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         $this->assertSame(FlowRun::STATUS_RUNNING, $run->status);
         $this->assertSame(0, AlwaysSucceedsHandler::$callCount);
         $this->assertSame(1, (int) FlowRunRecord::query()->where('idempotency_key', 'identity-race')->count());
-        $this->assertSame(0, (int) FlowStepRecord::query()->where('run_id', 'existing-race-run')->count());
+        $this->assertSame(0, (int) FlowRunNodeRecord::query()->where('run_id', 'existing-race-run')->count());
     }
 
     public function test_idempotency_key_cannot_reuse_a_different_flow_definition(): void
@@ -346,12 +346,12 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         $this->assertArrayHasKey('create', $runRecord->output);
         $this->assertArrayNotHasKey('charge', $runRecord->output);
 
-        $failedStep = FlowStepRecord::query()
+        $failedStep = FlowRunNodeRecord::query()
             ->where('run_id', $run->id)
-            ->where('step_name', 'charge')
+            ->where('node_id', 'charge')
             ->first();
 
-        $this->assertInstanceOf(FlowStepRecord::class, $failedStep);
+        $this->assertInstanceOf(FlowRunNodeRecord::class, $failedStep);
         $this->assertSame('failed', $failedStep->status);
         $this->assertSame(RuntimeException::class, $failedStep->error_class);
         $this->assertSame('boom', $failedStep->error_message);
@@ -390,17 +390,17 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         $this->assertArrayHasKey('create', $runRecord->output);
         $this->assertArrayNotHasKey('manager', $runRecord->output);
 
-        $approvalStep = FlowStepRecord::query()
+        $approvalStep = FlowRunNodeRecord::query()
             ->where('run_id', $run->id)
-            ->where('step_name', 'manager')
+            ->where('node_id', 'manager')
             ->first();
 
-        $this->assertInstanceOf(FlowStepRecord::class, $approvalStep);
+        $this->assertInstanceOf(FlowRunNodeRecord::class, $approvalStep);
         $this->assertSame('paused', $approvalStep->status);
-        $this->assertSame(true, $approvalStep->output['approval_required']);
-        $this->assertSame($issuedToken->approvalId, $approvalStep->output['approval_id']);
-        $this->assertSame($issuedToken->expiresAt->format(DateTimeInterface::ATOM), $approvalStep->output['approval_expires_at']);
-        $this->assertArrayNotHasKey('token', $approvalStep->output);
+        $this->assertSame(true, $approvalStep->outputs['approval_required']);
+        $this->assertSame($issuedToken->approvalId, $approvalStep->outputs['approval_id']);
+        $this->assertSame($issuedToken->expiresAt->format(DateTimeInterface::ATOM), $approvalStep->outputs['approval_expires_at']);
+        $this->assertArrayNotHasKey('token', $approvalStep->outputs);
 
         $approvalRecord = FlowApprovalRecord::query()
             ->where('run_id', $run->id)
@@ -460,16 +460,16 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         $this->assertSame('[redacted]', $runRecord->output['manager']['approval_payload']['api_key']);
         $this->assertSame('[redacted]', $runRecord->output['manager']['approval_actor']['token']);
 
-        $approvalStep = FlowStepRecord::query()
+        $approvalStep = FlowRunNodeRecord::query()
             ->where('run_id', $pausedRun->id)
-            ->where('step_name', 'manager')
+            ->where('node_id', 'manager')
             ->first();
-        $this->assertInstanceOf(FlowStepRecord::class, $approvalStep);
+        $this->assertInstanceOf(FlowRunNodeRecord::class, $approvalStep);
         $this->assertSame('succeeded', $approvalStep->status);
-        $this->assertSame(FlowApprovalRecord::STATUS_APPROVED, $approvalStep->output['approval_status']);
-        $this->assertSame('[redacted]', $approvalStep->output['approval_payload']['api_key']);
-        $this->assertSame(123, $approvalStep->output['approval_actor']['user_id']);
-        $this->assertSame('[redacted]', $approvalStep->output['approval_actor']['token']);
+        $this->assertSame(FlowApprovalRecord::STATUS_APPROVED, $approvalStep->outputs['approval_status']);
+        $this->assertSame('[redacted]', $approvalStep->outputs['approval_payload']['api_key']);
+        $this->assertSame(123, $approvalStep->outputs['approval_actor']['user_id']);
+        $this->assertSame('[redacted]', $approvalStep->outputs['approval_actor']['token']);
 
         $approvalRecord = FlowApprovalRecord::query()
             ->where('run_id', $pausedRun->id)
@@ -548,9 +548,9 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
             ->where('run_id', $pausedRun->id)
             ->where('step_name', 'manager')
             ->firstOrFail();
-        $approvalStep = FlowStepRecord::query()
+        $approvalStep = FlowRunNodeRecord::query()
             ->where('run_id', $pausedRun->id)
-            ->where('step_name', 'manager')
+            ->where('node_id', 'manager')
             ->firstOrFail();
         $runRecord = FlowRunRecord::query()->find($pausedRun->id);
 
@@ -558,8 +558,8 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         $this->assertSame($pausedRun->id, $resumedRun->id);
         $this->assertSame('[frozen-redacted]', $approvalRecord->payload['secret']);
         $this->assertSame('[frozen-redacted]', $approvalRecord->actor['token']);
-        $this->assertSame('[frozen-redacted]', $approvalStep->output['approval_payload']['secret']);
-        $this->assertSame('[frozen-redacted]', $approvalStep->output['approval_actor']['token']);
+        $this->assertSame('[frozen-redacted]', $approvalStep->outputs['approval_payload']['secret']);
+        $this->assertSame('[frozen-redacted]', $approvalStep->outputs['approval_actor']['token']);
         $this->assertSame('[frozen-redacted]', $runRecord->output['manager']['approval_payload']['secret']);
         $this->assertSame('[frozen-redacted]', $runRecord->output['manager']['approval_actor']['token']);
         $this->assertSame('[frozen-redacted]', ApprovalPayloadCapturingHandler::$lastStepOutputs['manager']['approval_payload']['secret']);
@@ -657,9 +657,9 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
             ->where('run_id', $pausedRun->id)
             ->where('status', FlowApprovalRecord::STATUS_APPROVED)
             ->count());
-        $this->assertSame(1, (int) FlowStepRecord::query()
+        $this->assertSame(1, (int) FlowRunNodeRecord::query()
             ->where('run_id', $pausedRun->id)
-            ->where('step_name', 'publish')
+            ->where('node_id', 'publish')
             ->count());
     }
 
@@ -693,9 +693,9 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
             $oldTokenRetry->stepResults['director']->output['approval_expires_at'],
         );
         $this->assertSame(1, ApprovalPayloadCapturingHandler::$callCount);
-        $this->assertSame(0, (int) FlowStepRecord::query()
+        $this->assertSame(0, (int) FlowRunNodeRecord::query()
             ->where('run_id', $directorPausedRun->id)
-            ->where('step_name', 'finalize')
+            ->where('node_id', 'finalize')
             ->count());
         $directorApprovalRecord = FlowApprovalRecord::query()
             ->where('run_id', $directorPausedRun->id)
@@ -703,11 +703,11 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
             ->firstOrFail();
         $this->assertSame(ApprovalTokenManager::hashToken($oldTokenRetry->approvalTokens['director']->plainTextToken), $directorApprovalRecord->token_hash);
         $this->assertSame(ApprovalTokenManager::hashToken($originalDirectorToken), $directorApprovalRecord->previous_token_hash);
-        $this->assertSame($oldTokenRetry->stepResults['director']->output['approval_expires_at'], FlowStepRecord::query()
+        $this->assertSame($oldTokenRetry->stepResults['director']->output['approval_expires_at'], FlowRunNodeRecord::query()
             ->where('run_id', $directorPausedRun->id)
-            ->where('step_name', 'director')
+            ->where('node_id', 'director')
             ->firstOrFail()
-            ->output['approval_expires_at']);
+            ->outputs['approval_expires_at']);
 
         $secondOldTokenRetry = $engine->resume($managerToken, ['decision' => 'ignored-again']);
 
@@ -721,9 +721,9 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         $completedRun = $engine->resume($originalDirectorToken, ['decision' => 'release']);
 
         $this->assertSame(FlowRun::STATUS_SUCCEEDED, $completedRun->status);
-        $this->assertSame(1, (int) FlowStepRecord::query()
+        $this->assertSame(1, (int) FlowRunNodeRecord::query()
             ->where('run_id', $directorPausedRun->id)
-            ->where('step_name', 'finalize')
+            ->where('node_id', 'finalize')
             ->count());
     }
 
@@ -761,9 +761,9 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
             ->firstOrFail();
         $this->assertSame(ApprovalTokenManager::hashToken($originalDirectorToken), $directorApprovalRecord->token_hash);
         $this->assertNull($directorApprovalRecord->previous_token_hash);
-        $this->assertSame(0, (int) FlowStepRecord::query()
+        $this->assertSame(0, (int) FlowRunNodeRecord::query()
             ->where('run_id', $directorPausedRun->id)
-            ->where('step_name', 'finalize')
+            ->where('node_id', 'finalize')
             ->count());
     }
 
@@ -836,9 +836,9 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         $this->assertSame($directorPausedRun->id, $oldTokenRetry->id);
         $this->assertSame(FlowRun::STATUS_PAUSED, $oldTokenRetry->status);
         $this->assertSame(1, ApprovalPayloadCapturingHandler::$callCount);
-        $this->assertSame(0, (int) FlowStepRecord::query()
+        $this->assertSame(0, (int) FlowRunNodeRecord::query()
             ->where('run_id', $directorPausedRun->id)
-            ->where('step_name', 'finalize')
+            ->where('node_id', 'finalize')
             ->count());
     }
 
@@ -872,14 +872,14 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
                 'status' => FlowRun::STATUS_RUNNING,
             ]);
 
-        $directorStep = FlowStepRecord::query()
+        $directorStep = FlowRunNodeRecord::query()
             ->where('run_id', $directorPausedRun->id)
-            ->where('step_name', 'director')
+            ->where('node_id', 'director')
             ->firstOrFail();
         $directorStep->forceFill([
             'duration_ms' => 0,
             'finished_at' => now(),
-            'output' => [
+            'outputs' => [
                 'approval_id' => $directorApproval->id,
                 'approval_payload' => $directorApproval->payload,
                 'approval_status' => FlowApprovalRecord::STATUS_APPROVED,
@@ -887,15 +887,16 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
             'status' => 'succeeded',
         ])->save();
 
-        (new FlowStepRecord)->forceFill([
+        (new FlowRunNodeRecord)->forceFill([
+            'node_type' => 'legacy.step',
             'dry_run_skipped' => false,
             'handler' => AlwaysSucceedsHandler::class,
-            'input' => ['flow_input_keys' => [], 'step_output_keys' => ['create', 'manager', 'publish', 'director']],
+            'inputs' => ['flow_input_keys' => [], 'step_output_keys' => ['create', 'manager', 'publish', 'director']],
             'run_id' => $directorPausedRun->id,
             'sequence' => 5,
             'started_at' => now(),
             'status' => 'running',
-            'step_name' => 'finalize',
+            'node_id' => 'finalize',
         ])->save();
 
         $lock = Cache::store('file')->getStore()->lock('laravel-flow:approval-run:'.$directorPausedRun->id, 60);
@@ -910,9 +911,9 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         $this->assertSame($directorPausedRun->id, $oldTokenRetry->id);
         $this->assertSame(FlowRun::STATUS_RUNNING, $oldTokenRetry->status);
         $this->assertSame(1, AlwaysSucceedsHandler::$callCount);
-        $this->assertSame('running', FlowStepRecord::query()
+        $this->assertSame('running', FlowRunNodeRecord::query()
             ->where('run_id', $directorPausedRun->id)
-            ->where('step_name', 'finalize')
+            ->where('node_id', 'finalize')
             ->firstOrFail()
             ->status);
     }
@@ -947,14 +948,14 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
                 'status' => FlowRun::STATUS_RUNNING,
             ]);
 
-        $directorStep = FlowStepRecord::query()
+        $directorStep = FlowRunNodeRecord::query()
             ->where('run_id', $directorPausedRun->id)
-            ->where('step_name', 'director')
+            ->where('node_id', 'director')
             ->firstOrFail();
         $directorStep->forceFill([
             'duration_ms' => 0,
             'finished_at' => now(),
-            'output' => [
+            'outputs' => [
                 'approval_id' => $directorApproval->id,
                 'approval_payload' => $directorApproval->payload,
                 'approval_status' => FlowApprovalRecord::STATUS_APPROVED,
@@ -962,15 +963,16 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
             'status' => 'succeeded',
         ])->save();
 
-        (new FlowStepRecord)->forceFill([
+        (new FlowRunNodeRecord)->forceFill([
+            'node_type' => 'legacy.step',
             'dry_run_skipped' => false,
             'handler' => AlwaysSucceedsHandler::class,
-            'input' => ['flow_input_keys' => [], 'step_output_keys' => ['create', 'manager', 'publish', 'director']],
+            'inputs' => ['flow_input_keys' => [], 'step_output_keys' => ['create', 'manager', 'publish', 'director']],
             'run_id' => $directorPausedRun->id,
             'sequence' => 5,
             'started_at' => now(),
             'status' => 'running',
-            'step_name' => 'finalize',
+            'node_id' => 'finalize',
         ])->save();
 
         $oldTokenRetry = $engine->resume($managerToken, ['decision' => 'ignored']);
@@ -978,9 +980,9 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         $this->assertSame($directorPausedRun->id, $oldTokenRetry->id);
         $this->assertSame(FlowRun::STATUS_RUNNING, $oldTokenRetry->status);
         $this->assertSame(1, AlwaysSucceedsHandler::$callCount);
-        $this->assertSame('running', FlowStepRecord::query()
+        $this->assertSame('running', FlowRunNodeRecord::query()
             ->where('run_id', $directorPausedRun->id)
-            ->where('step_name', 'finalize')
+            ->where('node_id', 'finalize')
             ->firstOrFail()
             ->status);
     }
@@ -1084,9 +1086,9 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
             $lock->release();
         }
 
-        $this->assertSame('paused', FlowStepRecord::query()
+        $this->assertSame('paused', FlowRunNodeRecord::query()
             ->where('run_id', $pausedRun->id)
-            ->where('step_name', 'manager')
+            ->where('node_id', 'manager')
             ->firstOrFail()
             ->status);
         $this->assertSame(0, ApprovalPayloadCapturingHandler::$callCount);
@@ -1125,9 +1127,9 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
             ->whereKey($directorPausedRun->id)
             ->firstOrFail()
             ->status);
-        $this->assertSame(0, (int) FlowStepRecord::query()
+        $this->assertSame(0, (int) FlowRunNodeRecord::query()
             ->where('run_id', $directorPausedRun->id)
-            ->where('step_name', 'finalize')
+            ->where('node_id', 'finalize')
             ->count());
     }
 
@@ -1157,9 +1159,9 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         $this->assertSame($pausedRun->id, $returnedRun->id);
         $this->assertSame(FlowRun::STATUS_RUNNING, $returnedRun->status);
         $this->assertSame(0, ApprovalPayloadCapturingHandler::$callCount);
-        $this->assertSame(0, (int) FlowStepRecord::query()
+        $this->assertSame(0, (int) FlowRunNodeRecord::query()
             ->where('run_id', $pausedRun->id)
-            ->where('step_name', 'publish')
+            ->where('node_id', 'publish')
             ->count());
         $this->assertSame(FlowApprovalRecord::STATUS_APPROVED, FlowApprovalRecord::query()
             ->where('run_id', $pausedRun->id)
@@ -1185,14 +1187,14 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
             ->approveForRunStatus($token, FlowRun::STATUS_PAUSED, payload: ['decision' => 'ship']);
         $this->assertInstanceOf(FlowApprovalRecord::class, $approval);
 
-        $approvalStep = FlowStepRecord::query()
+        $approvalStep = FlowRunNodeRecord::query()
             ->where('run_id', $pausedRun->id)
-            ->where('step_name', 'manager')
+            ->where('node_id', 'manager')
             ->firstOrFail();
         $approvalStep->forceFill([
             'duration_ms' => 0,
             'finished_at' => now(),
-            'output' => [
+            'outputs' => [
                 'approval_id' => $approval->id,
                 'approval_payload' => $approval->payload,
                 'approval_status' => FlowApprovalRecord::STATUS_APPROVED,
@@ -1218,9 +1220,9 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         $this->assertSame($pausedRun->id, $returnedRun->id);
         $this->assertSame(FlowRun::STATUS_RUNNING, $returnedRun->status);
         $this->assertSame(0, ApprovalPayloadCapturingHandler::$callCount);
-        $this->assertSame(0, (int) FlowStepRecord::query()
+        $this->assertSame(0, (int) FlowRunNodeRecord::query()
             ->where('run_id', $pausedRun->id)
-            ->where('step_name', 'publish')
+            ->where('node_id', 'publish')
             ->count());
     }
 
@@ -1278,14 +1280,14 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
             ->whereKey($pausedRun->id)
             ->update(['status' => FlowRun::STATUS_RUNNING]);
 
-        $approvalStep = FlowStepRecord::query()
+        $approvalStep = FlowRunNodeRecord::query()
             ->where('run_id', $pausedRun->id)
-            ->where('step_name', 'manager')
+            ->where('node_id', 'manager')
             ->firstOrFail();
         $approvalStep->forceFill([
             'duration_ms' => 0,
             'finished_at' => now(),
-            'output' => ['approval_id' => $approval->id, 'approval_payload' => $approval->payload, 'approval_status' => FlowApprovalRecord::STATUS_APPROVED],
+            'outputs' => ['approval_id' => $approval->id, 'approval_payload' => $approval->payload, 'approval_status' => FlowApprovalRecord::STATUS_APPROVED],
             'status' => 'succeeded',
         ])->save();
 
@@ -1299,9 +1301,9 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
 
         $this->assertSame(FlowRun::STATUS_RUNNING, $resumedRun->status);
         $this->assertSame(0, ApprovalPayloadCapturingHandler::$callCount);
-        $this->assertSame(0, (int) FlowStepRecord::query()
+        $this->assertSame(0, (int) FlowRunNodeRecord::query()
             ->where('run_id', $pausedRun->id)
-            ->where('step_name', 'publish')
+            ->where('node_id', 'publish')
             ->count());
     }
 
@@ -1333,15 +1335,15 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
                 return $this->inner->runs();
             }
 
-            public function steps(): StepRunRepository
+            public function runNodes(): RunNodeRepository
             {
-                return new class($this->inner->steps()) implements StepRunRepository
+                return new class($this->inner->runNodes()) implements RunNodeRepository
                 {
                     public function __construct(
-                        private readonly StepRunRepository $inner,
+                        private readonly RunNodeRepository $inner,
                     ) {}
 
-                    public function createOrUpdate(string $runId, string $stepName, array $attributes): FlowStepRecord
+                    public function createOrUpdate(string $runId, string $stepName, array $attributes): FlowRunNodeRecord
                     {
                         throw new QueryException('testing', 'update flow_steps', [], new RuntimeException('table missing'));
                     }
@@ -1413,35 +1415,36 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
             ->whereKey($pausedRun->id)
             ->update(['status' => FlowRun::STATUS_RUNNING]);
 
-        $approvalStep = FlowStepRecord::query()
+        $approvalStep = FlowRunNodeRecord::query()
             ->where('run_id', $pausedRun->id)
-            ->where('step_name', 'manager')
+            ->where('node_id', 'manager')
             ->firstOrFail();
         $approvalStep->forceFill([
             'duration_ms' => 0,
             'finished_at' => now(),
-            'output' => ['approval_id' => $approval->id, 'approval_payload' => $approval->payload, 'approval_status' => FlowApprovalRecord::STATUS_APPROVED],
+            'outputs' => ['approval_id' => $approval->id, 'approval_payload' => $approval->payload, 'approval_status' => FlowApprovalRecord::STATUS_APPROVED],
             'status' => 'succeeded',
         ])->save();
 
-        (new FlowStepRecord)->forceFill([
+        (new FlowRunNodeRecord)->forceFill([
+            'node_type' => 'legacy.step',
             'dry_run_skipped' => false,
             'handler' => ApprovalPayloadCapturingHandler::class,
-            'input' => ['flow_input_keys' => [], 'step_output_keys' => ['create', 'manager']],
+            'inputs' => ['flow_input_keys' => [], 'step_output_keys' => ['create', 'manager']],
             'run_id' => $pausedRun->id,
             'sequence' => 3,
             'started_at' => now(),
             'status' => 'running',
-            'step_name' => 'publish',
+            'node_id' => 'publish',
         ])->save();
 
         $resumedRun = $engine->resume($token);
 
         $this->assertSame(FlowRun::STATUS_RUNNING, $resumedRun->status);
         $this->assertSame(0, ApprovalPayloadCapturingHandler::$callCount);
-        $this->assertSame('running', FlowStepRecord::query()
+        $this->assertSame('running', FlowRunNodeRecord::query()
             ->where('run_id', $pausedRun->id)
-            ->where('step_name', 'publish')
+            ->where('node_id', 'publish')
             ->firstOrFail()
             ->status);
     }
@@ -1467,29 +1470,30 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
             ->whereKey($pausedRun->id)
             ->update(['status' => FlowRun::STATUS_RUNNING]);
 
-        $approvalStep = FlowStepRecord::query()
+        $approvalStep = FlowRunNodeRecord::query()
             ->where('run_id', $pausedRun->id)
-            ->where('step_name', 'manager')
+            ->where('node_id', 'manager')
             ->firstOrFail();
         $approvalStep->forceFill([
             'duration_ms' => 0,
             'finished_at' => now(),
-            'output' => ['approval_id' => $approval->id, 'approval_payload' => $approval->payload, 'approval_status' => FlowApprovalRecord::STATUS_APPROVED],
+            'outputs' => ['approval_id' => $approval->id, 'approval_payload' => $approval->payload, 'approval_status' => FlowApprovalRecord::STATUS_APPROVED],
             'status' => 'succeeded',
         ])->save();
 
-        (new FlowStepRecord)->forceFill([
+        (new FlowRunNodeRecord)->forceFill([
+            'node_type' => 'legacy.step',
             'dry_run_skipped' => false,
             'duration_ms' => 0,
             'finished_at' => now(),
             'handler' => ApprovalPayloadCapturingHandler::class,
-            'input' => ['flow_input_keys' => [], 'step_output_keys' => ['create', 'manager']],
-            'output' => ['already' => 'persisted'],
+            'inputs' => ['flow_input_keys' => [], 'step_output_keys' => ['create', 'manager']],
+            'outputs' => ['already' => 'persisted'],
             'run_id' => $pausedRun->id,
             'sequence' => 3,
             'started_at' => now(),
             'status' => 'succeeded',
-            'step_name' => 'publish',
+            'node_id' => 'publish',
         ])->save();
 
         $resumedRun = $engine->resume($token);
@@ -1497,9 +1501,9 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         $this->assertSame(FlowRun::STATUS_SUCCEEDED, $resumedRun->status);
         $this->assertSame(0, ApprovalPayloadCapturingHandler::$callCount);
         $this->assertSame(['already' => 'persisted'], $resumedRun->stepResults['publish']->output);
-        $this->assertSame(1, (int) FlowStepRecord::query()
+        $this->assertSame(1, (int) FlowRunNodeRecord::query()
             ->where('run_id', $pausedRun->id)
-            ->where('step_name', 'publish')
+            ->where('node_id', 'publish')
             ->count());
     }
 
@@ -1599,11 +1603,11 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         $this->assertSame(FlowRun::STATUS_COMPENSATED, $runRecord->status);
         $this->assertSame('manager', $runRecord->failed_step);
 
-        $approvalStep = FlowStepRecord::query()
+        $approvalStep = FlowRunNodeRecord::query()
             ->where('run_id', $pausedRun->id)
-            ->where('step_name', 'manager')
+            ->where('node_id', 'manager')
             ->first();
-        $this->assertInstanceOf(FlowStepRecord::class, $approvalStep);
+        $this->assertInstanceOf(FlowRunNodeRecord::class, $approvalStep);
         $this->assertSame('failed', $approvalStep->status);
         $this->assertSame('Approval step [manager] was rejected.', $approvalStep->error_message);
 
@@ -1686,16 +1690,16 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
                 'status' => FlowRun::STATUS_FAILED,
             ]);
 
-        $approvalStep = FlowStepRecord::query()
+        $approvalStep = FlowRunNodeRecord::query()
             ->where('run_id', $pausedRun->id)
-            ->where('step_name', 'manager')
+            ->where('node_id', 'manager')
             ->firstOrFail();
         $approvalStep->forceFill([
             'duration_ms' => 0,
             'error_class' => FlowExecutionException::class,
             'error_message' => 'Approval step [manager] was rejected.',
             'finished_at' => now(),
-            'output' => null,
+            'outputs' => null,
             'status' => 'failed',
         ])->save();
 
@@ -1756,7 +1760,7 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
 
         $pausedRun = $engine->execute('flow.persist.approval-resume-missing-step-table', []);
         $token = $pausedRun->approvalTokens['manager']->plainTextToken;
-        Schema::dropIfExists('flow_steps');
+        Schema::dropIfExists('flow_run_nodes');
 
         try {
             $engine->resume($token);
@@ -2189,16 +2193,16 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
 
         $run = $engine->execute('flow.persist.secret-error', []);
 
-        $failedStep = FlowStepRecord::query()
+        $failedStep = FlowRunNodeRecord::query()
             ->where('run_id', $run->id)
-            ->where('step_name', 'charge')
+            ->where('node_id', 'charge')
             ->first();
         $failedAudit = FlowAuditRecord::query()
             ->where('run_id', $run->id)
             ->where('event', 'FlowStepFailed')
             ->first();
 
-        $this->assertInstanceOf(FlowStepRecord::class, $failedStep);
+        $this->assertInstanceOf(FlowRunNodeRecord::class, $failedStep);
         $this->assertInstanceOf(FlowAuditRecord::class, $failedAudit);
         $this->assertStringNotContainsString('plain-secret', (string) $failedStep->error_message);
         $this->assertStringNotContainsString('camel-secret', (string) $failedStep->error_message);
@@ -2250,12 +2254,12 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
 
         $run = $engine->execute('flow.persist.custom-redactor', []);
 
-        $failedStep = FlowStepRecord::query()
+        $failedStep = FlowRunNodeRecord::query()
             ->where('run_id', $run->id)
-            ->where('step_name', 'charge')
+            ->where('node_id', 'charge')
             ->first();
 
-        $this->assertInstanceOf(FlowStepRecord::class, $failedStep);
+        $this->assertInstanceOf(FlowRunNodeRecord::class, $failedStep);
         $this->assertStringNotContainsString('custom-secret', (string) $failedStep->error_message);
         $this->assertStringContainsString('[custom-redacted]', (string) $failedStep->error_message);
     }
@@ -2302,9 +2306,9 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         $run = $engine->execute('flow.persist.late-redactor', ['token' => 'custom-secret']);
 
         $runRecord = FlowRunRecord::query()->find($run->id);
-        $failedStep = FlowStepRecord::query()
+        $failedStep = FlowRunNodeRecord::query()
             ->where('run_id', $run->id)
-            ->where('step_name', 'charge')
+            ->where('node_id', 'charge')
             ->first();
         $failedAudit = FlowAuditRecord::query()
             ->where('run_id', $run->id)
@@ -2313,7 +2317,7 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
             ->first();
 
         $this->assertInstanceOf(FlowRunRecord::class, $runRecord);
-        $this->assertInstanceOf(FlowStepRecord::class, $failedStep);
+        $this->assertInstanceOf(FlowRunNodeRecord::class, $failedStep);
         $this->assertInstanceOf(FlowAuditRecord::class, $failedAudit);
         $this->assertSame('[late-redacted]', $runRecord->input['token']);
         $this->assertStringContainsString('[late-redacted]', (string) $failedStep->error_message);
@@ -2376,9 +2380,9 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         $run = $engine->execute('flow.persist.scoped-redactor', ['token' => 'custom-secret']);
 
         $runRecord = FlowRunRecord::query()->find($run->id);
-        $failedStep = FlowStepRecord::query()
+        $failedStep = FlowRunNodeRecord::query()
             ->where('run_id', $run->id)
-            ->where('step_name', 'charge')
+            ->where('node_id', 'charge')
             ->first();
         $failedAudit = FlowAuditRecord::query()
             ->where('run_id', $run->id)
@@ -2387,7 +2391,7 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
             ->first();
 
         $this->assertInstanceOf(FlowRunRecord::class, $runRecord);
-        $this->assertInstanceOf(FlowStepRecord::class, $failedStep);
+        $this->assertInstanceOf(FlowRunNodeRecord::class, $failedStep);
         $this->assertInstanceOf(FlowAuditRecord::class, $failedAudit);
         $this->assertSame(1, $counter->value);
         $this->assertSame('[scoped-redacted-1]', $runRecord->input['token']);
@@ -2456,9 +2460,9 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
                 return $this->inner->runs();
             }
 
-            public function steps(): StepRunRepository
+            public function runNodes(): RunNodeRepository
             {
-                return $this->inner->steps();
+                return $this->inner->runNodes();
             }
 
             public function audit(): AuditRepository
@@ -2483,13 +2487,13 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         $run = $engine->execute('flow.persist.redactor-aware-store', ['token' => 'custom-secret']);
 
         $runRecord = FlowRunRecord::query()->find($run->id);
-        $failedStep = FlowStepRecord::query()
+        $failedStep = FlowRunNodeRecord::query()
             ->where('run_id', $run->id)
-            ->where('step_name', 'charge')
+            ->where('node_id', 'charge')
             ->first();
 
         $this->assertInstanceOf(FlowRunRecord::class, $runRecord);
-        $this->assertInstanceOf(FlowStepRecord::class, $failedStep);
+        $this->assertInstanceOf(FlowRunNodeRecord::class, $failedStep);
         $this->assertSame(1, $counter->value);
         $this->assertSame(1, $tracker->withPayloadRedactorCalls);
         $this->assertSame('[aware-redacted-1]', $runRecord->input['token']);
@@ -2559,13 +2563,13 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         $run = $engine->execute('flow.persist.provider-redactor', ['token' => 'custom-secret']);
 
         $runRecord = FlowRunRecord::query()->find($run->id);
-        $failedStep = FlowStepRecord::query()
+        $failedStep = FlowRunNodeRecord::query()
             ->where('run_id', $run->id)
-            ->where('step_name', 'charge')
+            ->where('node_id', 'charge')
             ->first();
 
         $this->assertInstanceOf(FlowRunRecord::class, $runRecord);
-        $this->assertInstanceOf(FlowStepRecord::class, $failedStep);
+        $this->assertInstanceOf(FlowRunNodeRecord::class, $failedStep);
         $this->assertSame(1, $counter->value);
         $this->assertSame('[provider-redacted-1]', $runRecord->input['token']);
         $this->assertStringContainsString('[provider-redacted-1]', (string) $failedStep->error_message);
@@ -2584,12 +2588,12 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
 
         $run = $engine->execute('flow.persist.normalized-redaction', []);
 
-        $failedStep = FlowStepRecord::query()
+        $failedStep = FlowRunNodeRecord::query()
             ->where('run_id', $run->id)
-            ->where('step_name', 'charge')
+            ->where('node_id', 'charge')
             ->first();
 
-        $this->assertInstanceOf(FlowStepRecord::class, $failedStep);
+        $this->assertInstanceOf(FlowRunNodeRecord::class, $failedStep);
         $this->assertStringNotContainsString('camel-secret', (string) $failedStep->error_message);
         $this->assertStringNotContainsString('dash-secret', (string) $failedStep->error_message);
         $this->assertStringNotContainsString('json-dash-secret', (string) $failedStep->error_message);
@@ -2726,7 +2730,7 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         $engine->execute('flow.persist.audit-disabled', []);
 
         $this->assertSame(1, FlowRunRecord::query()->count());
-        $this->assertSame(1, FlowStepRecord::query()->count());
+        $this->assertSame(1, FlowRunNodeRecord::query()->count());
         $this->assertSame(0, FlowAuditRecord::query()->count());
         Event::assertNotDispatched(FlowStepStarted::class);
         Event::assertNotDispatched(FlowStepCompleted::class);
@@ -2808,20 +2812,20 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
                     };
                 }
 
-                public function steps(): StepRunRepository
+                public function runNodes(): RunNodeRepository
                 {
                     $recordWrite = function (): void {
                         $this->recordWrite();
                     };
 
-                    return new class($this->inner->steps(), $recordWrite) implements StepRunRepository
+                    return new class($this->inner->runNodes(), $recordWrite) implements RunNodeRepository
                     {
                         public function __construct(
-                            private readonly StepRunRepository $inner,
+                            private readonly RunNodeRepository $inner,
                             private readonly \Closure $recordWrite,
                         ) {}
 
-                        public function createOrUpdate(string $runId, string $stepName, array $attributes): FlowStepRecord
+                        public function createOrUpdate(string $runId, string $stepName, array $attributes): FlowRunNodeRecord
                         {
                             $this->recordWrite();
 
@@ -2947,8 +2951,8 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         $this->assertSame('create', $runRecord->failed_step);
         $this->assertNotNull($runRecord->finished_at);
 
-        $stepRecord = FlowStepRecord::query()->first();
-        $this->assertInstanceOf(FlowStepRecord::class, $stepRecord);
+        $stepRecord = FlowRunNodeRecord::query()->first();
+        $this->assertInstanceOf(FlowRunNodeRecord::class, $stepRecord);
         $this->assertSame('failed', $stepRecord->status);
         $this->assertSame(RuntimeException::class, $stepRecord->error_class);
         $this->assertSame('listener exploded', $stepRecord->error_message);
@@ -2985,13 +2989,13 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         }
 
         $runRecord = FlowRunRecord::query()->first();
-        $stepRecord = FlowStepRecord::query()->first();
+        $stepRecord = FlowRunNodeRecord::query()->first();
         $failedAudit = FlowAuditRecord::query()
             ->where('event', 'FlowStepFailed')
             ->first();
 
         $this->assertInstanceOf(FlowRunRecord::class, $runRecord);
-        $this->assertInstanceOf(FlowStepRecord::class, $stepRecord);
+        $this->assertInstanceOf(FlowRunNodeRecord::class, $stepRecord);
         $this->assertInstanceOf(FlowAuditRecord::class, $failedAudit);
         $this->assertSame(FlowRun::STATUS_COMPENSATED, $runRecord->status);
         $this->assertTrue($runRecord->compensated);
@@ -2999,8 +3003,8 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         $this->assertSame('failed', $stepRecord->status);
         $this->assertSame(RuntimeException::class, $stepRecord->error_class);
         $this->assertStringNotContainsString('plain-secret', (string) $stepRecord->error_message);
-        $this->assertSame([], $stepRecord->input['step_output_keys']);
-        $this->assertArrayNotHasKey('step_outputs', $stepRecord->input);
+        $this->assertSame([], $stepRecord->inputs['step_output_keys']);
+        $this->assertArrayNotHasKey('step_outputs', $stepRecord->inputs);
         $this->assertSame('FlowStepCompleted', $failedAudit->payload['listener_event']);
         $this->assertStringNotContainsString('plain-secret', (string) $failedAudit->payload['error_message']);
         $this->assertCount(1, RecordingCompensator::$invocations);
@@ -3030,12 +3034,12 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         }
 
         $runRecord = FlowRunRecord::query()->first();
-        $stepRecord = FlowStepRecord::query()
-            ->where('step_name', 'project')
+        $stepRecord = FlowRunNodeRecord::query()
+            ->where('node_id', 'project')
             ->first();
 
         $this->assertInstanceOf(FlowRunRecord::class, $runRecord);
-        $this->assertInstanceOf(FlowStepRecord::class, $stepRecord);
+        $this->assertInstanceOf(FlowRunNodeRecord::class, $stepRecord);
         $this->assertSame('failed', $stepRecord->status);
         $this->assertNull($runRecord->business_impact);
     }
@@ -3063,8 +3067,8 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         }
 
         $runRecord = FlowRunRecord::query()->first();
-        $stepRecord = FlowStepRecord::query()
-            ->where('step_name', 'create')
+        $stepRecord = FlowRunNodeRecord::query()
+            ->where('node_id', 'create')
             ->first();
         $failedAudit = FlowAuditRecord::query()
             ->where('event', 'FlowStepFailed')
@@ -3072,7 +3076,7 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
             ->first();
 
         $this->assertInstanceOf(FlowRunRecord::class, $runRecord);
-        $this->assertInstanceOf(FlowStepRecord::class, $stepRecord);
+        $this->assertInstanceOf(FlowRunNodeRecord::class, $stepRecord);
         $this->assertInstanceOf(FlowAuditRecord::class, $failedAudit);
         $this->assertSame(FlowRun::STATUS_COMPENSATED, $runRecord->status);
         $this->assertTrue($runRecord->compensated);
@@ -3162,11 +3166,11 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
             $this->assertSame('audit down for FlowStepCompleted', $exception->getMessage());
         }
 
-        $stepRecord = FlowStepRecord::query()
-            ->where('step_name', 'create')
+        $stepRecord = FlowRunNodeRecord::query()
+            ->where('node_id', 'create')
             ->first();
 
-        $this->assertInstanceOf(FlowStepRecord::class, $stepRecord);
+        $this->assertInstanceOf(FlowRunNodeRecord::class, $stepRecord);
         $this->assertSame('failed', $stepRecord->status);
         $this->assertCount(1, RecordingCompensator::$invocations);
         $this->assertSame(
@@ -3196,13 +3200,13 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         $runRecord = FlowRunRecord::query()
             ->where('definition_name', 'flow.persist.paused-audit-down')
             ->first();
-        $approvalStep = FlowStepRecord::query()
-            ->where('step_name', 'manager')
+        $approvalStep = FlowRunNodeRecord::query()
+            ->where('node_id', 'manager')
             ->first();
 
         $this->assertInstanceOf(FlowRunRecord::class, $runRecord);
         $this->assertSame(FlowRun::STATUS_COMPENSATED, $runRecord->status);
-        $this->assertInstanceOf(FlowStepRecord::class, $approvalStep);
+        $this->assertInstanceOf(FlowRunNodeRecord::class, $approvalStep);
         $this->assertSame('failed', $approvalStep->status);
         $this->assertSame(RuntimeException::class, $approvalStep->error_class);
         $this->assertCount(1, RecordingCompensator::$invocations);
@@ -3260,11 +3264,11 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
             $this->assertSame('audit down for FlowStepFailed', $exception->getMessage());
         }
 
-        $failedStep = FlowStepRecord::query()
-            ->where('step_name', 'charge')
+        $failedStep = FlowRunNodeRecord::query()
+            ->where('node_id', 'charge')
             ->first();
 
-        $this->assertInstanceOf(FlowStepRecord::class, $failedStep);
+        $this->assertInstanceOf(FlowRunNodeRecord::class, $failedStep);
         $this->assertSame('failed', $failedStep->status);
         $this->assertCount(1, RecordingCompensator::$invocations);
     }
@@ -3482,9 +3486,9 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
                 return $this->inner->runs();
             }
 
-            public function steps(): StepRunRepository
+            public function runNodes(): RunNodeRepository
             {
-                return $this->inner->steps();
+                return $this->inner->runNodes();
             }
 
             public function audit(): AuditRepository
@@ -3598,9 +3602,9 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
                 };
             }
 
-            public function steps(): StepRunRepository
+            public function runNodes(): RunNodeRepository
             {
-                return $this->inner->steps();
+                return $this->inner->runNodes();
             }
 
             public function audit(): AuditRepository
@@ -3694,9 +3698,9 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
                 return $this->runRepository;
             }
 
-            public function steps(): StepRunRepository
+            public function runNodes(): RunNodeRepository
             {
-                return $this->inner->steps();
+                return $this->inner->runNodes();
             }
 
             public function audit(): AuditRepository
@@ -3762,9 +3766,9 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
                 return $this->runRepository;
             }
 
-            public function steps(): StepRunRepository
+            public function runNodes(): RunNodeRepository
             {
-                return $this->inner->steps();
+                return $this->inner->runNodes();
             }
 
             public function audit(): AuditRepository
@@ -3847,9 +3851,9 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
                 return $this->runRepository;
             }
 
-            public function steps(): StepRunRepository
+            public function runNodes(): RunNodeRepository
             {
-                return $this->inner->steps();
+                return $this->inner->runNodes();
             }
 
             public function audit(): AuditRepository
@@ -3872,7 +3876,7 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
     private function assertPersistenceTablesEmpty(): void
     {
         $this->assertSame(0, FlowRunRecord::query()->count());
-        $this->assertSame(0, FlowStepRecord::query()->count());
+        $this->assertSame(0, FlowRunNodeRecord::query()->count());
         $this->assertSame(0, FlowAuditRecord::query()->count());
     }
 }

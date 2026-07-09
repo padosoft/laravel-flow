@@ -23,8 +23,8 @@ use Padosoft\LaravelFlow\Contracts\AuditRepository;
 use Padosoft\LaravelFlow\Contracts\DefinitionRepository;
 use Padosoft\LaravelFlow\Contracts\FlowStore;
 use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
+use Padosoft\LaravelFlow\Contracts\RunNodeRepository;
 use Padosoft\LaravelFlow\Contracts\RunRepository;
-use Padosoft\LaravelFlow\Contracts\StepRunRepository;
 use Padosoft\LaravelFlow\Dashboard\Authorization\DashboardActionAuthorizer;
 use Padosoft\LaravelFlow\Dashboard\Authorization\DenyAllAuthorizer;
 use Padosoft\LaravelFlow\Dashboard\FlowDashboardReadModel;
@@ -102,7 +102,7 @@ final class LaravelFlowServiceProvider extends ServiceProvider
         });
 
         $this->app->bind(RunRepository::class, fn (Container $app): RunRepository => $app->make(FlowStore::class)->runs());
-        $this->app->bind(StepRunRepository::class, fn (Container $app): StepRunRepository => $app->make(FlowStore::class)->steps());
+        $this->app->bind(RunNodeRepository::class, fn (Container $app): RunNodeRepository => $app->make(FlowStore::class)->runNodes());
         $this->app->bind(AuditRepository::class, fn (Container $app): AuditRepository => $app->make(FlowStore::class)->audit());
         $this->app->singleton(EloquentWebhookOutboxRepository::class, function (Container $app): EloquentWebhookOutboxRepository {
             /** @var string|null $connection */
@@ -206,6 +206,7 @@ final class LaravelFlowServiceProvider extends ServiceProvider
             __DIR__.'/../database/migrations/2026_07_08_000006_add_definition_version_to_laravel_flow_runs.php' => $this->app->databasePath('migrations/2026_07_08_000006_add_definition_version_to_laravel_flow_runs.php'),
             __DIR__.'/../database/migrations/2026_07_09_000007_create_flow_run_nodes_table.php' => $this->app->databasePath('migrations/2026_07_09_000007_create_flow_run_nodes_table.php'),
             __DIR__.'/../database/migrations/2026_07_09_000008_add_graph_columns_to_laravel_flow_runs.php' => $this->app->databasePath('migrations/2026_07_09_000008_add_graph_columns_to_laravel_flow_runs.php'),
+            __DIR__.'/../database/migrations/2026_07_09_000009_migrate_flow_steps_to_run_nodes.php' => $this->app->databasePath('migrations/2026_07_09_000009_migrate_flow_steps_to_run_nodes.php'),
         ], 'laravel-flow-migrations');
 
         $this->commands([

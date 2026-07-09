@@ -15,8 +15,8 @@ use Padosoft\LaravelFlow\Contracts\DefinitionRepository;
 use Padosoft\LaravelFlow\Contracts\FlowStore;
 use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
 use Padosoft\LaravelFlow\Contracts\RedactorAwareApprovalRepository;
+use Padosoft\LaravelFlow\Contracts\RunNodeRepository;
 use Padosoft\LaravelFlow\Contracts\RunRepository;
-use Padosoft\LaravelFlow\Contracts\StepRunRepository;
 use Padosoft\LaravelFlow\Dashboard\Authorization\DashboardActionAuthorizer;
 use Padosoft\LaravelFlow\Dashboard\Authorization\DenyAllAuthorizer;
 use Padosoft\LaravelFlow\Dashboard\FlowDashboardReadModel;
@@ -65,7 +65,7 @@ final class ServiceProviderTest extends TestCase
     {
         $this->assertTrue($this->app->bound(FlowStore::class));
         $this->assertTrue($this->app->bound(RunRepository::class));
-        $this->assertTrue($this->app->bound(StepRunRepository::class));
+        $this->assertTrue($this->app->bound(RunNodeRepository::class));
         $this->assertTrue($this->app->bound(AuditRepository::class));
         $this->assertTrue($this->app->bound(ApprovalRepository::class));
         $this->assertTrue($this->app->bound(EloquentWebhookOutboxRepository::class));
@@ -135,6 +135,10 @@ final class ServiceProviderTest extends TestCase
         );
         $this->assertContains(
             realpath($packageRoot.'/database/migrations/2026_07_09_000008_add_graph_columns_to_laravel_flow_runs.php'),
+            $migrationSources,
+        );
+        $this->assertContains(
+            realpath($packageRoot.'/database/migrations/2026_07_09_000009_migrate_flow_steps_to_run_nodes.php'),
             $migrationSources,
         );
     }

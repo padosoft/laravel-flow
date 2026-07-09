@@ -25,6 +25,32 @@ If you currently depend on internal classes, switch to the matching public contr
 
 ---
 
+## v1.x → v2.0 (in progress — Flow 2.0 program)
+
+The v2.0 major unifies step and node persistence into a single table written by both the v1 linear engine and the new graph executor. **The v1 public API is unchanged** — the fluent builder (`Flow::define()->step()->…->register()`), the engine's execution methods (`execute` / `dryRun` / `dispatch` / `resume` / `reject`), and v1 execution semantics (step ordering, compensation order, approval resume) are observably identical. Only the internal persistence target changes.
+
+### Breaking changes (internal persistence surface)
+
+- **`flow_steps` is retired and replaced by `flow_run_nodes`.** A v1 step is now stored as a node row (`node_id` = the step name, `node_type = 'legacy.step'`, `sequence` preserved). The new table is a superset of `flow_steps` with graph/retry/cache columns (`attempts`, `cache_hit`, `available_at`, `node_type`) and renames the JSON payload columns `input`/`output` to `inputs`/`outputs`.
+- **`Contracts\StepRunRepository` (`@api`) is superseded by `Contracts\RunNodeRepository` (`@api`).** The method shape is unchanged (`createOrUpdate(string $runId, string $nodeId, array $attributes): FlowRunNodeRecord` and `forRun(string $runId): Collection`); the second argument and JSON attribute keys use node vocabulary (`node_id`, `inputs`, `outputs`) and every node row requires a `node_type`.
+- **`FlowStore::steps()` (`@api`) is renamed to `FlowStore::runNodes(): RunNodeRepository`.** Custom `FlowStore` implementers must rename the accessor and back it with a `RunNodeRepository`.
+- **`Models\FlowStepRecord` (`@internal`) is removed**, replaced by `Models\FlowRunNodeRecord`. `Persistence\EloquentStepRunRepository` is removed, replaced by `Persistence\EloquentRunNodeRepository`.
+- The `flow_audit.step_name` column is **kept** (its value equals the node id for a v1 step); it is not renamed, so audit read/write code is unaffected.
+- `Dashboard\StepSummary` and every `FlowDashboardReadModel` method signature are **unchanged** — a "step" projection is a run-node projection, so the dashboard public contract is preserved (pinned by the golden projection test in `FlowDashboardReadModelTest`).
+
+### Required migration
+
+Publish and run the new migrations. `2026_07_09_000009_migrate_flow_steps_to_run_nodes` copies any existing `flow_steps` rows into `flow_run_nodes` and then drops `flow_steps`. It is guarded (`hasTable`) so it is a safe no-op on installations that never published `flow_steps`, and idempotent once the legacy table is gone.
+
+```bash
+php artisan vendor:publish --tag=laravel-flow-migrations
+php artisan migrate
+```
+
+Custom `FlowStore` / step-repository implementers must migrate their own storage to the node-run shape and expose `runNodes(): RunNodeRepository` before upgrading.
+
+---
+
 ## v0.3 → v1.0
 
 ### Highlights

@@ -69,7 +69,7 @@ final class FlowPruner
 
             if ($dryRun) {
                 $runs += count($runIds);
-                $steps += (int) $connection->table('flow_steps')
+                $steps += (int) $connection->table('flow_run_nodes')
                     ->whereIn('run_id', $runIds)
                     ->count();
                 $audit += (int) $connection->table('flow_audit')
@@ -85,7 +85,7 @@ final class FlowPruner
             }
 
             $connection->transaction(function (ConnectionInterface $connection) use ($runIds, &$runs, &$steps, &$audit): void {
-                $steps += (int) $connection->table('flow_steps')
+                $steps += (int) $connection->table('flow_run_nodes')
                     ->whereIn('run_id', $runIds)
                     ->delete();
 

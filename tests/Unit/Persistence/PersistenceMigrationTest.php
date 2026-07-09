@@ -16,7 +16,8 @@ final class PersistenceMigrationTest extends PersistenceTestCase
         $this->migrateFlowTables();
 
         $this->assertTrue(Schema::hasTable('flow_runs'));
-        $this->assertTrue(Schema::hasTable('flow_steps'));
+        // flow_steps is retired by the unification data migration.
+        $this->assertFalse(Schema::hasTable('flow_steps'));
         $this->assertTrue(Schema::hasTable('flow_run_nodes'));
         $this->assertTrue(Schema::hasTable('flow_audit'));
         $this->assertTrue(Schema::hasTable('flow_approvals'));
@@ -63,17 +64,6 @@ final class PersistenceMigrationTest extends PersistenceTestCase
             'started_at',
             'finished_at',
             'duration_ms',
-        ]));
-        $this->assertTrue(Schema::hasColumns('flow_steps', [
-            'run_id',
-            'sequence',
-            'step_name',
-            'status',
-            'output',
-            'business_impact',
-            'error_class',
-            'error_message',
-            'dry_run_skipped',
         ]));
         $this->assertTrue(Schema::hasColumns('flow_audit', [
             'run_id',
@@ -181,6 +171,69 @@ final class PersistenceMigrationTest extends PersistenceTestCase
             'node_type' => 'legacy.step',
             'status' => 'succeeded',
         ]);
+    }
+
+    public function test_data_migration_copies_flow_steps_into_run_nodes_and_retires_flow_steps(): void
+    {
+        $base = require __DIR__.'/../../../database/migrations/2026_05_02_000001_create_laravel_flow_tables.php';
+        $runNodes = require __DIR__.'/../../../database/migrations/2026_07_09_000007_create_flow_run_nodes_table.php';
+        $dataMigration = require __DIR__.'/../../../database/migrations/2026_07_09_000009_migrate_flow_steps_to_run_nodes.php';
+
+        $base->up();
+        $runNodes->up();
+
+        DB::table('flow_runs')->insert([
+            'id' => '00000000-0000-4000-8000-000000000300',
+            'definition_name' => 'flow.migrate',
+            'dry_run' => false,
+            'status' => 'succeeded',
+        ]);
+        DB::table('flow_steps')->insert([
+            'run_id' => '00000000-0000-4000-8000-000000000300',
+            'sequence' => 2,
+            'step_name' => 'charge-card',
+            'handler' => 'App\\Steps\\ChargeCard',
+            'status' => 'succeeded',
+            'input' => json_encode(['amount' => 10]),
+            'output' => json_encode(['charged' => true]),
+            'business_impact' => json_encode(['revenue' => 10]),
+            'dry_run_skipped' => false,
+            'duration_ms' => 42,
+        ]);
+
+        $dataMigration->up();
+
+        $this->assertFalse(Schema::hasTable('flow_steps'));
+
+        $node = DB::table('flow_run_nodes')
+            ->where('run_id', '00000000-0000-4000-8000-000000000300')
+            ->first();
+
+        $this->assertNotNull($node);
+        $this->assertSame('charge-card', $node->node_id);
+        $this->assertSame('legacy.step', $node->node_type);
+        $this->assertSame(2, (int) $node->sequence);
+        $this->assertSame('succeeded', $node->status);
+        $this->assertSame('App\\Steps\\ChargeCard', $node->handler);
+        $this->assertSame(['amount' => 10], json_decode((string) $node->inputs, true));
+        $this->assertSame(['charged' => true], json_decode((string) $node->outputs, true));
+        $this->assertSame(42, (int) $node->duration_ms);
+
+        // Idempotent: re-running after flow_steps is gone is a no-op.
+        $dataMigration->up();
+        $this->assertSame(1, DB::table('flow_run_nodes')->where('run_id', '00000000-0000-4000-8000-000000000300')->count());
+    }
+
+    public function test_data_migration_is_safe_when_flow_steps_never_existed(): void
+    {
+        $runNodes = require __DIR__.'/../../../database/migrations/2026_07_09_000007_create_flow_run_nodes_table.php';
+        $dataMigration = require __DIR__.'/../../../database/migrations/2026_07_09_000009_migrate_flow_steps_to_run_nodes.php';
+
+        // No flow_steps table at all — the guard must make this a no-op.
+        $dataMigration->up();
+
+        $this->assertFalse(Schema::hasTable('flow_steps'));
+        unset($runNodes);
     }
 
     public function test_graph_columns_migration_adds_columns_to_existing_flow_runs_table(): void

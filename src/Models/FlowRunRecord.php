@@ -61,11 +61,11 @@ final class FlowRunRecord extends Model
     ];
 
     /**
-     * @return HasMany<FlowStepRecord, $this>
+     * @return HasMany<FlowRunNodeRecord, $this>
      */
-    public function steps(): HasMany
+    public function runNodes(): HasMany
     {
-        return $this->hasMany(FlowStepRecord::class, 'run_id', 'id');
+        return $this->hasMany(FlowRunNodeRecord::class, 'run_id', 'id');
     }
 
     public static function pendingStatus(): string

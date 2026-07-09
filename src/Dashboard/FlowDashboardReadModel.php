@@ -10,8 +10,8 @@ use Illuminate\Database\Eloquent\Builder;
 use Padosoft\LaravelFlow\FlowRun;
 use Padosoft\LaravelFlow\Models\FlowApprovalRecord;
 use Padosoft\LaravelFlow\Models\FlowAuditRecord;
+use Padosoft\LaravelFlow\Models\FlowRunNodeRecord;
 use Padosoft\LaravelFlow\Models\FlowRunRecord;
-use Padosoft\LaravelFlow\Models\FlowStepRecord;
 use Padosoft\LaravelFlow\Models\FlowWebhookOutboxRecord;
 
 /**
@@ -366,13 +366,13 @@ final class FlowDashboardReadModel
 
         $items = [];
         foreach ($records as $record) {
-            if (! ($record instanceof FlowStepRecord)) {
+            if (! ($record instanceof FlowRunNodeRecord)) {
                 continue;
             }
             $items[] = new StepSummary(
                 id: (int) $record->id,
                 runId: (string) $record->run_id,
-                name: (string) $record->step_name,
+                name: (string) $record->node_id,
                 handler: (string) ($record->handler ?? ''),
                 sequence: (int) $record->sequence,
                 status: (string) $record->status,
@@ -531,11 +531,11 @@ final class FlowDashboardReadModel
     }
 
     /**
-     * @return Builder<FlowStepRecord>
+     * @return Builder<FlowRunNodeRecord>
      */
     private function stepQuery(): Builder
     {
-        return (new FlowStepRecord)->setConnection($this->connection)->newQuery();
+        return (new FlowRunNodeRecord)->setConnection($this->connection)->newQuery();
     }
 
     /**

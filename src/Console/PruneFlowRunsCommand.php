@@ -145,7 +145,7 @@ final class PruneFlowRunsCommand extends Command
         $schema = DB::connection($database)->getSchemaBuilder();
 
         return $schema->hasTable('flow_runs')
-            && $schema->hasTable('flow_steps')
+            && $schema->hasTable('flow_run_nodes')
             && $schema->hasTable('flow_audit');
     }
 

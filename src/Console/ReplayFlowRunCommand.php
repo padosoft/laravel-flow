@@ -16,8 +16,8 @@ use Padosoft\LaravelFlow\FlowRun;
 use Padosoft\LaravelFlow\FlowStep;
 use Padosoft\LaravelFlow\Graph\Exceptions\InvalidGraphException;
 use Padosoft\LaravelFlow\Graph\GraphSerializer;
+use Padosoft\LaravelFlow\Models\FlowRunNodeRecord;
 use Padosoft\LaravelFlow\Models\FlowRunRecord;
-use Padosoft\LaravelFlow\Models\FlowStepRecord;
 use Throwable;
 
 /**
@@ -94,7 +94,7 @@ final class ReplayFlowRunCommand extends Command
         }
 
         try {
-            $steps = $store->steps()->forRun($original->id);
+            $steps = $store->runNodes()->forRun($original->id);
         } catch (QueryException $e) {
             $this->reportFailure(
                 'Laravel Flow persistence tables were not found or could not be queried. Publish and run the migrations before replaying.',
@@ -157,7 +157,7 @@ final class ReplayFlowRunCommand extends Command
      * could not see. Unpinned (legacy) runs keep the original step-name /
      * handler prefix check.
      *
-     * @param  list<FlowStepRecord>  $persistedSteps
+     * @param  list<FlowRunNodeRecord>  $persistedSteps
      */
     private function warnAboutDrift(FlowDefinition $definition, array $persistedSteps, FlowRunRecord $original): void
     {
@@ -205,7 +205,7 @@ final class ReplayFlowRunCommand extends Command
     }
 
     /**
-     * @param  list<FlowStepRecord>  $persistedSteps
+     * @param  list<FlowRunNodeRecord>  $persistedSteps
      */
     private function definitionDrifted(FlowDefinition $definition, array $persistedSteps): bool
     {
@@ -220,7 +220,7 @@ final class ReplayFlowRunCommand extends Command
                 return true;
             }
 
-            if ($currentStep->name !== $persistedStep->step_name || $currentStep->handlerFqcn !== $persistedStep->handler) {
+            if ($currentStep->name !== $persistedStep->node_id || $currentStep->handlerFqcn !== $persistedStep->handler) {
                 return true;
             }
         }

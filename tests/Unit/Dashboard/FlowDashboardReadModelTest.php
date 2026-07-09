@@ -109,6 +109,44 @@ final class FlowDashboardReadModelTest extends PersistenceTestCase
         $this->assertNull($this->reader()->findRun('does-not-exist'));
     }
 
+    public function test_step_summary_projection_is_preserved_after_persistence_unification(): void
+    {
+        // Golden projection: a fixed v1 flow persisted onto the unified
+        // flow_run_nodes table must still project the exact StepSummary shape
+        // (name/sequence/status/handler) the Dashboard contract promised when
+        // steps lived in flow_steps. This is the strongest signal that the
+        // v1 rewire changed only the persistence target, not observable state.
+        $this->migrateFlowTables();
+        $engine = $this->engineWithPersistence();
+
+        $engine->define('flow.dashboard.golden')
+            ->step('create', AlwaysSucceedsHandler::class)
+            ->step('charge', AlwaysSucceedsHandler::class)
+            ->step('notify', AlwaysSucceedsHandler::class)
+            ->register();
+
+        $run = $engine->execute('flow.dashboard.golden', ['payload' => 'value']);
+        $detail = $this->reader()->findRun($run->id);
+
+        $this->assertNotNull($detail);
+
+        $projection = array_map(
+            static fn ($step): array => [
+                'name' => $step->name,
+                'sequence' => $step->sequence,
+                'status' => $step->status,
+                'handler' => $step->handler,
+            ],
+            $detail->steps,
+        );
+
+        $this->assertSame([
+            ['name' => 'create', 'sequence' => 1, 'status' => 'succeeded', 'handler' => AlwaysSucceedsHandler::class],
+            ['name' => 'charge', 'sequence' => 2, 'status' => 'succeeded', 'handler' => AlwaysSucceedsHandler::class],
+            ['name' => 'notify', 'sequence' => 3, 'status' => 'succeeded', 'handler' => AlwaysSucceedsHandler::class],
+        ], $projection);
+    }
+
     public function test_pending_approvals_returns_only_pending_records(): void
     {
         $this->migrateFlowTables();

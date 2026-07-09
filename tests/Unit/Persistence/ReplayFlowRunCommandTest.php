@@ -277,6 +277,11 @@ final class ReplayFlowRunCommandTest extends PersistenceTestCase
     {
         $legacyMigration = require __DIR__.'/../../../database/migrations/2026_05_02_000001_create_laravel_flow_tables.php';
         $legacyMigration->up();
+        // Unified per-node table exists, but the replay-lineage column on
+        // flow_runs is still missing (this migration predates it), so the
+        // command must degrade cleanly when it tries to persist lineage.
+        $runNodesMigration = require __DIR__.'/../../../database/migrations/2026_07_09_000007_create_flow_run_nodes_table.php';
+        $runNodesMigration->up();
         $this->app['config']->set('laravel-flow.persistence.enabled', true);
         $this->insertRunGraph('legacy-failed', FlowRun::STATUS_FAILED, [
             'tenant' => 'acme',
@@ -332,15 +337,16 @@ final class ReplayFlowRunCommandTest extends PersistenceTestCase
 
         DB::table('flow_runs')->insert($attributes);
 
-        DB::table('flow_steps')->insert([
+        DB::table('flow_run_nodes')->insert([
             'created_at' => $timestamp,
             'dry_run_skipped' => false,
             'handler' => $handler,
+            'node_id' => 'one',
+            'node_type' => 'legacy.step',
             'run_id' => $runId,
             'sequence' => 1,
             'started_at' => $timestamp,
             'status' => $status === FlowRun::STATUS_RUNNING ? 'running' : 'failed',
-            'step_name' => 'one',
             'updated_at' => $timestamp,
         ]);
     }

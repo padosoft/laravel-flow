@@ -28,7 +28,12 @@ use Padosoft\LaravelFlow\Contracts\RunRepository;
 use Padosoft\LaravelFlow\Dashboard\Authorization\DashboardActionAuthorizer;
 use Padosoft\LaravelFlow\Dashboard\Authorization\DenyAllAuthorizer;
 use Padosoft\LaravelFlow\Dashboard\FlowDashboardReadModel;
+use Padosoft\LaravelFlow\Executor\GraphRunner;
+use Padosoft\LaravelFlow\Executor\InputRouter;
+use Padosoft\LaravelFlow\Executor\NodeExecutor;
+use Padosoft\LaravelFlow\Executor\NodeResolver;
 use Padosoft\LaravelFlow\Executor\Nodes\MergeNode;
+use Padosoft\LaravelFlow\Executor\ReadinessResolver;
 use Padosoft\LaravelFlow\Graph\DefinitionSigner;
 use Padosoft\LaravelFlow\Graph\GraphValidator;
 use Padosoft\LaravelFlow\Node\Attributes\FlowNode;
@@ -199,6 +204,27 @@ final class LaravelFlowServiceProvider extends ServiceProvider
             return $registry;
         });
         $this->app->singleton(NodeCatalog::class);
+
+        $this->app->singleton(ReadinessResolver::class);
+        $this->app->singleton(InputRouter::class);
+        $this->app->singleton(NodeResolver::class, fn (Container $app): NodeResolver => new NodeResolver($app->make(NodeRegistry::class), $app));
+        $this->app->singleton(NodeExecutor::class, fn (Container $app): NodeExecutor => new NodeExecutor(
+            $app->make(NodeResolver::class),
+            $app->make(InputRouter::class),
+            static fn (): \DateTimeImmutable => Date::now()->toDateTimeImmutable(),
+        ));
+        $this->app->bind(GraphRunner::class, function (Container $app): GraphRunner {
+            /** @var array<string, mixed> $persistence */
+            $persistence = $app['config']->get('laravel-flow.persistence', []);
+            $store = (bool) ($persistence['enabled'] ?? false) ? $app->make(FlowStore::class) : null;
+
+            return new GraphRunner(
+                $app->make(NodeExecutor::class),
+                $app->make(ReadinessResolver::class),
+                static fn (): \DateTimeImmutable => Date::now()->toDateTimeImmutable(),
+                $store,
+            );
+        });
     }
 
     public function boot(): void

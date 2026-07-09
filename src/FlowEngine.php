@@ -32,8 +32,11 @@ use Padosoft\LaravelFlow\Exceptions\FlowCompensationException;
 use Padosoft\LaravelFlow\Exceptions\FlowExecutionException;
 use Padosoft\LaravelFlow\Exceptions\FlowInputException;
 use Padosoft\LaravelFlow\Exceptions\FlowNotRegisteredException;
+use Padosoft\LaravelFlow\Executor\GraphRunner;
+use Padosoft\LaravelFlow\Executor\GraphRunResult;
 use Padosoft\LaravelFlow\Graph\Exceptions\DefinitionSignatureException;
 use Padosoft\LaravelFlow\Graph\Exceptions\InvalidGraphException;
+use Padosoft\LaravelFlow\Graph\GraphDefinition;
 use Padosoft\LaravelFlow\Graph\GraphSerializer;
 use Padosoft\LaravelFlow\Graph\StoredDefinition;
 use Padosoft\LaravelFlow\Jobs\RunFlowJob;
@@ -249,6 +252,34 @@ class FlowEngine
     public function dryRun(string $name, array $input, ?FlowExecutionOptions $options = null): FlowRun
     {
         return $this->run($name, $input, true, $options);
+    }
+
+    /**
+     * Execute a graph definition synchronously through the v2 graph executor.
+     *
+     * @param  array<string, mixed>  $input
+     */
+    public function runGraph(GraphDefinition $graph, array $input, ?FlowExecutionOptions $options = null, string $definitionName = 'graph'): GraphRunResult
+    {
+        return $this->graphRunner()->run($graph, $input, $options, false, $definitionName);
+    }
+
+    /**
+     * Dry-run a graph definition through the v2 graph executor (writes no rows).
+     *
+     * @param  array<string, mixed>  $input
+     */
+    public function dryRunGraph(GraphDefinition $graph, array $input, ?FlowExecutionOptions $options = null, string $definitionName = 'graph'): GraphRunResult
+    {
+        return $this->graphRunner()->run($graph, $input, $options, true, $definitionName);
+    }
+
+    private function graphRunner(): GraphRunner
+    {
+        /** @var GraphRunner $runner */
+        $runner = $this->container->make(GraphRunner::class);
+
+        return $runner;
     }
 
     /**

@@ -4,7 +4,10 @@ declare(strict_types=1);
 
 namespace Padosoft\LaravelFlow\Tests\Contract;
 
+use Padosoft\LaravelFlow\Executor\GraphRunner;
+use Padosoft\LaravelFlow\Executor\GraphRunResult;
 use Padosoft\LaravelFlow\Executor\InputRouter;
+use Padosoft\LaravelFlow\Executor\NodeExecutor;
 use Padosoft\LaravelFlow\Executor\NodeResolver;
 use Padosoft\LaravelFlow\Executor\Nodes\MergeNode;
 use Padosoft\LaravelFlow\Executor\ReadinessDecision;
@@ -68,6 +71,9 @@ final class ExecutorApiContractTest extends TestCase
             MergeNode::class,
             NodeResolver::class,
             ResolvedNode::class,
+            NodeExecutor::class,
+            GraphRunner::class,
+            GraphRunResult::class,
         ];
 
         foreach ($classes as $class) {

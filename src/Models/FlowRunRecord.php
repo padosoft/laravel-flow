@@ -24,6 +24,10 @@ use Padosoft\LaravelFlow\FlowRun;
  * @property string|null $replayed_from_run_id
  * @property int|null $definition_version
  * @property string|null $definition_checksum
+ * @property string|null $engine
+ * @property int|null $nodes_total
+ * @property int|null $nodes_completed
+ * @property int|null $nodes_failed
  * @property int|null $duration_ms
  * @property \DateTimeInterface|null $started_at
  * @property \DateTimeInterface|null $finished_at
@@ -55,6 +59,9 @@ final class FlowRunRecord extends Model
         'dry_run' => 'boolean',
         'finished_at' => 'immutable_datetime',
         'input' => 'array',
+        'nodes_completed' => 'integer',
+        'nodes_failed' => 'integer',
+        'nodes_total' => 'integer',
         'output' => 'array',
         'started_at' => 'immutable_datetime',
         'updated_at' => 'immutable_datetime',

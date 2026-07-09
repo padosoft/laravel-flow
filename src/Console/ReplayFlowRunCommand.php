@@ -6,6 +6,7 @@ namespace Padosoft\LaravelFlow\Console;
 
 use Illuminate\Console\Command;
 use Illuminate\Database\QueryException;
+use JsonException;
 use Padosoft\LaravelFlow\Contracts\FlowStore;
 use Padosoft\LaravelFlow\Exceptions\FlowNotRegisteredException;
 use Padosoft\LaravelFlow\FlowDefinition;
@@ -13,6 +14,7 @@ use Padosoft\LaravelFlow\FlowEngine;
 use Padosoft\LaravelFlow\FlowExecutionOptions;
 use Padosoft\LaravelFlow\FlowRun;
 use Padosoft\LaravelFlow\FlowStep;
+use Padosoft\LaravelFlow\Graph\GraphSerializer;
 use Padosoft\LaravelFlow\Models\FlowRunRecord;
 use Padosoft\LaravelFlow\Models\FlowStepRecord;
 use Throwable;
@@ -101,12 +103,7 @@ final class ReplayFlowRunCommand extends Command
             return self::FAILURE;
         }
 
-        if ($this->definitionDrifted($definition, $steps->all())) {
-            $this->warn(sprintf(
-                'Definition drift detected for [%s]; replay will use the currently registered definition.',
-                $definition->name,
-            ));
-        }
+        $this->warnAboutDrift($definition, $steps->all(), $original);
 
         try {
             $run = $flow->execute(
@@ -148,6 +145,62 @@ final class ReplayFlowRunCommand extends Command
             FlowRun::STATUS_FAILED,
             FlowRun::STATUS_SUCCEEDED,
         ], true);
+    }
+
+    /**
+     * Pinned runs (a non-null `definition_checksum` recorded at run
+     * creation) get a checksum-aware drift check instead of the step-list
+     * comparison: the recorded content checksum is authoritative, so a
+     * byte-identical current graph never warns even if step-level
+     * metadata was reshuffled in a way {@see self::definitionDrifted()}
+     * could not see. Unpinned (legacy) runs keep the original step-name /
+     * handler prefix check.
+     *
+     * @param  list<FlowStepRecord>  $persistedSteps
+     */
+    private function warnAboutDrift(FlowDefinition $definition, array $persistedSteps, FlowRunRecord $original): void
+    {
+        if ($original->definition_checksum !== null) {
+            $this->warnAboutPinnedDrift($definition, $original);
+
+            return;
+        }
+
+        if ($this->definitionDrifted($definition, $persistedSteps)) {
+            $this->warn(sprintf(
+                'Definition drift detected for [%s]; replay will use the currently registered definition.',
+                $definition->name,
+            ));
+        }
+    }
+
+    private function warnAboutPinnedDrift(FlowDefinition $definition, FlowRunRecord $original): void
+    {
+        try {
+            $currentChecksum = (new GraphSerializer)->checksum($definition->toGraphDefinition());
+        } catch (JsonException $e) {
+            $this->warn(sprintf(
+                'Could not evaluate definition drift for flow run [%s]; replay continues without a drift check.',
+                $original->id,
+            ));
+
+            if ($this->getOutput()->isVerbose()) {
+                $this->line($e->getMessage());
+            }
+
+            return;
+        }
+
+        if ($currentChecksum === $original->definition_checksum) {
+            return;
+        }
+
+        $this->warn(sprintf(
+            'Flow run [%s] was pinned to [%s] version [%s]; the registered definition has changed since then. Replay will use the currently registered definition (graph-exact re-execution ships with Macro C).',
+            $original->id,
+            $definition->name,
+            $original->definition_version === null ? 'unknown' : (string) $original->definition_version,
+        ));
     }
 
     /**

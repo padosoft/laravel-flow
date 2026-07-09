@@ -35,6 +35,7 @@ abstract class PersistenceTestCase extends TestCase
             require __DIR__.'/../../../database/migrations/2026_05_04_000003_create_laravel_flow_approval_and_webhook_tables.php',
             require __DIR__.'/../../../database/migrations/2026_05_04_000004_add_previous_token_hash_to_flow_approvals.php',
             require __DIR__.'/../../../database/migrations/2026_07_08_000005_create_flow_definitions_table.php',
+            require __DIR__.'/../../../database/migrations/2026_07_08_000006_add_definition_version_to_laravel_flow_runs.php',
         ];
         $this->dropFlowTables();
     }

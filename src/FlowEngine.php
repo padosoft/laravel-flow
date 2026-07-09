@@ -31,6 +31,8 @@ use Padosoft\LaravelFlow\Exceptions\FlowCompensationException;
 use Padosoft\LaravelFlow\Exceptions\FlowExecutionException;
 use Padosoft\LaravelFlow\Exceptions\FlowInputException;
 use Padosoft\LaravelFlow\Exceptions\FlowNotRegisteredException;
+use Padosoft\LaravelFlow\Graph\GraphSerializer;
+use Padosoft\LaravelFlow\Graph\StoredDefinition;
 use Padosoft\LaravelFlow\Jobs\RunFlowJob;
 use Padosoft\LaravelFlow\Models\FlowApprovalRecord;
 use Padosoft\LaravelFlow\Models\FlowRunRecord;
@@ -61,6 +63,18 @@ class FlowEngine
      * @var array<string, FlowDefinition>
      */
     private array $definitions = [];
+
+    /**
+     * Version+checksum pin recorded when `persist_registered` matched or
+     * produced a `flow_definitions` version for the definition during its
+     * most recent registration; absent when the flag is off. Consumed by
+     * {@see self::persistRunStarted()} to pin new `flow_runs` rows to the
+     * definition version/checksum that was active at registration time.
+     * Internal bookkeeping only — never exposed through {@see self::definitions()}.
+     *
+     * @var array<string, array{version: int, checksum: string}>
+     */
+    private array $definitionVersionPins = [];
 
     public function __construct(
         private readonly Container $container,
@@ -120,11 +134,19 @@ class FlowEngine
      * inside the same name-group lock as the insert, so repeated boots of
      * a host app that calls `register()` on every request/command — even
      * from concurrent workers — do not pile up draft versions for a
-     * definition that never changed.
+     * definition that never changed. Whichever version was matched or
+     * produced is recorded in {@see self::$definitionVersionPins} so the
+     * next run created for this definition name pins its `flow_runs` row
+     * to that version/checksum (see {@see self::persistRunStarted()}).
      */
     private function persistRegisteredDefinitionIfEnabled(FlowDefinition $definition): void
     {
         if (! (bool) ($this->config['definitions']['persist_registered'] ?? false)) {
+            // A long-lived FlowEngine instance (e.g. Octane) may already
+            // hold a pin for this name from a moment when the flag was on;
+            // turning the flag off must always mean unpinned going forward.
+            unset($this->definitionVersionPins[$definition->name]);
+
             return;
         }
 
@@ -134,10 +156,46 @@ class FlowEngine
         $repository = $this->container->make(DefinitionRepository::class);
 
         try {
-            $repository->createDraftIfChanged($definition->name, $graph);
+            // createDraftIfChanged() returns null when the graph is
+            // unchanged from the latest stored version (dedupe skip),
+            // inside the same name-group lock as its comparison. The
+            // version pin still needs the MATCHED version in that case,
+            // but latest() below is a second, UNLOCKED query issued after
+            // that lock is released: if another process drafts a new
+            // version for this name in between, latest() can return a row
+            // that does not match the graph just registered. Verifying the
+            // checksum here before trusting it as a pin turns that window
+            // into "leave unpinned" instead of silently mispinning the run
+            // to the wrong version/checksum.
+            $stored = $repository->createDraftIfChanged($definition->name, $graph);
+
+            if ($stored === null) {
+                $checksum = (new GraphSerializer)->checksum($graph);
+                $latest = $repository->latest($definition->name);
+
+                $stored = $latest instanceof StoredDefinition && $latest->checksum === $checksum
+                    ? $latest
+                    : null;
+            }
         } catch (QueryException $e) {
             throw $this->definitionPersistenceUnavailableException($e);
         }
+
+        if ($stored instanceof StoredDefinition) {
+            $this->definitionVersionPins[$definition->name] = [
+                'version' => $stored->version,
+                'checksum' => $stored->checksum,
+            ];
+
+            return;
+        }
+
+        // Losing the checksum race must leave THIS registration unpinned
+        // even on a long-lived process (e.g. Octane) that already holds a
+        // pin for $name from an earlier, unrelated registration — otherwise
+        // the next run would silently reuse a stale version number instead
+        // of going unpinned.
+        unset($this->definitionVersionPins[$definition->name]);
     }
 
     /**
@@ -2653,6 +2711,13 @@ class FlowEngine
 
         if ($run->replayedFromRunId !== null) {
             $attributes['replayed_from_run_id'] = $run->replayedFromRunId;
+        }
+
+        $pin = $this->definitionVersionPins[$run->definitionName] ?? null;
+
+        if ($pin !== null) {
+            $attributes['definition_version'] = $pin['version'];
+            $attributes['definition_checksum'] = $pin['checksum'];
         }
 
         $store->runs()->create($attributes);

@@ -125,6 +125,10 @@ final class ServiceProviderTest extends TestCase
             realpath($packageRoot.'/database/migrations/2026_07_08_000005_create_flow_definitions_table.php'),
             $migrationSources,
         );
+        $this->assertContains(
+            realpath($packageRoot.'/database/migrations/2026_07_08_000006_add_definition_version_to_laravel_flow_runs.php'),
+            $migrationSources,
+        );
     }
 
     public function test_deliver_webhook_outbox_command_is_registered(): void

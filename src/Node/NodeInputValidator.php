@@ -67,6 +67,16 @@ final class NodeInputValidator
 
                 $itemViolation = false;
                 foreach ($value as $index => $item) {
+                    // A null hole is never a valid coalesced item, even for an
+                    // Any-typed port (whose validates() would otherwise accept
+                    // null) — consistent with the port-level null rejection.
+                    if ($item === null) {
+                        $violations[$port->key][] = "Input [{$port->key}][{$index}] must not be null.";
+                        $itemViolation = true;
+
+                        continue;
+                    }
+
                     if (! $port->type->validates($item)) {
                         $violations[$port->key][] = "Input [{$port->key}][{$index}] must be of type [{$port->type->value}], got [".get_debug_type($item).'].';
                         $itemViolation = true;

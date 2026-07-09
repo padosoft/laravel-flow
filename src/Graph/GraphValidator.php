@@ -124,6 +124,12 @@ final class GraphValidator
                     }
 
                     foreach ($value as $index => $item) {
+                        if ($item === null) {
+                            $violations[] = "Config value for input [{$port->key}][{$index}] on node [{$node->id}] must not be null.";
+
+                            continue;
+                        }
+
                         if (! $port->type->validates($item)) {
                             $violations[] = "Config value for input [{$port->key}][{$index}] on node [{$node->id}] must be of type [{$port->type->value}], got [".get_debug_type($item).'].';
                         }

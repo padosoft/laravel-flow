@@ -9,8 +9,8 @@ use Padosoft\LaravelFlow\Contracts\AuditRepository;
 use Padosoft\LaravelFlow\Contracts\FlowStore;
 use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
 use Padosoft\LaravelFlow\Contracts\RedactorAwareFlowStore;
+use Padosoft\LaravelFlow\Contracts\RunNodeRepository;
 use Padosoft\LaravelFlow\Contracts\RunRepository;
-use Padosoft\LaravelFlow\Contracts\StepRunRepository;
 
 /**
  * @internal
@@ -27,9 +27,9 @@ final class EloquentFlowStore implements FlowStore, RedactorAwareFlowStore
         return new EloquentRunRepository($this->connection, $this->redactor);
     }
 
-    public function steps(): StepRunRepository
+    public function runNodes(): RunNodeRepository
     {
-        return new EloquentStepRunRepository($this->connection, $this->redactor);
+        return new EloquentRunNodeRepository($this->connection, $this->redactor);
     }
 
     public function audit(): AuditRepository

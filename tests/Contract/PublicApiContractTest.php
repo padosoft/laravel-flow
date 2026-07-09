@@ -58,7 +58,7 @@ final class PublicApiContractTest extends TestCase
 
         yield 'FlowStore contract' => ['Padosoft\\LaravelFlow\\Contracts\\FlowStore'];
         yield 'RunRepository contract' => ['Padosoft\\LaravelFlow\\Contracts\\RunRepository'];
-        yield 'StepRunRepository contract' => ['Padosoft\\LaravelFlow\\Contracts\\StepRunRepository'];
+        yield 'RunNodeRepository contract' => ['Padosoft\\LaravelFlow\\Contracts\\RunNodeRepository'];
         yield 'AuditRepository contract' => ['Padosoft\\LaravelFlow\\Contracts\\AuditRepository'];
         yield 'ApprovalRepository contract' => ['Padosoft\\LaravelFlow\\Contracts\\ApprovalRepository'];
         yield 'ApprovalDecisionRepository contract' => ['Padosoft\\LaravelFlow\\Contracts\\ApprovalDecisionRepository'];
@@ -210,7 +210,7 @@ final class PublicApiContractTest extends TestCase
             'Padosoft\\LaravelFlow\\Persistence\\ExecutionScopedPayloadRedactor',
             'Padosoft\\LaravelFlow\\Persistence\\FlowPruner',
             'Padosoft\\LaravelFlow\\Models\\FlowRunRecord',
-            'Padosoft\\LaravelFlow\\Models\\FlowStepRecord',
+            'Padosoft\\LaravelFlow\\Models\\FlowRunNodeRecord',
             'Padosoft\\LaravelFlow\\Models\\FlowAuditRecord',
             'Padosoft\\LaravelFlow\\Models\\FlowApprovalRecord',
             'Padosoft\\LaravelFlow\\Models\\FlowWebhookOutboxRecord',

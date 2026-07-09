@@ -234,4 +234,35 @@ return [
         'persist_registered' => env('LARAVEL_FLOW_DEFINITIONS_PERSIST_REGISTERED', false),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Graph executor (v2 graph engine)
+    |--------------------------------------------------------------------------
+    |
+    | Runtime knobs for the event-driven graph executor. These are inert for
+    | the v1 linear engine, which keeps its own execution and step-timeout
+    | settings above; they take effect only for graph runs, reached through
+    | the graph executor's dedicated entry points that arrive later in the
+    | Flow 2.0 Macro C program (this slice ships the persistence model and
+    | state machines only). `lock_store` / `cache.store` default to null (fall
+    | back to the app's default cache store at execution time); `tries` /
+    | `backoff` stay uncast so a normalizer can tell null (defer) from 0
+    | (unlimited), matching the `queue` block above; `cache.ttl_seconds` null
+    | means cache forever.
+    |
+    */
+    'executor' => [
+        'coordinator_timeout_seconds' => (int) env('LARAVEL_FLOW_EXECUTOR_COORDINATOR_TIMEOUT', 120),
+        'node_timeout_seconds' => (int) env('LARAVEL_FLOW_EXECUTOR_NODE_TIMEOUT', 300),
+        'lock_store' => env('LARAVEL_FLOW_EXECUTOR_LOCK_STORE', null),
+        'lock_seconds' => (int) env('LARAVEL_FLOW_EXECUTOR_LOCK_SECONDS', 3600),
+        'default_tries' => env('LARAVEL_FLOW_EXECUTOR_DEFAULT_TRIES', 1),
+        'default_backoff_seconds' => env('LARAVEL_FLOW_EXECUTOR_DEFAULT_BACKOFF', 0),
+        'queue' => env('LARAVEL_FLOW_EXECUTOR_QUEUE', null),
+        'cache' => [
+            'store' => env('LARAVEL_FLOW_EXECUTOR_CACHE_STORE', null),
+            'ttl_seconds' => env('LARAVEL_FLOW_EXECUTOR_CACHE_TTL', null), // null = forever
+        ],
+    ],
+
 ];

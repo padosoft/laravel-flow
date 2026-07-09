@@ -6,35 +6,35 @@ namespace Padosoft\LaravelFlow\Persistence;
 
 use Illuminate\Database\Eloquent\Collection;
 use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
-use Padosoft\LaravelFlow\Contracts\StepRunRepository;
-use Padosoft\LaravelFlow\Models\FlowStepRecord;
+use Padosoft\LaravelFlow\Contracts\RunNodeRepository;
+use Padosoft\LaravelFlow\Models\FlowRunNodeRecord;
 
 /**
  * @internal
  */
-final class EloquentStepRunRepository implements StepRunRepository
+final class EloquentRunNodeRepository implements RunNodeRepository
 {
     public function __construct(
         private readonly ?string $connection,
         private readonly PayloadRedactor $redactor,
     ) {}
 
-    public function createOrUpdate(string $runId, string $stepName, array $attributes): FlowStepRecord
+    public function createOrUpdate(string $runId, string $nodeId, array $attributes): FlowRunNodeRecord
     {
-        unset($attributes['id'], $attributes['run_id'], $attributes['step_name']);
+        unset($attributes['id'], $attributes['run_id'], $attributes['node_id']);
 
-        $values = $this->databaseAttributesFor($runId, $stepName, $attributes);
+        $values = $this->databaseAttributesFor($runId, $nodeId, $attributes);
 
         $this->newModel()->newQuery()->upsert(
             [$values],
-            ['run_id', 'step_name'],
+            ['run_id', 'node_id'],
             $this->updatableColumns($values),
         );
 
-        /** @var FlowStepRecord $record */
+        /** @var FlowRunNodeRecord $record */
         $record = $this->newModel()->newQuery()
             ->where('run_id', $runId)
-            ->where('step_name', $stepName)
+            ->where('node_id', $nodeId)
             ->firstOrFail();
 
         return $record;
@@ -45,19 +45,20 @@ final class EloquentStepRunRepository implements StepRunRepository
         return $this->newModel()->newQuery()
             ->where('run_id', $runId)
             ->orderBy('sequence')
+            ->orderBy('id')
             ->get();
     }
 
-    private function newModel(): FlowStepRecord
+    private function newModel(): FlowRunNodeRecord
     {
-        return (new FlowStepRecord)->setConnection($this->connection);
+        return (new FlowRunNodeRecord)->setConnection($this->connection);
     }
 
     /**
      * @param  array<string, mixed>  $attributes
      * @return array<string, mixed>
      */
-    private function databaseAttributesFor(string $runId, string $stepName, array $attributes): array
+    private function databaseAttributesFor(string $runId, string $nodeId, array $attributes): array
     {
         $model = $this->newModel();
         $timestamp = $model->freshTimestamp();
@@ -67,7 +68,7 @@ final class EloquentStepRunRepository implements StepRunRepository
 
         $model->forceFill([
             'run_id' => $runId,
-            'step_name' => $stepName,
+            'node_id' => $nodeId,
             ...$attributes,
         ]);
 
@@ -85,7 +86,7 @@ final class EloquentStepRunRepository implements StepRunRepository
     {
         return array_values(array_diff(
             array_keys($values),
-            ['id', 'run_id', 'step_name', 'created_at'],
+            ['id', 'run_id', 'node_id', 'created_at'],
         ));
     }
 
@@ -98,7 +99,7 @@ final class EloquentStepRunRepository implements StepRunRepository
         return PersistencePayloadRedaction::redactFields(
             $this->redactor,
             $attributes,
-            PersistencePayloadRedaction::STEP_JSON_FIELDS,
+            PersistencePayloadRedaction::NODE_JSON_FIELDS,
         );
     }
 }

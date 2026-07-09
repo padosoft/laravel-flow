@@ -19,7 +19,7 @@ final class PersistencePayloadRedaction
     /**
      * @var list<string>
      */
-    public const STEP_JSON_FIELDS = ['business_impact', 'input', 'output'];
+    public const NODE_JSON_FIELDS = ['business_impact', 'inputs', 'outputs'];
 
     /**
      * @var list<string>

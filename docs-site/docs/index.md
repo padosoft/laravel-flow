@@ -132,7 +132,7 @@ Plenty of tools cover *some* of this. None ship the whole set as one fluent, Lar
   :::
   ::: grid
     ::: card "In-memory by default, persistence opt-in" icon:database
-    The engine runs synchronously in memory with zero migrations. Flip `persistence.enabled` for `flow_runs`/`flow_steps`/`flow_audit`, correlation/idempotency keys, idempotent run reuse and retention pruning.
+    The engine runs synchronously in memory with zero migrations. Flip `persistence.enabled` for `flow_runs`/`flow_run_nodes`/`flow_audit`, correlation/idempotency keys, idempotent run reuse and retention pruning.
     :::
   :::
   ::: grid
@@ -197,7 +197,7 @@ flowchart LR
   R -->|failure| C[Compensation<br/>reverse-order]
   C --> K[FlowCompensator]
   E --> P{persistence?}
-  P -->|enabled| S[(flow_runs / flow_steps / flow_audit)]
+  P -->|enabled| S[(flow_runs / flow_run_nodes / flow_audit)]
   E --> A[FlowStep* / FlowCompensated events]
   E --> RUN[FlowRun result]
 ```

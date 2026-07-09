@@ -14,8 +14,8 @@ Identita run, status, input, output, business impact, chiavi di correlazione e i
 :::
 :::
 ::: grid
-::: card "flow_steps" icon:list-checks
-Stato e payload per ogni step persistito.
+::: card "flow_run_nodes" icon:list-checks
+Stato e payload per ogni step/nodo persistito (uno step v1 e' un nodo `legacy.step`).
 :::
 :::
 ::: grid

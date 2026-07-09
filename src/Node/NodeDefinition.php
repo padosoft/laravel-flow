@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Padosoft\LaravelFlow\Node;
 
+use Padosoft\LaravelFlow\Executor\RetryPolicy;
+
 /**
  * Immutable, catalog-ready description of one node type.
  *
@@ -27,6 +29,7 @@ final class NodeDefinition
         public readonly array $inputs,
         public readonly array $outputs,
         public readonly string $handlerClass,
+        public readonly ?RetryPolicy $retry = null,
     ) {}
 
     public function input(string $key): ?PortDefinition

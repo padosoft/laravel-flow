@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Padosoft\LaravelFlow\Node;
 
 use InvalidArgumentException;
+use Padosoft\LaravelFlow\Executor\Attributes\Retry;
+use Padosoft\LaravelFlow\Executor\RetryPolicy;
 use Padosoft\LaravelFlow\Node\Attributes\FlowNode;
 use Padosoft\LaravelFlow\Node\Attributes\Input;
 use Padosoft\LaravelFlow\Node\Attributes\Output;
@@ -65,7 +67,31 @@ final class NodeDefinitionFactory
             inputs: $inputs,
             outputs: $outputs,
             handlerClass: $class,
+            retry: $this->retryFor($reflection),
         );
+    }
+
+    /**
+     * Read the node's retry policy from a `#[Retry]` on `execute()` (preferred)
+     * or on the handler class. Returns null when neither declares one.
+     *
+     * @param  ReflectionClass<object>  $reflection
+     */
+    private function retryFor(ReflectionClass $reflection): ?RetryPolicy
+    {
+        $attributes = $reflection->hasMethod('execute')
+            ? $reflection->getMethod('execute')->getAttributes(Retry::class)
+            : [];
+
+        if ($attributes === []) {
+            $attributes = $reflection->getAttributes(Retry::class);
+        }
+
+        if ($attributes === []) {
+            return null;
+        }
+
+        return RetryPolicy::fromAttribute($attributes[0]->newInstance());
     }
 
     /**

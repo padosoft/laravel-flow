@@ -9,6 +9,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Padosoft\LaravelFlow\Facades\Flow;
+use Padosoft\LaravelFlow\FlowDefinition;
 use Padosoft\LaravelFlow\FlowEngine;
 use Padosoft\LaravelFlow\FlowRun;
 use Padosoft\LaravelFlow\Graph\GraphSerializer;
@@ -172,6 +173,34 @@ final class ReplayFlowRunCommandTest extends PersistenceTestCase
             ->expectsOutputToContain('Could not evaluate definition drift for flow run [pinned-unencodable]; replay continues without a drift check.')
             ->doesntExpectOutputToContain('was pinned to')
             ->assertExitCode(1);
+    }
+
+    /**
+     * Copilot review (Macro B PR #54): warnAboutPinnedDrift() only caught
+     * JsonException, but FlowDefinition::toGraphDefinition() can also
+     * throw InvalidGraphException (its structural "at least one node"
+     * invariant, when a definition compiles to zero graph nodes). The v1
+     * builder's register() rejects zero steps, so the only way to
+     * reproduce this is a FlowDefinition built directly (bypassing the
+     * builder) with an empty steps list, then registered in-memory.
+     */
+    public function test_replay_command_degrades_gracefully_when_graph_compilation_is_structurally_invalid(): void
+    {
+        $this->migrateFlowTables();
+        $this->app['config']->set('laravel-flow.persistence.enabled', true);
+
+        $this->app->make(FlowEngine::class)->registerDefinition(
+            new FlowDefinition('flow.replay-invalid-graph', [], []),
+        );
+
+        $this->insertRunGraph('pinned-invalid-graph', FlowRun::STATUS_FAILED, [
+            'tenant' => 'acme',
+        ], definitionName: 'flow.replay-invalid-graph', definitionVersion: 1, definitionChecksum: str_repeat('a', 64));
+
+        $this->artisan('flow:replay', ['runId' => 'pinned-invalid-graph'])
+            ->expectsOutputToContain('Could not evaluate definition drift for flow run [pinned-invalid-graph]; replay continues without a drift check.')
+            ->doesntExpectOutputToContain('was pinned to')
+            ->assertExitCode(0);
     }
 
     public function test_replay_command_rejects_non_terminal_original_runs(): void

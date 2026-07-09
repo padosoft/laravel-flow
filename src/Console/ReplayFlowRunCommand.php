@@ -14,6 +14,7 @@ use Padosoft\LaravelFlow\FlowEngine;
 use Padosoft\LaravelFlow\FlowExecutionOptions;
 use Padosoft\LaravelFlow\FlowRun;
 use Padosoft\LaravelFlow\FlowStep;
+use Padosoft\LaravelFlow\Graph\Exceptions\InvalidGraphException;
 use Padosoft\LaravelFlow\Graph\GraphSerializer;
 use Padosoft\LaravelFlow\Models\FlowRunRecord;
 use Padosoft\LaravelFlow\Models\FlowStepRecord;
@@ -178,7 +179,7 @@ final class ReplayFlowRunCommand extends Command
     {
         try {
             $currentChecksum = (new GraphSerializer)->checksum($definition->toGraphDefinition());
-        } catch (JsonException $e) {
+        } catch (JsonException|InvalidGraphException $e) {
             $this->warn(sprintf(
                 'Could not evaluate definition drift for flow run [%s]; replay continues without a drift check.',
                 $original->id,

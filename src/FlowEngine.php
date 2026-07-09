@@ -16,6 +16,7 @@ use Illuminate\Contracts\Container\Container;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Database\QueryException;
 use InvalidArgumentException;
+use JsonException;
 use Padosoft\LaravelFlow\Contracts\ConditionalRunRepository;
 use Padosoft\LaravelFlow\Contracts\DefinitionRepository;
 use Padosoft\LaravelFlow\Contracts\FlowStore;
@@ -179,6 +180,8 @@ class FlowEngine
             }
         } catch (QueryException $e) {
             throw $this->definitionPersistenceUnavailableException($e);
+        } catch (JsonException $e) {
+            throw $this->definitionGraphUnencodableException($definition->name, $e);
         }
 
         if ($stored instanceof StoredDefinition) {
@@ -1848,6 +1851,14 @@ class FlowEngine
             'Persisting registered definitions (laravel-flow.definitions.persist_registered) requires the published flow_definitions persistence table and a reachable persistence connection. Run the package migrations and verify the persistence connection, or disable definitions.persist_registered.',
             previous: $e,
         );
+    }
+
+    private function definitionGraphUnencodableException(string $definitionName, JsonException $e): FlowExecutionException
+    {
+        return new FlowExecutionException(sprintf(
+            'Definition [%s] could not be encoded to compute its content checksum while persisting a registered definition (laravel-flow.definitions.persist_registered). Check step handler names and config for non-UTF-8 or otherwise non-JSON-encodable values.',
+            $definitionName,
+        ), previous: $e);
     }
 
     private function approvalStepIndex(FlowDefinition $definition, string $stepName): int

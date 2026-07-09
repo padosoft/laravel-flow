@@ -314,12 +314,11 @@ final class EloquentDefinitionRepository implements DefinitionRepository
     }
 
     /**
-     * @throws DefinitionSignatureException when signing is enabled and the
-     *                                      recomputed checksum does not verify against the stored signature
-     */
-    /**
      * Returns the checksum recomputed from the stored graph when signing
      * is enabled, null when disabled (no recompute on the fast path).
+     *
+     * @throws DefinitionSignatureException when signing is enabled and the
+     *                                      recomputed checksum does not verify against the stored signature
      */
     private function verifySignature(FlowDefinitionRecord $model): ?string
     {

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Padosoft\LaravelFlow\Tests\Unit\Persistence;
 
 use Padosoft\LaravelFlow\Contracts\DefinitionRepository;
+use Padosoft\LaravelFlow\Exceptions\FlowExecutionException;
 use Padosoft\LaravelFlow\FlowEngine;
 use Padosoft\LaravelFlow\Graph\GraphDefinition;
 use Padosoft\LaravelFlow\Graph\GraphSerializer;
@@ -308,6 +309,28 @@ final class RunVersionPinningTest extends PersistenceTestCase
         $this->assertInstanceOf(FlowRunRecord::class, $record);
         $this->assertNull($record->definition_version);
         $this->assertNull($record->definition_checksum);
+    }
+
+    /**
+     * Copilot review (Macro B PR #54): persistRegisteredDefinitionIfEnabled()
+     * only wrapped QueryException, but createDraftIfChanged()/checksum()
+     * can also throw JsonException (e.g. invalid UTF-8 in a step handler
+     * name flowing into the compiled graph's node config) — that would
+     * otherwise leak a low-level JsonException out of registerDefinition()
+     * instead of the package-level exception this feature otherwise
+     * reports persistence errors through.
+     */
+    public function test_registering_a_definition_with_an_unencodable_graph_throws_a_clean_exception(): void
+    {
+        $this->migrateFlowTables();
+        $engine = $this->enginePersistingRunsAndDefinitions();
+
+        $this->expectException(FlowExecutionException::class);
+        $this->expectExceptionMessage('flow.pinned-unencodable');
+
+        $engine->define('flow.pinned-unencodable')
+            ->step('one', "AlwaysSucceedsHandler\xB1\x31")
+            ->register();
     }
 
     private function enginePersistingRunsAndDefinitions(): FlowEngine

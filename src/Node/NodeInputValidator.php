@@ -53,7 +53,7 @@ final class NodeInputValidator
             }
 
             if ($port->multiple) {
-                if (! is_array($value)) {
+                if (! is_array($value) || ! array_is_list($value)) {
                     $violations[$port->key][] = "Input [{$port->key}] is a multiple port and must be a list, got [".get_debug_type($value).'].';
 
                     continue;
@@ -77,7 +77,7 @@ final class NodeInputValidator
                     continue;
                 }
 
-                $validated[$port->key] = array_values($value);
+                $validated[$port->key] = $value; // already a list (array_is_list checked above)
 
                 continue;
             }

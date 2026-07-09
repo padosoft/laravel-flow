@@ -106,6 +106,32 @@ final class GraphValidator
                     continue;
                 }
 
+                // A multiple (fan-in) port satisfied by a config literal must
+                // pass the same list/non-empty/per-item rules the runtime input
+                // validator applies, so an always-`invalid_input` graph cannot
+                // be published/imported.
+                if ($port->multiple) {
+                    if (! is_array($value) || ! array_is_list($value)) {
+                        $violations[] = "Config value for multiple input [{$port->key}] on node [{$node->id}] must be a list, got [".get_debug_type($value).'].';
+
+                        continue;
+                    }
+
+                    if ($port->required && $value === []) {
+                        $violations[] = "Config value for required multiple input [{$port->key}] on node [{$node->id}] must not be an empty list.";
+
+                        continue;
+                    }
+
+                    foreach ($value as $index => $item) {
+                        if (! $port->type->validates($item)) {
+                            $violations[] = "Config value for input [{$port->key}][{$index}] on node [{$node->id}] must be of type [{$port->type->value}], got [".get_debug_type($item).'].';
+                        }
+                    }
+
+                    continue;
+                }
+
                 if (! $port->type->validates($value)) {
                     $violations[] = "Config value for input [{$port->key}] on node [{$node->id}] must be of type [{$port->type->value}], got [".get_debug_type($value).'].';
                 }

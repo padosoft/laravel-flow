@@ -50,18 +50,24 @@ final class InputRouter
                 static fn (Connection $c): bool => $c->targetPortKey === $port->key,
             ));
 
+            // Config satisfies a port ONLY when it has no incoming wire at all.
+            // A wired port whose upstream produced no value stays absent (the
+            // validator then decides required-ness) — config must never mask a
+            // missing upstream output. A wire always wins over config.
+            $hasWires = $wires !== [];
+
             if ($port->multiple) {
+                if (! $hasWires && array_key_exists($port->key, $node->config)) {
+                    $raw[$port->key] = $node->config[$port->key];
+
+                    continue;
+                }
+
                 $items = [];
                 foreach ($wires as $wire) {
                     if ($this->hasUpstreamValue($upstreamOutputs, $wire)) {
                         $items[] = $upstreamOutputs[$wire->sourceNodeId][$wire->sourcePortKey];
                     }
-                }
-
-                if ($items === [] && array_key_exists($port->key, $node->config)) {
-                    $raw[$port->key] = $node->config[$port->key];
-
-                    continue;
                 }
 
                 $raw[$port->key] = $items;
@@ -84,7 +90,7 @@ final class InputRouter
                 continue;
             }
 
-            if (array_key_exists($port->key, $node->config)) {
+            if (! $hasWires && array_key_exists($port->key, $node->config)) {
                 $raw[$port->key] = $node->config[$port->key];
             }
         }

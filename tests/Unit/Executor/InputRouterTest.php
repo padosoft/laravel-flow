@@ -93,6 +93,41 @@ final class InputRouterTest extends TestCase
         $this->assertNotNull($routed->violation);
     }
 
+    public function test_wired_single_port_with_no_upstream_value_does_not_use_config(): void
+    {
+        // The port IS wired but the upstream produced no value: config must not
+        // silently mask the missing output, so the port stays absent (invalid
+        // because it is required here).
+        $definition = $this->definition([new PortDefinition('in', PortType::Json, true)]);
+        $node = new GraphNode('n', 't.node', ['in' => ['fallback' => true]]);
+
+        $routed = (new InputRouter)->route(
+            $definition,
+            $node,
+            [new Connection('src', 'out', 'n', 'in')],
+            [], // src produced nothing
+        );
+
+        $this->assertFalse($routed->valid);
+        $this->assertNotNull($routed->violation);
+    }
+
+    public function test_wired_multiple_port_with_no_values_is_empty_not_config(): void
+    {
+        $definition = $this->definition([new PortDefinition('items', PortType::Json, false, null, null, true)]);
+        $node = new GraphNode('n', 't.node', ['items' => [['config' => true]]]);
+
+        $routed = (new InputRouter)->route(
+            $definition,
+            $node,
+            [new Connection('src', 'out', 'n', 'items')],
+            [], // wired, but upstream produced nothing
+        );
+
+        $this->assertTrue($routed->valid);
+        $this->assertSame(['items' => []], $routed->inputs);
+    }
+
     public function test_wire_overrides_config_when_both_present(): void
     {
         $definition = $this->definition([new PortDefinition('in', PortType::Json, true)]);

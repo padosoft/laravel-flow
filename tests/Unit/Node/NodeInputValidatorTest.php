@@ -158,6 +158,18 @@ final class NodeInputValidatorTest extends TestCase
         }
     }
 
+    public function test_multiple_port_rejects_an_associative_array(): void
+    {
+        $definition = $this->definitionWith([new PortDefinition('items', PortType::Json, false, null, null, true)]);
+
+        try {
+            $this->validator->validate($definition, ['items' => ['first' => ['a' => 1]]]);
+            $this->fail('Expected NodeInputValidationException');
+        } catch (NodeInputValidationException $e) {
+            $this->assertStringContainsString('must be a list', $e->violations()['items'][0]);
+        }
+    }
+
     public function test_multiple_port_rejects_an_item_of_the_wrong_type(): void
     {
         $definition = $this->definitionWith([new PortDefinition('items', PortType::Json, false, null, null, true)]);

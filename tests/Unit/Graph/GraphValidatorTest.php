@@ -132,6 +132,41 @@ final class GraphValidatorTest extends TestCase
         $this->validator->validate($graph);
     }
 
+    public function test_multiple_port_config_literal_must_be_a_valid_list(): void
+    {
+        try {
+            $this->validator->validate(new GraphDefinition(
+                [new GraphNode('f', 'test.fanin', ['items' => 'not-a-list'])],
+                [],
+            ));
+            $this->fail('Expected InvalidGraphException');
+        } catch (InvalidGraphException $e) {
+            $this->assertStringContainsString('must be a list', implode(' | ', $e->violations()));
+        }
+    }
+
+    public function test_multiple_port_config_literal_rejects_bad_items(): void
+    {
+        try {
+            $this->validator->validate(new GraphDefinition(
+                [new GraphNode('f', 'test.fanin', ['items' => [['ok' => true], 'scalar']])],
+                [],
+            ));
+            $this->fail('Expected InvalidGraphException');
+        } catch (InvalidGraphException $e) {
+            $this->assertStringContainsString('items][1]', implode(' | ', $e->violations()));
+        }
+    }
+
+    public function test_multiple_port_valid_config_list_passes(): void
+    {
+        $this->validator->validate(new GraphDefinition(
+            [new GraphNode('f', 'test.fanin', ['items' => [['a' => 1], ['b' => 2]]])],
+            [],
+        ));
+        $this->addToAssertionCount(1);
+    }
+
     public function test_multiple_source_into_multiple_port_passes(): void
     {
         // A `multiple` (fan-in) port deliberately coalesces every wire, so N

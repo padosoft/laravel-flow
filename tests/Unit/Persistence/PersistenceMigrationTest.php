@@ -224,6 +224,46 @@ final class PersistenceMigrationTest extends PersistenceTestCase
         $this->assertSame(1, DB::table('flow_run_nodes')->where('run_id', '00000000-0000-4000-8000-000000000300')->count());
     }
 
+    public function test_data_migration_is_rerunnable_after_a_partial_copy(): void
+    {
+        $base = require __DIR__.'/../../../database/migrations/2026_05_02_000001_create_laravel_flow_tables.php';
+        $runNodes = require __DIR__.'/../../../database/migrations/2026_07_09_000007_create_flow_run_nodes_table.php';
+        $dataMigration = require __DIR__.'/../../../database/migrations/2026_07_09_000009_migrate_flow_steps_to_run_nodes.php';
+
+        $base->up();
+        $runNodes->up();
+
+        DB::table('flow_runs')->insert([
+            'id' => '00000000-0000-4000-8000-000000000400',
+            'definition_name' => 'flow.partial',
+            'dry_run' => false,
+            'status' => 'succeeded',
+        ]);
+        DB::table('flow_steps')->insert([
+            'run_id' => '00000000-0000-4000-8000-000000000400',
+            'sequence' => 1,
+            'step_name' => 'charge',
+            'status' => 'succeeded',
+            'dry_run_skipped' => false,
+        ]);
+        // Simulate a prior interrupted run that already copied this node.
+        DB::table('flow_run_nodes')->insert([
+            'run_id' => '00000000-0000-4000-8000-000000000400',
+            'node_id' => 'charge',
+            'node_type' => 'legacy.step',
+            'status' => 'succeeded',
+        ]);
+
+        // Must not abort on the unique (run_id, node_id) constraint.
+        $dataMigration->up();
+
+        $this->assertFalse(Schema::hasTable('flow_steps'));
+        $this->assertSame(1, DB::table('flow_run_nodes')
+            ->where('run_id', '00000000-0000-4000-8000-000000000400')
+            ->where('node_id', 'charge')
+            ->count());
+    }
+
     public function test_data_migration_is_safe_when_flow_steps_never_existed(): void
     {
         $runNodes = require __DIR__.'/../../../database/migrations/2026_07_09_000007_create_flow_run_nodes_table.php';

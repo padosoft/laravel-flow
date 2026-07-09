@@ -12,7 +12,9 @@ use Illuminate\Support\Facades\Schema;
  * output -> outputs, node_type = 'legacy.step'), then retire flow_steps.
  *
  * Safe on hosts that never published flow_steps (guarded on hasTable) and
- * idempotent: once flow_steps is dropped, re-running is a no-op.
+ * re-runnable: rows are copied with insertOrIgnore keyed by the unique
+ * (run_id, node_id), so a re-run after a mid-copy interruption skips already-
+ * copied rows instead of aborting; once flow_steps is dropped it is a no-op.
  */
 return new class extends Migration
 {
@@ -51,7 +53,11 @@ return new class extends Migration
             }
 
             if ($mapped !== []) {
-                DB::table('flow_run_nodes')->insert($mapped);
+                // insertOrIgnore (not insert) so a re-run after a mid-chunk
+                // interruption — some rows already copied, flow_steps not yet
+                // dropped — skips the already-present (run_id, node_id) rows
+                // instead of aborting on the unique constraint.
+                DB::table('flow_run_nodes')->insertOrIgnore($mapped);
             }
         });
 

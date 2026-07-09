@@ -266,14 +266,12 @@ final class PersistenceMigrationTest extends PersistenceTestCase
 
     public function test_data_migration_is_safe_when_flow_steps_never_existed(): void
     {
-        $runNodes = require __DIR__.'/../../../database/migrations/2026_07_09_000007_create_flow_run_nodes_table.php';
         $dataMigration = require __DIR__.'/../../../database/migrations/2026_07_09_000009_migrate_flow_steps_to_run_nodes.php';
 
         // No flow_steps table at all — the guard must make this a no-op.
         $dataMigration->up();
 
         $this->assertFalse(Schema::hasTable('flow_steps'));
-        unset($runNodes);
     }
 
     public function test_graph_columns_migration_adds_columns_to_existing_flow_runs_table(): void

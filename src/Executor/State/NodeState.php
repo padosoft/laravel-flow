@@ -16,10 +16,11 @@ namespace Padosoft\LaravelFlow\Executor\State;
  * step status), so a node sitting at `Failed` with no retry policy configured
  * is exactly as done as one that `Succeeded`. Terminal-ness is therefore
  * ORTHOGONAL to {@see self::canTransitionTo()}'s optional `Failed` ->
- * `Running` retry edge (a Macro C addition, C-PR4): retrying is an OPTIONAL
- * follow-up available from an already-terminal state, not a requirement to
- * leave it, mirroring {@see RunState}'s `Failed`/`PartiallySucceeded` ->
- * `Compensated` edge.
+ * `Running` retry edge: retrying is an OPTIONAL follow-up available from an
+ * already-terminal state, not a requirement to leave it, mirroring
+ * {@see RunState}'s `Failed`/`PartiallySucceeded` -> `Compensated` edge. The
+ * edge is defined here now; the per-node `#[Retry]` policy that drives it
+ * arrives in C-PR4.
  *
  * @api
  */

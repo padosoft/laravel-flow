@@ -11,6 +11,7 @@ use Padosoft\LaravelFlow\Node\NodeDefinition;
 use Padosoft\LaravelFlow\Node\NodeDefinitionFactory;
 use Padosoft\LaravelFlow\Node\NodeInputHydrator;
 use Padosoft\LaravelFlow\Node\NodeInputValidator;
+use Padosoft\LaravelFlow\Node\PortDefinition;
 use Padosoft\LaravelFlow\Node\PortType;
 use PHPUnit\Framework\TestCase;
 
@@ -125,6 +126,85 @@ final class NodeInputValidatorTest extends TestCase
         } catch (NodeInputValidationException $e) {
             $this->assertArrayHasKey('data', $e->violations());
             $this->assertStringContainsString('must not be null', $e->violations()['data'][0]);
+        }
+    }
+
+    /**
+     * @param  list<PortDefinition>  $inputs
+     */
+    private function definitionWith(array $inputs): NodeDefinition
+    {
+        return new NodeDefinition('t.multi', 'Multi', 'test', null, null, $inputs, [], 'Handler');
+    }
+
+    public function test_multiple_port_validates_a_list_of_items(): void
+    {
+        $definition = $this->definitionWith([new PortDefinition('items', PortType::Json, false, null, null, true)]);
+
+        $validated = $this->validator->validate($definition, ['items' => [['a' => 1], ['b' => 2]]]);
+
+        $this->assertSame(['items' => [['a' => 1], ['b' => 2]]], $validated);
+    }
+
+    public function test_multiple_port_rejects_a_non_list_value(): void
+    {
+        $definition = $this->definitionWith([new PortDefinition('items', PortType::Json, false, null, null, true)]);
+
+        try {
+            $this->validator->validate($definition, ['items' => 'not-a-list']);
+            $this->fail('Expected NodeInputValidationException');
+        } catch (NodeInputValidationException $e) {
+            $this->assertStringContainsString('must be a list', $e->violations()['items'][0]);
+        }
+    }
+
+    public function test_multiple_port_rejects_an_associative_array(): void
+    {
+        $definition = $this->definitionWith([new PortDefinition('items', PortType::Json, false, null, null, true)]);
+
+        try {
+            $this->validator->validate($definition, ['items' => ['first' => ['a' => 1]]]);
+            $this->fail('Expected NodeInputValidationException');
+        } catch (NodeInputValidationException $e) {
+            $this->assertStringContainsString('must be a list', $e->violations()['items'][0]);
+        }
+    }
+
+    public function test_multiple_port_rejects_an_item_of_the_wrong_type(): void
+    {
+        $definition = $this->definitionWith([new PortDefinition('items', PortType::Json, false, null, null, true)]);
+
+        try {
+            $this->validator->validate($definition, ['items' => [['ok' => true], 'scalar']]);
+            $this->fail('Expected NodeInputValidationException');
+        } catch (NodeInputValidationException $e) {
+            $this->assertStringContainsString('items][1]', $e->violations()['items'][0]);
+        }
+    }
+
+    public function test_multiple_any_port_rejects_a_null_item(): void
+    {
+        // PortType::Any::validates(null) is true, but a null hole is never a
+        // valid coalesced item.
+        $definition = $this->definitionWith([new PortDefinition('items', PortType::Any, false, null, null, true)]);
+
+        try {
+            $this->validator->validate($definition, ['items' => ['ok', null]]);
+            $this->fail('Expected NodeInputValidationException');
+        } catch (NodeInputValidationException $e) {
+            $this->assertStringContainsString('items][1] must not be null', $e->violations()['items'][0]);
+        }
+    }
+
+    public function test_required_multiple_port_rejects_an_empty_list(): void
+    {
+        $definition = $this->definitionWith([new PortDefinition('items', PortType::Json, true, null, null, true)]);
+
+        try {
+            $this->validator->validate($definition, ['items' => []]);
+            $this->fail('Expected NodeInputValidationException');
+        } catch (NodeInputValidationException $e) {
+            $this->assertStringContainsString('must not be an empty list', $e->violations()['items'][0]);
         }
     }
 }

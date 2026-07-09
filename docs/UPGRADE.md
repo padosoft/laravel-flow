@@ -38,6 +38,10 @@ The v2.0 major unifies step and node persistence into a single table written by 
 - The `flow_audit.step_name` column is **kept** (its value equals the node id for a v1 step); it is not renamed, so audit read/write code is unaffected.
 - `Dashboard\StepSummary` and every `FlowDashboardReadModel` method signature are **unchanged** — a "step" projection is a run-node projection, so the dashboard public contract is preserved (pinned by the golden projection test in `FlowDashboardReadModelTest`).
 
+### Additive `@api` (non-breaking)
+
+- `#[Input]` and `PortDefinition` gain a `bool $multiple = false` flag (trailing, defaulted — existing call sites are unaffected). A `multiple` (fan-in) port coalesces every incoming wire into an ordered `list<mixed>` instead of rejecting the second wire; it is only valid on `PortType::Json` / `PortType::Any` ports whose handler property is `array`. `PortDefinition::toArray()` now includes a `multiple` key (additive; node-catalog schema version unchanged). `GraphValidator` permits N sources into a `multiple` target port (the single-source anti-fan-in rule is unchanged for normal ports). New executor helpers `Padosoft\LaravelFlow\Executor\InputRouter` / `RoutedInputs` (`@api`) resolve and validate a node's inputs from upstream outputs + config.
+
 ### Required migration
 
 Publish and run the new migrations. `2026_07_09_000009_migrate_flow_steps_to_run_nodes` copies any existing `flow_steps` rows into `flow_run_nodes` and then drops `flow_steps`. It is guarded (`hasTable`) so it is a safe no-op on installations that never published `flow_steps`, and idempotent once the legacy table is gone.

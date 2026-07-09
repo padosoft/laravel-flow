@@ -64,10 +64,11 @@ final class GraphValidator
                 $violations[] = "Connection [{$wire->identity()}]: output type [{$out->type->value}] cannot feed input type [{$in->type->value}].";
             }
 
-            // An input port accepts exactly one incoming wire: fan-in would
-            // give the executor ambiguous last-write-wins semantics. Merging
-            // multiple sources requires an explicit merge node (Macro C).
-            if (isset($wiredInputs[$wire->targetNodeId][$wire->targetPortKey])) {
+            // A normal input port accepts exactly one incoming wire: fan-in
+            // would give the executor ambiguous last-write-wins semantics. A
+            // `multiple` (fan-in) port deliberately coalesces every wire into
+            // an ordered list, so N sources are allowed there.
+            if ($in !== null && ! $in->multiple && isset($wiredInputs[$wire->targetNodeId][$wire->targetPortKey])) {
                 $violations[] = "Input port [{$wire->targetPortKey}] on node [{$wire->targetNodeId}] is wired from multiple sources.";
             }
 
@@ -100,6 +101,38 @@ final class GraphValidator
                 if ($value === null) {
                     if ($port->required) {
                         $violations[] = "Config value for required input [{$port->key}] on node [{$node->id}] must not be null.";
+                    }
+
+                    continue;
+                }
+
+                // A multiple (fan-in) port satisfied by a config literal must
+                // pass the same list/non-empty/per-item rules the runtime input
+                // validator applies, so an always-`invalid_input` graph cannot
+                // be published/imported.
+                if ($port->multiple) {
+                    if (! is_array($value) || ! array_is_list($value)) {
+                        $violations[] = "Config value for multiple input [{$port->key}] on node [{$node->id}] must be a list, got [".get_debug_type($value).'].';
+
+                        continue;
+                    }
+
+                    if ($port->required && $value === []) {
+                        $violations[] = "Config value for required multiple input [{$port->key}] on node [{$node->id}] must not be an empty list.";
+
+                        continue;
+                    }
+
+                    foreach ($value as $index => $item) {
+                        if ($item === null) {
+                            $violations[] = "Config value for input [{$port->key}][{$index}] on node [{$node->id}] must not be null.";
+
+                            continue;
+                        }
+
+                        if (! $port->type->validates($item)) {
+                            $violations[] = "Config value for input [{$port->key}][{$index}] on node [{$node->id}] must be of type [{$port->type->value}], got [".get_debug_type($item).'].';
+                        }
                     }
 
                     continue;

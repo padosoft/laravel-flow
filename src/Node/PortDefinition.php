@@ -25,6 +25,7 @@ final class PortDefinition
         public readonly bool $required = false,
         public readonly ?string $label = null,
         public readonly ?string $propertyName = null,
+        public readonly bool $multiple = false,
     ) {
         if (trim($this->key) === '') {
             throw new InvalidArgumentException('Port key must not be empty.');
@@ -36,7 +37,7 @@ final class PortDefinition
     }
 
     /**
-     * @return array{key: string, type: string, required: bool, label: string}
+     * @return array{key: string, type: string, required: bool, label: string, multiple: bool}
      */
     public function toArray(): array
     {
@@ -45,6 +46,7 @@ final class PortDefinition
             'type' => $this->type->value,
             'required' => $this->required,
             'label' => $this->label ?? $this->key,
+            'multiple' => $this->multiple,
         ];
     }
 }

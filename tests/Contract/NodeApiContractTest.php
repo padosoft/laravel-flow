@@ -71,6 +71,18 @@ final class NodeApiContractTest extends TestCase
         }
     }
 
+    public function test_variadic_multiple_port_flag_is_pinned(): void
+    {
+        $input = (new ReflectionClass(Input::class))->getConstructor();
+        $this->assertNotNull($input);
+        $inputParams = array_map(static fn (\ReflectionParameter $p): string => $p->getName(), $input->getParameters());
+        $this->assertContains('multiple', $inputParams);
+
+        $port = new PortDefinition('items', PortType::Json, false, null, null, true);
+        $this->assertTrue($port->multiple);
+        $this->assertTrue($port->toArray()['multiple']);
+    }
+
     public function test_node_result_factories_are_pinned(): void
     {
         foreach (['success', 'failed', 'dryRunSkipped', 'paused'] as $factory) {

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Padosoft\LaravelFlow\Tests\Unit\Node;
 
+use Padosoft\LaravelFlow\Executor\Attributes\Retry;
 use Padosoft\LaravelFlow\Node\Attributes\FlowNode;
 use Padosoft\LaravelFlow\Node\Attributes\Input;
 use Padosoft\LaravelFlow\Node\Attributes\Output;
@@ -147,6 +148,29 @@ final class NodeDefinitionFactoryTest extends TestCase
 
         $definition = $this->factory->fromClass($handler::class);
         $this->assertTrue($definition->input('items')->multiple);
+    }
+
+    public function test_retry_attribute_is_read_and_advertised_in_the_catalog(): void
+    {
+        $handler = new #[FlowNode(type: 'retry.node')] #[Retry(tries: 3, backoff: 5, timeout: 30)] class
+        {
+            #[Output(type: PortType::Json)]
+            public array $out;
+        };
+
+        $definition = $this->factory->fromClass($handler::class);
+
+        $this->assertNotNull($definition->retry);
+        $this->assertSame(3, $definition->retry->tries());
+        $this->assertSame(['tries' => 3, 'backoff' => 5, 'timeout' => 30], $definition->toArray()['retry']);
+    }
+
+    public function test_definition_without_retry_omits_it_from_the_catalog(): void
+    {
+        $definition = $this->factory->fromClass(GreetNode::class);
+
+        $this->assertNull($definition->retry);
+        $this->assertArrayNotHasKey('retry', $definition->toArray());
     }
 
     public function test_name_defaults_to_class_basename(): void

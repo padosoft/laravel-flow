@@ -88,6 +88,20 @@ final class RetryPolicy
         return new self(max(1, $tries), self::normalizeBackoff($backoffValue), max(0, $timeout));
     }
 
+    /**
+     * Catalog/MCP-schema projection of the effective policy.
+     *
+     * @return array{tries: int, backoff: int|list<int>, timeout: int}
+     */
+    public function toArray(): array
+    {
+        return [
+            'tries' => $this->tries,
+            'backoff' => $this->backoff,
+            'timeout' => $this->timeout,
+        ];
+    }
+
     public function tries(): int
     {
         return $this->tries;

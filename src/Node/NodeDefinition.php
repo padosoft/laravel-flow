@@ -50,7 +50,7 @@ final class NodeDefinition
      */
     public function toArray(): array
     {
-        return [
+        $array = [
             'type' => $this->type,
             'name' => $this->name,
             'category' => $this->category,
@@ -59,6 +59,12 @@ final class NodeDefinition
             'inputs' => array_map(static fn (PortDefinition $port): array => $port->toArray(), $this->inputs),
             'outputs' => array_map(static fn (PortDefinition $port): array => $port->toArray(), $this->outputs),
         ];
+
+        if ($this->retry !== null) {
+            $array['retry'] = $this->retry->toArray();
+        }
+
+        return $array;
     }
 
     /**

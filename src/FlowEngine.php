@@ -32,6 +32,7 @@ use Padosoft\LaravelFlow\Exceptions\FlowCompensationException;
 use Padosoft\LaravelFlow\Exceptions\FlowExecutionException;
 use Padosoft\LaravelFlow\Exceptions\FlowInputException;
 use Padosoft\LaravelFlow\Exceptions\FlowNotRegisteredException;
+use Padosoft\LaravelFlow\Graph\Exceptions\InvalidGraphException;
 use Padosoft\LaravelFlow\Graph\GraphSerializer;
 use Padosoft\LaravelFlow\Graph\StoredDefinition;
 use Padosoft\LaravelFlow\Jobs\RunFlowJob;
@@ -151,12 +152,18 @@ class FlowEngine
             return;
         }
 
-        $graph = $definition->toGraphDefinition();
-
         /** @var DefinitionRepository $repository */
         $repository = $this->container->make(DefinitionRepository::class);
 
         try {
+            // toGraphDefinition() throws InvalidGraphException when the
+            // compiled graph is structurally invalid (e.g. zero steps on a
+            // definition built directly, bypassing the builder's guard);
+            // handled here alongside createDraftIfChanged()'s/checksum()'s
+            // JsonException so registerDefinition() never leaks a raw
+            // Graph-namespace exception for this opt-in feature.
+            $graph = $definition->toGraphDefinition();
+
             // createDraftIfChanged() returns null when the graph is
             // unchanged from the latest stored version (dedupe skip),
             // inside the same name-group lock as its comparison. The
@@ -180,8 +187,8 @@ class FlowEngine
             }
         } catch (QueryException $e) {
             throw $this->definitionPersistenceUnavailableException($e);
-        } catch (JsonException $e) {
-            throw $this->definitionGraphUnencodableException($definition->name, $e);
+        } catch (JsonException|InvalidGraphException $e) {
+            throw $this->definitionGraphInvalidException($definition->name, $e);
         }
 
         if ($stored instanceof StoredDefinition) {
@@ -1853,11 +1860,16 @@ class FlowEngine
         );
     }
 
-    private function definitionGraphUnencodableException(string $definitionName, JsonException $e): FlowExecutionException
+    private function definitionGraphInvalidException(string $definitionName, JsonException|InvalidGraphException $e): FlowExecutionException
     {
+        $reason = $e instanceof InvalidGraphException
+            ? 'its compiled graph is structurally invalid'
+            : 'its content checksum could not be computed (non-UTF-8 or otherwise non-JSON-encodable step handler names or config)';
+
         return new FlowExecutionException(sprintf(
-            'Definition [%s] could not be encoded to compute its content checksum while persisting a registered definition (laravel-flow.definitions.persist_registered). Check step handler names and config for non-UTF-8 or otherwise non-JSON-encodable values.',
+            'Definition [%s] could not be persisted as a registered definition (laravel-flow.definitions.persist_registered): %s.',
             $definitionName,
+            $reason,
         ), previous: $e);
     }
 

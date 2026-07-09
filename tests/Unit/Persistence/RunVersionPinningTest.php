@@ -6,6 +6,7 @@ namespace Padosoft\LaravelFlow\Tests\Unit\Persistence;
 
 use Padosoft\LaravelFlow\Contracts\DefinitionRepository;
 use Padosoft\LaravelFlow\Exceptions\FlowExecutionException;
+use Padosoft\LaravelFlow\FlowDefinition;
 use Padosoft\LaravelFlow\FlowEngine;
 use Padosoft\LaravelFlow\Graph\GraphDefinition;
 use Padosoft\LaravelFlow\Graph\GraphSerializer;
@@ -331,6 +332,25 @@ final class RunVersionPinningTest extends PersistenceTestCase
         $engine->define('flow.pinned-unencodable')
             ->step('one', "AlwaysSucceedsHandler\xB1\x31")
             ->register();
+    }
+
+    /**
+     * Copilot review (Macro B PR #54): the original fix left
+     * toGraphDefinition() OUTSIDE the try/catch, so a definition compiling
+     * to a structurally invalid graph (e.g. zero steps — unreachable via
+     * the builder's own guard, but reachable via a FlowDefinition built
+     * directly) would still leak InvalidGraphException instead of the
+     * package-level exception this feature reports other failures through.
+     */
+    public function test_registering_a_structurally_invalid_definition_throws_a_clean_exception(): void
+    {
+        $this->migrateFlowTables();
+        $engine = $this->enginePersistingRunsAndDefinitions();
+
+        $this->expectException(FlowExecutionException::class);
+        $this->expectExceptionMessage('flow.pinned-invalid-graph');
+
+        $engine->registerDefinition(new FlowDefinition('flow.pinned-invalid-graph', [], []));
     }
 
     private function enginePersistingRunsAndDefinitions(): FlowEngine

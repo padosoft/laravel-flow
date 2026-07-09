@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Padosoft\LaravelFlow\Contracts;
 
 use Illuminate\Database\QueryException;
+use JsonException;
 use Padosoft\LaravelFlow\Graph\Exceptions\DefinitionLifecycleException;
 use Padosoft\LaravelFlow\Graph\Exceptions\DefinitionNotFoundException;
 use Padosoft\LaravelFlow\Graph\Exceptions\DefinitionSignatureException;
@@ -31,6 +32,8 @@ interface DefinitionRepository
      * Creates version = max(existing)+1 (or 1) for $name, in status 'draft'.
      *
      * @throws DefinitionSignatureException
+     * @throws JsonException when $graph cannot be JSON-encoded to compute
+     *                       its content checksum (e.g. non-UTF-8 values)
      * @throws QueryException when the persistence connection or the
      *                        `flow_definitions` table is unavailable
      */
@@ -46,6 +49,8 @@ interface DefinitionRepository
      * and each create a duplicate draft version.
      *
      * @throws DefinitionSignatureException
+     * @throws JsonException when $graph cannot be JSON-encoded to compute
+     *                       its content checksum (e.g. non-UTF-8 values)
      * @throws QueryException when the persistence connection or the
      *                        `flow_definitions` table is unavailable
      */

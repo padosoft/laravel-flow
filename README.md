@@ -394,6 +394,25 @@ Event::listen(function (FlowStepFailed $e) {
 });
 ```
 
+### Import / export flow definitions (v2 preview)
+
+The Flow 2.0 graph-definition store ships with two Artisan commands:
+
+```bash
+# Export the latest PUBLISHED version (or an explicit one) as canonical JSON
+php artisan flow:export order-refund --file=order-refund.json
+php artisan flow:export order-refund --definition-version=3   # --version is reserved by Symfony
+
+# Import a canonical JSON file as a NEW draft version (optionally publish it)
+php artisan flow:import order-refund.json --name=order-refund-copy --publish
+
+# Import a ModelsGenerator "Flow v2" export (structural mapping only:
+# semantic validation against your node catalog runs at publish time)
+php artisan flow:import descrivi-immagine.json --format=flow2 --name=describe-image
+```
+
+Errors (missing file, invalid JSON, graph violations, signature mismatches) are reported as aggregated human-readable messages with a non-zero exit code. Full authoring documentation for the v2 graph surface lands with the Flow Studio release.
+
 ---
 
 ## Configuration reference
@@ -472,6 +491,8 @@ return [
 | `queue.tries`             | `null`           | Optional Laravel job attempts value stamped onto `RunFlowJob`; `null` leaves the worker/connection default in control, while `0` preserves Laravel's unlimited-retry semantics. Async values that can retry the whole run are rejected until step-level retry or replay semantics are available. |
 | `queue.backoff_seconds`   | `null`           | Optional Laravel job backoff value stamped onto `RunFlowJob`; use a single integer or comma-separated/list values such as `5,30,120`. Async backoff schedules that can retry the whole run are rejected until step-level retry or replay semantics are available. |
 | `approval.token_ttl_minutes` | `1440`        | Expiry window for `ApprovalTokenManager` one-time tokens consumed by `Flow::resume()` / `Flow::reject()`. Only token hashes are stored in `flow_approvals`; the plain token is returned once from issuance. |
+| `definitions.signing_secret` | `null`        | Optional HMAC-SHA256 secret (env `LARAVEL_FLOW_DEFINITIONS_SIGNING_SECRET`) for the v2 graph-definition store: definitions are signed on write and verified on every load (checksum recomputed from the stored graph); tampered rows throw `DefinitionSignatureException`. `null` disables signing. |
+| `definitions.persist_registered` | `false` (env `LARAVEL_FLOW_DEFINITIONS_PERSIST_REGISTERED`) | When `true`, `Flow::registerDefinition()`/`define()->register()` additionally compiles the v1 definition to a graph and saves it as a deduped versioned draft in `flow_definitions`; the matched/produced version+checksum is then pinned onto `flow_runs.definition_version`/`definition_checksum` for that definition's next run, enabling `flow:replay`'s checksum-aware drift warning. `false` (default) keeps registration purely in-memory as in v1, with no database writes and unpinned runs. |
 | `webhook.enabled`         | `false`          | Enables signed lifecycle delivery. Set `true` only when your app can reach the webhook URL from the command schedule or worker. |
 | `webhook.url`             | `''`             | URL endpoint receiving lifecycle event JSON from `flow:deliver-webhooks`; the command rejects empty or syntactically invalid URL values (HTTPS strongly recommended for production). |
 | `webhook.secret`          | `null`           | Shared HMAC secret for signing `X-Laravel-Flow-Signature: t=...,v1=...` headers. Leave empty to disable signing. |

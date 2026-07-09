@@ -9,7 +9,10 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Padosoft\LaravelFlow\Facades\Flow;
+use Padosoft\LaravelFlow\FlowDefinition;
+use Padosoft\LaravelFlow\FlowEngine;
 use Padosoft\LaravelFlow\FlowRun;
+use Padosoft\LaravelFlow\Graph\GraphSerializer;
 use Padosoft\LaravelFlow\Models\FlowRunRecord;
 use Padosoft\LaravelFlow\Tests\Unit\Stubs\AlwaysSucceedsHandler;
 use Padosoft\LaravelFlow\Tests\Unit\Stubs\SecondHandler;
@@ -92,6 +95,111 @@ final class ReplayFlowRunCommandTest extends PersistenceTestCase
         $this->artisan('flow:replay', ['runId' => 'prefix-failed'])
             ->doesntExpectOutputToContain('Definition drift detected')
             ->expectsOutputToContain('Replayed flow run [prefix-failed] as')
+            ->assertExitCode(0);
+    }
+
+    public function test_replay_command_does_not_warn_for_a_pinned_unchanged_flow(): void
+    {
+        $this->migrateFlowTables();
+        $this->app['config']->set('laravel-flow.persistence.enabled', true);
+
+        Flow::define('flow.replay')
+            ->withInput(['tenant'])
+            ->step('one', AlwaysSucceedsHandler::class)
+            ->register();
+
+        $definition = $this->app->make(FlowEngine::class)->definition('flow.replay');
+        $checksum = (new GraphSerializer)->checksum($definition->toGraphDefinition());
+
+        $this->insertRunGraph('pinned-unchanged', FlowRun::STATUS_FAILED, [
+            'tenant' => 'acme',
+        ], definitionVersion: 1, definitionChecksum: $checksum);
+
+        $this->artisan('flow:replay', ['runId' => 'pinned-unchanged'])
+            ->doesntExpectOutputToContain('Definition drift detected')
+            ->doesntExpectOutputToContain('was pinned to')
+            ->expectsOutputToContain('Replayed flow run [pinned-unchanged] as')
+            ->assertExitCode(0);
+    }
+
+    public function test_replay_command_warns_with_version_context_for_a_pinned_drifted_flow(): void
+    {
+        $this->migrateFlowTables();
+        $this->app['config']->set('laravel-flow.persistence.enabled', true);
+
+        Flow::define('flow.replay')
+            ->withInput(['tenant'])
+            ->step('one', AlwaysSucceedsHandler::class)
+            ->register();
+
+        $this->insertRunGraph('pinned-drifted', FlowRun::STATUS_FAILED, [
+            'tenant' => 'acme',
+        ], definitionVersion: 3, definitionChecksum: str_repeat('a', 64));
+
+        $this->artisan('flow:replay', ['runId' => 'pinned-drifted'])
+            ->doesntExpectOutputToContain('Definition drift detected for')
+            ->expectsOutputToContain('Flow run [pinned-drifted] was pinned to [flow.replay] version [3]')
+            ->expectsOutputToContain('Replayed flow run [pinned-drifted] as')
+            ->assertExitCode(0);
+    }
+
+    /**
+     * Copilot review (round 3, PR #53): GraphSerializer::checksum() is
+     * documented to throw JsonException (json_encode(..., JSON_THROW_ON_ERROR)
+     * on malformed UTF-8 or non-encodable values); warnAboutPinnedDrift()
+     * called it unguarded, so a definition whose graph can't be
+     * JSON-encoded would crash the whole replay instead of degrading
+     * gracefully. A step handler class name containing invalid UTF-8
+     * bytes flows straight into the compiled graph's node config and
+     * reproduces the real throw path (verified: json_encode() with
+     * JSON_THROW_ON_ERROR throws on "\xB1\x31") without needing to fake
+     * GraphSerializer.
+     */
+    public function test_replay_command_degrades_gracefully_when_checksum_computation_throws(): void
+    {
+        $this->migrateFlowTables();
+        $this->app['config']->set('laravel-flow.persistence.enabled', true);
+
+        Flow::define('flow.replay')
+            ->withInput(['tenant'])
+            ->step('one', "AlwaysSucceedsHandler\xB1\x31")
+            ->register();
+
+        $this->insertRunGraph('pinned-unencodable', FlowRun::STATUS_FAILED, [
+            'tenant' => 'acme',
+        ], definitionVersion: 1, definitionChecksum: str_repeat('a', 64));
+
+        $this->artisan('flow:replay', ['runId' => 'pinned-unencodable'])
+            ->expectsOutputToContain('Could not evaluate definition drift for flow run [pinned-unencodable]; replay continues without a drift check.')
+            ->doesntExpectOutputToContain('was pinned to')
+            ->assertExitCode(1);
+    }
+
+    /**
+     * Copilot review (Macro B PR #54): warnAboutPinnedDrift() only caught
+     * JsonException, but FlowDefinition::toGraphDefinition() can also
+     * throw InvalidGraphException (its structural "at least one node"
+     * invariant, when a definition compiles to zero graph nodes). The v1
+     * builder's register() rejects zero steps, so the only way to
+     * reproduce this is a FlowDefinition built directly (bypassing the
+     * builder) with an empty steps list, then registered in-memory.
+     */
+    public function test_replay_command_degrades_gracefully_when_graph_compilation_is_structurally_invalid(): void
+    {
+        $this->migrateFlowTables();
+        $this->app['config']->set('laravel-flow.persistence.enabled', true);
+
+        $this->app->make(FlowEngine::class)->registerDefinition(
+            new FlowDefinition('flow.replay-invalid-graph', [], []),
+        );
+
+        $this->insertRunGraph('pinned-invalid-graph', FlowRun::STATUS_FAILED, [
+            'tenant' => 'acme',
+        ], definitionName: 'flow.replay-invalid-graph', definitionVersion: 1, definitionChecksum: str_repeat('a', 64));
+
+        $this->artisan('flow:replay', ['runId' => 'pinned-invalid-graph'])
+            ->expectsOutputToContain('Could not evaluate definition drift for flow run [pinned-invalid-graph]; replay continues without a drift check.')
+            ->doesntExpectOutputToContain('was pinned to')
             ->assertExitCode(0);
     }
 
@@ -194,10 +302,12 @@ final class ReplayFlowRunCommandTest extends PersistenceTestCase
         string $definitionName = 'flow.replay',
         string $handler = AlwaysSucceedsHandler::class,
         ?string $finishedAt = '2026-05-03 10:00:00',
+        ?int $definitionVersion = null,
+        ?string $definitionChecksum = null,
     ): void {
         $timestamp = Carbon::parse('2026-05-03 09:00:00');
 
-        DB::table('flow_runs')->insert([
+        $attributes = [
             'created_at' => $timestamp,
             'definition_name' => $definitionName,
             'dry_run' => false,
@@ -207,7 +317,20 @@ final class ReplayFlowRunCommandTest extends PersistenceTestCase
             'started_at' => $timestamp,
             'status' => $status,
             'updated_at' => $timestamp,
-        ]);
+        ];
+
+        // Omit the version-pinning keys from the insert array entirely for
+        // callers that pass no pin (the stored column value is NULL either
+        // way once the schema has these nullable columns — only the INSERT
+        // statement differs, not what ends up persisted), matching how
+        // production code builds this array conditionally rather than
+        // always setting both keys.
+        if ($definitionVersion !== null || $definitionChecksum !== null) {
+            $attributes['definition_version'] = $definitionVersion;
+            $attributes['definition_checksum'] = $definitionChecksum;
+        }
+
+        DB::table('flow_runs')->insert($attributes);
 
         DB::table('flow_steps')->insert([
             'created_at' => $timestamp,

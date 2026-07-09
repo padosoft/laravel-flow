@@ -59,6 +59,13 @@ final class FlowDefinitionBuilder
      */
     public function step(string $name, string $handlerFqcn): self
     {
+        if (trim($name) === '') {
+            throw new FlowExecutionException(sprintf(
+                'Flow [%s] steps must have a non-empty name: results are keyed by it and graph compilation uses it as the node id.',
+                $this->name,
+            ));
+        }
+
         foreach ($this->steps as $existing) {
             if ($existing->name === $name) {
                 throw new FlowExecutionException(sprintf(

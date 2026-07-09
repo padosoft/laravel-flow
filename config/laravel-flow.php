@@ -200,4 +200,38 @@ return [
         'discovery' => [],
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Flow definitions (v2 graph engine)
+    |--------------------------------------------------------------------------
+    |
+    | Optional HMAC-SHA256 signing for the versioned flow_definitions store,
+    | mirroring the webhook secret pattern above: a null/blank secret disables
+    | signing entirely, no separate enabled flag needed. When a secret is
+    | configured, createDraft() signs the graph checksum and EVERY read
+    | path (find/latest/versions/createDraft/publish/archive) recomputes
+    | the checksum from the stored graph and verifies it against the
+    | signature before returning, throwing DefinitionSignatureException on
+    | mismatch or unreadable graph (e.g. columns edited outside the repo).
+    | Turning signing off again is tolerant of already-signed rows: with no
+    | secret configured, verification is skipped entirely.
+    |
+    | `persist_registered`: when true, FlowEngine::registerDefinition()
+    | additionally compiles the registered v1 definition to a graph (see
+    | FlowDefinition::toGraphDefinition()) and persists it as a
+    | flow_definitions draft via DefinitionRepository::createDraft(),
+    | skipping the write when the latest stored version already has the
+    | same content checksum. Default off: registering a flow never writes
+    | to the database unless you opt in, and DefinitionRepository is only
+    | resolved from the container when this flag is true. Enabling it
+    | requires the flow_definitions migration to be published and run;
+    | otherwise registerDefinition() throws a package-level exception
+    | instead of a raw database error.
+    |
+    */
+    'definitions' => [
+        'signing_secret' => env('LARAVEL_FLOW_DEFINITIONS_SIGNING_SECRET', null),
+        'persist_registered' => env('LARAVEL_FLOW_DEFINITIONS_PERSIST_REGISTERED', false),
+    ],
+
 ];

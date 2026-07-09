@@ -4,25 +4,40 @@ declare(strict_types=1);
 
 namespace Padosoft\LaravelFlow\Tests\Architecture;
 
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
 
 /**
- * `src/Node` MUST stay framework-free: the node contract, registry,
- * discovery and catalog are consumed by non-Laravel tooling (Studio,
- * MCP schema generation). Laravel-specific wiring (the `flow:nodes`
- * command, container bindings) lives in `Console`/the service provider.
+ * `src/Node` and `src/Graph` MUST stay framework-free: the node contract,
+ * registry, discovery, catalog, graph definition and validator are
+ * consumed by non-Laravel tooling (Studio, MCP schema generation).
+ * Laravel-specific wiring (the `flow:nodes` command, container bindings)
+ * lives in `Console`/the service provider.
  */
 final class NodeNamespaceTest extends TestCase
 {
-    public function test_node_namespace_is_framework_free(): void
+    /**
+     * @return iterable<string, array{string}>
+     */
+    public static function frameworkFreeRoots(): iterable
     {
-        $nodeRoot = realpath(__DIR__.'/../../src/Node');
-        $this->assertNotFalse($nodeRoot, 'src/Node directory must exist');
+        yield 'Node' => ['Node'];
+        yield 'Graph' => ['Graph'];
+    }
+
+    #[DataProvider('frameworkFreeRoots')]
+    public function test_namespace_is_framework_free(string $relativeRoot): void
+    {
+        $root = realpath(__DIR__.'/../../src/'.$relativeRoot);
+
+        if ($root === false) {
+            $this->markTestSkipped("src/{$relativeRoot} does not exist yet.");
+        }
 
         $iterator = new RecursiveIteratorIterator(
-            new RecursiveDirectoryIterator($nodeRoot, RecursiveDirectoryIterator::SKIP_DOTS),
+            new RecursiveDirectoryIterator($root, RecursiveDirectoryIterator::SKIP_DOTS),
         );
 
         $offenders = [];
@@ -42,8 +57,10 @@ final class NodeNamespaceTest extends TestCase
         }
 
         $this->assertSame([], $offenders, sprintf(
-            "Illuminate references found in src/Node:\n%s\nsrc/Node must stay standalone-agnostic; framework wiring belongs in Console.",
+            "Illuminate references found in src/%s:\n%s\nsrc/%s must stay standalone-agnostic; framework wiring belongs in Console.",
+            $relativeRoot,
             implode("\n", $offenders),
+            $relativeRoot,
         ));
     }
 }

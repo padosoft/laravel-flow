@@ -16,7 +16,9 @@ use Illuminate\Contracts\Container\Container;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Database\QueryException;
 use InvalidArgumentException;
+use JsonException;
 use Padosoft\LaravelFlow\Contracts\ConditionalRunRepository;
+use Padosoft\LaravelFlow\Contracts\DefinitionRepository;
 use Padosoft\LaravelFlow\Contracts\FlowStore;
 use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
 use Padosoft\LaravelFlow\Contracts\RedactorAwareFlowStore;
@@ -30,6 +32,10 @@ use Padosoft\LaravelFlow\Exceptions\FlowCompensationException;
 use Padosoft\LaravelFlow\Exceptions\FlowExecutionException;
 use Padosoft\LaravelFlow\Exceptions\FlowInputException;
 use Padosoft\LaravelFlow\Exceptions\FlowNotRegisteredException;
+use Padosoft\LaravelFlow\Graph\Exceptions\DefinitionSignatureException;
+use Padosoft\LaravelFlow\Graph\Exceptions\InvalidGraphException;
+use Padosoft\LaravelFlow\Graph\GraphSerializer;
+use Padosoft\LaravelFlow\Graph\StoredDefinition;
 use Padosoft\LaravelFlow\Jobs\RunFlowJob;
 use Padosoft\LaravelFlow\Models\FlowApprovalRecord;
 use Padosoft\LaravelFlow\Models\FlowRunRecord;
@@ -61,6 +67,18 @@ class FlowEngine
      */
     private array $definitions = [];
 
+    /**
+     * Version+checksum pin recorded when `persist_registered` matched or
+     * produced a `flow_definitions` version for the definition during its
+     * most recent registration; absent when the flag is off. Consumed by
+     * {@see self::persistRunStarted()} to pin new `flow_runs` rows to the
+     * definition version/checksum that was active at registration time.
+     * Internal bookkeeping only — never exposed through {@see self::definitions()}.
+     *
+     * @var array<string, array{version: int, checksum: string}>
+     */
+    private array $definitionVersionPins = [];
+
     public function __construct(
         private readonly Container $container,
         private readonly Dispatcher $events,
@@ -73,6 +91,9 @@ class FlowEngine
          *     persistence?: array{
          *         enabled?: bool,
          *         redaction?: array{enabled?: bool, keys?: array<int, string>, replacement?: string}
+         *     },
+         *     definitions?: array{
+         *         persist_registered?: bool
          *     },
          *     queue?: array{
          *         lock_store?: string|null,
@@ -99,6 +120,95 @@ class FlowEngine
     public function registerDefinition(FlowDefinition $definition): void
     {
         $this->definitions[$definition->name] = $definition;
+
+        $this->persistRegisteredDefinitionIfEnabled($definition);
+    }
+
+    /**
+     * Optional bridge to the v2 versioned definition store: compiles the
+     * just-registered v1 definition to a graph and saves it as a new
+     * `flow_definitions` draft, gated by `laravel-flow.definitions.persist_registered`
+     * (default off). `DefinitionRepository` is resolved from the
+     * container only when the flag is true, so the normal in-memory-only
+     * registration path never touches the database or the container for
+     * this feature. Re-registering an unchanged definition is a no-op:
+     * {@see DefinitionRepository::createDraftIfChanged()} compares the
+     * content checksum against the latest stored version (any status)
+     * inside the same name-group lock as the insert, so repeated boots of
+     * a host app that calls `register()` on every request/command — even
+     * from concurrent workers — do not pile up draft versions for a
+     * definition that never changed. Whichever version was matched or
+     * produced is recorded in {@see self::$definitionVersionPins} so the
+     * next run created for this definition name pins its `flow_runs` row
+     * to that version/checksum (see {@see self::persistRunStarted()}).
+     */
+    private function persistRegisteredDefinitionIfEnabled(FlowDefinition $definition): void
+    {
+        if (! (bool) ($this->config['definitions']['persist_registered'] ?? false)) {
+            // A long-lived FlowEngine instance (e.g. Octane) may already
+            // hold a pin for this name from a moment when the flag was on;
+            // turning the flag off must always mean unpinned going forward.
+            unset($this->definitionVersionPins[$definition->name]);
+
+            return;
+        }
+
+        /** @var DefinitionRepository $repository */
+        $repository = $this->container->make(DefinitionRepository::class);
+
+        try {
+            // toGraphDefinition() throws InvalidGraphException when the
+            // compiled graph is structurally invalid (e.g. zero steps on a
+            // definition built directly, bypassing the builder's guard);
+            // handled here alongside createDraftIfChanged()'s/checksum()'s
+            // JsonException so registerDefinition() never leaks a raw
+            // Graph-namespace exception for this opt-in feature.
+            $graph = $definition->toGraphDefinition();
+
+            // createDraftIfChanged() returns null when the graph is
+            // unchanged from the latest stored version (dedupe skip),
+            // inside the same name-group lock as its comparison. The
+            // version pin still needs the MATCHED version in that case,
+            // but latest() below is a second, UNLOCKED query issued after
+            // that lock is released: if another process drafts a new
+            // version for this name in between, latest() can return a row
+            // that does not match the graph just registered. Verifying the
+            // checksum here before trusting it as a pin turns that window
+            // into "leave unpinned" instead of silently mispinning the run
+            // to the wrong version/checksum.
+            $stored = $repository->createDraftIfChanged($definition->name, $graph);
+
+            if ($stored === null) {
+                $checksum = (new GraphSerializer)->checksum($graph);
+                $latest = $repository->latest($definition->name);
+
+                $stored = $latest instanceof StoredDefinition && $latest->checksum === $checksum
+                    ? $latest
+                    : null;
+            }
+        } catch (QueryException $e) {
+            throw $this->definitionPersistenceUnavailableException($e);
+        } catch (JsonException|InvalidGraphException $e) {
+            throw $this->definitionGraphInvalidException($definition->name, $e);
+        } catch (DefinitionSignatureException $e) {
+            throw $this->definitionSignatureUnverifiedException($definition->name, $e);
+        }
+
+        if ($stored instanceof StoredDefinition) {
+            $this->definitionVersionPins[$definition->name] = [
+                'version' => $stored->version,
+                'checksum' => $stored->checksum,
+            ];
+
+            return;
+        }
+
+        // Losing the checksum race must leave THIS registration unpinned
+        // even on a long-lived process (e.g. Octane) that already holds a
+        // pin for $name from an earlier, unrelated registration — otherwise
+        // the next run would silently reuse a stale version number instead
+        // of going unpinned.
+        unset($this->definitionVersionPins[$definition->name]);
     }
 
     /**
@@ -1745,6 +1855,35 @@ class FlowEngine
         );
     }
 
+    private function definitionPersistenceUnavailableException(QueryException $e): FlowExecutionException
+    {
+        return new FlowExecutionException(
+            'Persisting registered definitions (laravel-flow.definitions.persist_registered) requires the published flow_definitions persistence table and a reachable persistence connection. Run the package migrations and verify the persistence connection, or disable definitions.persist_registered.',
+            previous: $e,
+        );
+    }
+
+    private function definitionGraphInvalidException(string $definitionName, JsonException|InvalidGraphException $e): FlowExecutionException
+    {
+        $reason = $e instanceof InvalidGraphException
+            ? 'its compiled graph is structurally invalid'
+            : 'its content checksum could not be computed (non-UTF-8 or otherwise non-JSON-encodable step handler names or config)';
+
+        return new FlowExecutionException(sprintf(
+            'Definition [%s] could not be persisted as a registered definition (laravel-flow.definitions.persist_registered): %s.',
+            $definitionName,
+            $reason,
+        ), previous: $e);
+    }
+
+    private function definitionSignatureUnverifiedException(string $definitionName, DefinitionSignatureException $e): FlowExecutionException
+    {
+        return new FlowExecutionException(sprintf(
+            'Definition [%s] could not be persisted as a registered definition (laravel-flow.definitions.persist_registered): the latest stored `flow_definitions` version failed signature verification (laravel-flow.definitions.signing_secret is enabled). The stored graph may have been edited outside the repository.',
+            $definitionName,
+        ), previous: $e);
+    }
+
     private function approvalStepIndex(FlowDefinition $definition, string $stepName): int
     {
         $index = $this->stepIndex($definition, $stepName);
@@ -2606,6 +2745,13 @@ class FlowEngine
 
         if ($run->replayedFromRunId !== null) {
             $attributes['replayed_from_run_id'] = $run->replayedFromRunId;
+        }
+
+        $pin = $this->definitionVersionPins[$run->definitionName] ?? null;
+
+        if ($pin !== null) {
+            $attributes['definition_version'] = $pin['version'];
+            $attributes['definition_checksum'] = $pin['checksum'];
         }
 
         $store->runs()->create($attributes);

@@ -11,6 +11,7 @@ use Padosoft\LaravelFlow\Contracts\ApprovalDecisionRepository;
 use Padosoft\LaravelFlow\Contracts\ApprovalRepository;
 use Padosoft\LaravelFlow\Contracts\AuditRepository;
 use Padosoft\LaravelFlow\Contracts\ConditionalRunRepository;
+use Padosoft\LaravelFlow\Contracts\DefinitionRepository;
 use Padosoft\LaravelFlow\Contracts\FlowStore;
 use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
 use Padosoft\LaravelFlow\Contracts\RedactorAwareApprovalRepository;
@@ -71,6 +72,7 @@ final class ServiceProviderTest extends TestCase
         $this->assertTrue($this->app->bound(PayloadRedactor::class));
         $this->assertTrue($this->app->bound(ApprovalTokenManager::class));
         $this->assertTrue($this->app->bound(WebhookDeliveryClient::class));
+        $this->assertTrue($this->app->bound(DefinitionRepository::class));
         $this->assertFalse($this->app->bound(ConditionalRunRepository::class));
         $this->assertFalse($this->app->bound(ApprovalDecisionRepository::class));
         $this->assertInstanceOf(ConditionalRunRepository::class, $this->app->make(FlowStore::class)->runs());
@@ -117,6 +119,14 @@ final class ServiceProviderTest extends TestCase
         );
         $this->assertContains(
             realpath($packageRoot.'/database/migrations/2026_05_04_000004_add_previous_token_hash_to_flow_approvals.php'),
+            $migrationSources,
+        );
+        $this->assertContains(
+            realpath($packageRoot.'/database/migrations/2026_07_08_000005_create_flow_definitions_table.php'),
+            $migrationSources,
+        );
+        $this->assertContains(
+            realpath($packageRoot.'/database/migrations/2026_07_08_000006_add_definition_version_to_laravel_flow_runs.php'),
             $migrationSources,
         );
     }

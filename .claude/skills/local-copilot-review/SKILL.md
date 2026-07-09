@@ -37,6 +37,12 @@ copilot --autopilot --yolo -s -p "/review STRICTLY READ-ONLY ANALYSIS: you MUST 
 
 **After EVERY run: `git status --short` MUST be clean.** With `--yolo` the CLI has write permissions and has been observed starting to "fix" its own findings mid-review; discard any modification it made (`git checkout -- <file>`) before proceeding — such edits are unreviewed and partial. Capture the CLI output to a file (`... | tee "$TEMP/copilot-findings.txt"`) so findings survive network drops: on DNS/network errors the CLI dies mid-stream and un-teed findings are lost.
 
+**Verdict-file tactic (PREFERRED — stdout truncation is chronic):** the CLI with `-s` frequently drops the final message chunk, losing the verdict. Instead of parsing stdout, instruct it in the prompt to WRITE its complete findings to a temp file OUTSIDE the repo and read that file afterwards:
+
+> "The repo is READ-ONLY for you — do NOT modify anything under the repo. HOWEVER you MUST WRITE your complete findings to this file OUTSIDE the repo: `$TEMP/copilot-verdict-<branch>.md` — numbered findings 'file:line — issue — fix' or the single word NO_FINDINGS."
+
+Then `cat` the verdict file (delete it first with `rm -f` so a stale one can't be mistaken for fresh) and still run the tree check. Bonus: the CLI often REPRODUCES findings with real scripts when writing a report file — reproduction evidence beats inference.
+
 ### 4. Triage findings (same taxonomy as the PR loop)
 - **must-fix** (bug, security, race, test gap, contract violation): fix now.
 - **should-fix** (style, naming, docs): fix unless there is a written reason not to; carry the rationale into the PR description.

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Padosoft\LaravelFlow\Tests\Unit\Persistence;
 
+use Illuminate\Database\QueryException;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -19,6 +20,7 @@ final class PersistenceMigrationTest extends PersistenceTestCase
         $this->assertTrue(Schema::hasTable('flow_audit'));
         $this->assertTrue(Schema::hasTable('flow_approvals'));
         $this->assertTrue(Schema::hasTable('flow_webhook_outbox'));
+        $this->assertTrue(Schema::hasTable('flow_definitions'));
 
         $this->assertTrue(Schema::hasColumns('flow_runs', [
             'id',
@@ -33,6 +35,8 @@ final class PersistenceMigrationTest extends PersistenceTestCase
             'correlation_id',
             'idempotency_key',
             'replayed_from_run_id',
+            'definition_version',
+            'definition_checksum',
         ]));
         $this->assertTrue(Schema::hasColumns('flow_steps', [
             'run_id',
@@ -80,14 +84,48 @@ final class PersistenceMigrationTest extends PersistenceTestCase
             'failed_at',
             'last_error',
         ]));
+        $this->assertTrue(Schema::hasColumns('flow_definitions', [
+            'id',
+            'name',
+            'version',
+            'status',
+            'graph',
+            'checksum',
+            'signature',
+            'published_at',
+        ]));
 
         $this->dropFlowTables();
 
+        $this->assertFalse(Schema::hasTable('flow_definitions'));
         $this->assertFalse(Schema::hasTable('flow_webhook_outbox'));
         $this->assertFalse(Schema::hasTable('flow_approvals'));
         $this->assertFalse(Schema::hasTable('flow_audit'));
         $this->assertFalse(Schema::hasTable('flow_steps'));
         $this->assertFalse(Schema::hasTable('flow_runs'));
+    }
+
+    public function test_flow_definitions_enforces_unique_name_version(): void
+    {
+        $this->migrateFlowTables();
+
+        DB::table('flow_definitions')->insert([
+            'checksum' => str_repeat('a', 64),
+            'graph' => json_encode(['schema_version' => 1]),
+            'name' => 'onboarding',
+            'status' => 'draft',
+            'version' => 1,
+        ]);
+
+        $this->expectException(QueryException::class);
+
+        DB::table('flow_definitions')->insert([
+            'checksum' => str_repeat('b', 64),
+            'graph' => json_encode(['schema_version' => 1]),
+            'name' => 'onboarding',
+            'status' => 'draft',
+            'version' => 1,
+        ]);
     }
 
     public function test_audit_rows_cascade_when_run_is_deleted(): void
@@ -127,6 +165,56 @@ final class PersistenceMigrationTest extends PersistenceTestCase
         $migration->down();
 
         $this->assertFalse(Schema::hasColumn('flow_runs', 'replayed_from_run_id'));
+    }
+
+    public function test_definition_version_migration_adds_columns_to_existing_flow_runs_table(): void
+    {
+        Schema::create('flow_runs', function (Blueprint $table): void {
+            $table->string('id', 36)->primary();
+        });
+
+        $migration = require __DIR__.'/../../../database/migrations/2026_07_08_000006_add_definition_version_to_laravel_flow_runs.php';
+        $migration->up();
+
+        $this->assertTrue(Schema::hasColumns('flow_runs', ['definition_version', 'definition_checksum']));
+
+        $migration->down();
+
+        $this->assertFalse(Schema::hasColumn('flow_runs', 'definition_version'));
+        $this->assertFalse(Schema::hasColumn('flow_runs', 'definition_checksum'));
+    }
+
+    public function test_definition_version_migration_adds_only_the_missing_column_on_partial_state(): void
+    {
+        Schema::create('flow_runs', function (Blueprint $table): void {
+            $table->string('id', 36)->primary();
+            $table->unsignedInteger('definition_version')->nullable();
+        });
+
+        $migration = require __DIR__.'/../../../database/migrations/2026_07_08_000006_add_definition_version_to_laravel_flow_runs.php';
+        $migration->up();
+
+        $this->assertTrue(Schema::hasColumns('flow_runs', ['definition_version', 'definition_checksum']));
+
+        // Re-running up() on the now-complete table must stay a no-op,
+        // not attempt to re-add either column.
+        $migration->up();
+        $this->assertTrue(Schema::hasColumns('flow_runs', ['definition_version', 'definition_checksum']));
+    }
+
+    public function test_definition_version_migration_down_drops_only_the_columns_that_exist(): void
+    {
+        Schema::create('flow_runs', function (Blueprint $table): void {
+            $table->string('id', 36)->primary();
+            $table->string('definition_checksum', 64)->nullable();
+        });
+
+        $migration = require __DIR__.'/../../../database/migrations/2026_07_08_000006_add_definition_version_to_laravel_flow_runs.php';
+
+        $migration->down();
+
+        $this->assertFalse(Schema::hasColumn('flow_runs', 'definition_version'));
+        $this->assertFalse(Schema::hasColumn('flow_runs', 'definition_checksum'));
     }
 
     public function test_approval_and_webhook_tables_cascade_when_run_is_deleted(): void

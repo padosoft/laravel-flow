@@ -11,6 +11,16 @@ namespace Padosoft\LaravelFlow\Executor\State;
  * and `dead_letter` are new graph-executor states that extend the vocabulary
  * without changing any v1 run status string.
  *
+ * `isTerminal()` answers "can this state still make a legal transition?", not
+ * "is this run finished?". `Failed` and `PartiallySucceeded` are non-terminal
+ * because a saga rollback may still transition them to `Compensated` — this
+ * mirrors v1's real in-memory lifecycle, where a compensating run runs
+ * `markFailed()` (→ `failed`) and then `markCompensated()` (→ `compensated`).
+ * A failed run with no compensators simply never transitions again and stays
+ * `failed`; consumers deciding whether a run is finished should treat a
+ * `Failed`/`PartiallySucceeded` run with no pending compensation as done
+ * rather than relying on `isTerminal()` alone.
+ *
  * @api
  */
 enum RunState: string

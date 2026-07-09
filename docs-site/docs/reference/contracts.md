@@ -11,7 +11,7 @@ Use contracts when replacing persistence, redaction, approval, or dashboard beha
 | --- | --- |
 | `FlowStore` | Aggregates run, step, audit, approval, and webhook repositories. |
 | `RunRepository` | Persists and retrieves run state. |
-| `StepRunRepository` | Persists per-step execution rows. |
+| `RunNodeRepository` | Persists per-node execution rows (a v1 step is a `legacy.step` node). |
 | `AuditRepository` | Appends audit rows. |
 | `ApprovalRepository` | Stores approval token state. |
 | `ApprovalDecisionRepository` | Supports approve and reject decisions. |

@@ -108,7 +108,7 @@ When `audit_trail_enabled` is enabled, normal-case step and compensation transit
 - **Configurable saga compensation** — `compensateWith(Compensator::class)` per step; default reverse-order rollback, plus opt-in `parallel` batching for independent compensators.
 - **Audit events and persisted audit rows** — normal-case transitions dispatch matching `FlowStep*` / `FlowCompensated` events when `audit_trail_enabled=true`; persisted `flow_audit` rows are written only for non-dry-run executions with both `persistence.enabled=true` and `audit_trail_enabled=true`, and those rows are append-only during normal runtime but retention-prunable with `flow:prune`.
 - **Business-impact projection** — handlers return `businessImpact: [...]` alongside output, surfaced on every step result.
-- **Opt-in persisted execution** — `flow_runs`, `flow_steps`, and `flow_audit` migrations, Eloquent repositories, immutable run identity updates, correlation/idempotency keys, transaction-scoped step transitions, atomic step upserts, compensate-first runtime-abort recovery, sanitized listener/error storage, clock-aware audit timestamps, redacted JSON payload storage, and retention pruning.
+- **Opt-in persisted execution** — `flow_runs`, `flow_run_nodes`, and `flow_audit` migrations, Eloquent repositories, immutable run identity updates, correlation/idempotency keys, transaction-scoped node transitions, atomic node upserts, compensate-first runtime-abort recovery, sanitized listener/error storage, clock-aware audit timestamps, redacted JSON payload storage, and retention pruning.
 - **Queued dispatch foundation** — `Flow::dispatch($name, $input, $options)` validates the flow and queues an after-commit `RunFlowJob` with a per-dispatch cache lock plus guarded Laravel-native tries/backoff metadata; sync and database queue paths have package coverage.
 - **Terminal-run replay** — `php artisan flow:replay {runId}` creates a new persisted run linked to the original via `replayed_from_run_id` and warns when the current registered definition drifted from stored step metadata.
 - **Approval gate pause state** — `approvalGate($name)` adds a built-in dry-run-aware step that marks the run `paused`, emits/persists `FlowPaused`, and, when persistence is enabled, issues a pending approval record.
@@ -195,7 +195,7 @@ php artisan flow:prune --days=90 --dry-run
 php artisan flow:prune --days=90
 ```
 
-`flow:prune` deletes only terminal runs (`succeeded`, `failed`, `compensated`, `aborted`) with `finished_at` older than the cutoff. Matching `flow_steps` and `flow_audit` rows are deleted in the same batch transaction; running and pending rows are left untouched. Use `LARAVEL_FLOW_RETENTION_DAYS=90` to make `--days` optional, and `--force` for non-interactive production runs.
+`flow:prune` deletes only terminal runs (`succeeded`, `failed`, `compensated`, `aborted`) with `finished_at` older than the cutoff. Matching `flow_run_nodes` and `flow_audit` rows are deleted in the same batch transaction; running and pending rows are left untouched. Use `LARAVEL_FLOW_RETENTION_DAYS=90` to make `--days` optional, and `--force` for non-interactive production runs.
 
 Replay a terminal persisted run as a new linked run:
 
@@ -482,7 +482,7 @@ return [
 | Key                       | Default          | Effect                                                                                            |
 | ------------------------- | ---------------- | ------------------------------------------------------------------------------------------------- |
 | `default_storage`         | `null`           | DB connection used by persistence repositories. Inherits app default when `null`.                 |
-| `persistence.enabled`     | `false`          | Enables synchronous engine writes to `flow_runs` and `flow_steps`; `flow_audit` writes also require `audit_trail_enabled=true` and a non-dry-run execution. Dry-runs do not write. |
+| `persistence.enabled`     | `false`          | Enables synchronous engine writes to `flow_runs` and `flow_run_nodes`; `flow_audit` writes also require `audit_trail_enabled=true` and a non-dry-run execution. Dry-runs do not write. |
 | `persistence.redaction`   | common secrets   | Redacts configured JSON payload keys before run, step, and audit payloads are stored.             |
 | `persistence.retention.days` | `null`         | Default retention window for `php artisan flow:prune`; pass `--days` to override per run.         |
 | `queue.lock_store`        | `null`           | Cache store used for queued run locks and approval resume/reject locks. When `null`, `Flow::dispatch()` captures the current `cache.default` store into the job; queued workers require a shared atomic lock store, while process-local `array` is accepted only with the `sync` queue driver. Approval resume/reject always rejects `array`. |
@@ -551,7 +551,7 @@ Custom `FlowStore` implementations that need the same per-execution `PayloadReda
                                                    └─────────────────────┘
 ```
 
-Every box is one PHP class under `src/`. The engine path is still synchronous and in-memory by default; when persistence is enabled, runtime runs and steps are written to `flow_runs` and `flow_steps` for non-dry-run executions. Audit transitions are written to `flow_audit` only for non-dry-run executions while persistence and `audit_trail_enabled` are both enabled. Dry-runs never write audit rows. `Flow::dispatch()` queues an after-commit `RunFlowJob` with per-dispatch locking, database queue coverage, and guarded Laravel retry/backoff metadata. `flow:replay` creates new linked runs from terminal persisted input, and `compensation_strategy=parallel` batches independent compensators through Laravel Concurrency.
+Every box is one PHP class under `src/`. The engine path is still synchronous and in-memory by default; when persistence is enabled, runtime runs and steps are written to `flow_runs` and `flow_run_nodes` for non-dry-run executions. Audit transitions are written to `flow_audit` only for non-dry-run executions while persistence and `audit_trail_enabled` are both enabled. Dry-runs never write audit rows. `Flow::dispatch()` queues an after-commit `RunFlowJob` with per-dispatch locking, database queue coverage, and guarded Laravel retry/backoff metadata. `flow:replay` creates new linked runs from terminal persisted input, and `compensation_strategy=parallel` batches independent compensators through Laravel Concurrency.
 
 ### Public API surface (v1.0)
 
@@ -562,7 +562,7 @@ The package marks every class with `@api` (stable, SemVer-covered) or `@internal
 - **Hooks**: `FlowStepHandler`, `FlowCompensator` interfaces.
 - **Events**: every class under `Padosoft\LaravelFlow\Events\*`.
 - **Exceptions**: every class under `Padosoft\LaravelFlow\Exceptions\*`.
-- **Extension contracts**: every interface under `Padosoft\LaravelFlow\Contracts\*` (custom `FlowStore`, `RunRepository`, `StepRunRepository`, `AuditRepository`, `ApprovalRepository`, `ApprovalDecisionRepository`, `ConditionalRunRepository`, `PayloadRedactor`, `CurrentPayloadRedactorProvider`, `RedactorAwareFlowStore`, `RedactorAwareApprovalRepository` implementations).
+- **Extension contracts**: every interface under `Padosoft\LaravelFlow\Contracts\*` (custom `FlowStore`, `RunRepository`, `RunNodeRepository`, `AuditRepository`, `ApprovalRepository`, `ApprovalDecisionRepository`, `ConditionalRunRepository`, `PayloadRedactor`, `CurrentPayloadRedactorProvider`, `RedactorAwareFlowStore`, `RedactorAwareApprovalRepository` implementations).
 - **Dashboard contracts**: `FlowDashboardReadModel`, the read DTOs in `Padosoft\LaravelFlow\Dashboard\*`, and `DashboardActionAuthorizer` + the `DenyAllAuthorizer` / `AllowAllAuthorizer` bindings.
 
 The `tests/Contract/PublicApiContractTest` testsuite pins the v1.0 surface so a follow-up patch cannot silently rename or remove an `@api` class, method, or constant. Internal namespaces (`Persistence`, `Models`, `Queue`, `Jobs`, `Console`) may change in any minor release; route consumers through the public contracts instead. See [`docs/UPGRADE.md`](docs/UPGRADE.md) for the full SemVer policy and upgrade chain.
@@ -631,7 +631,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). Community PRs target `main`; enterprise 
 Report vulnerabilities privately to `lorenzo.padovani@padosoft.com` per [SECURITY.md](SECURITY.md). Operational guarantees the package enforces:
 
 - **Approval tokens are SHA-256 hashed at rest.** The plain token is returned only on the immediate `FlowRun` at issuance time and is never recoverable from `flow_approvals`. The dashboard contract takes a token hash, not the plain value, so authorization can run without the secret.
-- **JSON payload redaction.** `flow_runs.input/output/business_impact`, `flow_steps.input/output/business_impact`, `flow_audit.payload`, and `flow_approvals.payload/actor` pass through the configured `PayloadRedactor` before storage. Default keys cover common secret-looking fields; the policy is configurable through `laravel-flow.persistence.redaction`. The dashboard read DTOs (`RunDetail`, `ApprovalSummary`) return whatever is stored — host apps that disable `persistence.redaction.enabled` MUST add their own redaction layer before rendering.
+- **JSON payload redaction.** `flow_runs.input/output/business_impact`, `flow_run_nodes.inputs/outputs/business_impact`, `flow_audit.payload`, and `flow_approvals.payload/actor` pass through the configured `PayloadRedactor` before storage. Default keys cover common secret-looking fields; the policy is configurable through `laravel-flow.persistence.redaction`. The dashboard read DTOs (`RunDetail`, `ApprovalSummary`) return whatever is stored — host apps that disable `persistence.redaction.enabled` MUST add their own redaction layer before rendering.
 - **Webhook payload signing.** When `webhook.secret` is set, every outbox delivery carries `X-Laravel-Flow-Signature: t=<unix>,v1=<hmac-sha256>` so receivers can verify authenticity. Empty secret disables signing rather than emitting a bogus header.
 - **Dashboard authorization is deny-by-default.** `DashboardActionAuthorizer` is bound to `DenyAllAuthorizer`. Production deployments MUST replace the binding with their own RBAC implementation. `AllowAllAuthorizer` is shipped explicitly for development and never registered automatically.
 - **Append-only audit at runtime.** `flow_audit` rows cannot be updated or deleted via Eloquent `save()`/`delete()`. Bulk `update()` / `delete()` / `forceDelete()` are blocked by a custom Eloquent builder. The `flow:prune` retention command is the only supported deletion path and is documented as such.

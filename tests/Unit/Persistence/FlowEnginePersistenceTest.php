@@ -1345,7 +1345,7 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
 
                     public function createOrUpdate(string $runId, string $stepName, array $attributes): FlowRunNodeRecord
                     {
-                        throw new QueryException('testing', 'update flow_steps', [], new RuntimeException('table missing'));
+                        throw new QueryException('testing', 'update flow_run_nodes', [], new RuntimeException('table missing'));
                     }
 
                     public function forRun(string $runId): Collection

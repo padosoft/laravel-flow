@@ -27,7 +27,7 @@ If you currently depend on internal classes, switch to the matching public contr
 
 ## v1.x → v2.0 (in progress — Flow 2.0 program)
 
-The v2.0 major unifies step and node persistence into a single table written by both the v1 linear engine and the new graph executor. **The v1 public API is unchanged** — the fluent builder (`Flow::define()->step()->…->register()`), the engine's execution methods (`execute` / `dryRun` / `dispatch` / `resume` / `reject`), and v1 execution semantics (step ordering, compensation order, approval resume) are observably identical. Only the internal persistence target changes.
+The v2.0 major unifies step and node persistence into a single table written by both the v1 linear engine and the new graph executor. **The v1 authoring and execution API is unchanged** — the fluent builder (`Flow::define()->step()->…->register()`), the engine's execution methods (`execute` / `dryRun` / `dispatch` / `resume` / `reject`), and v1 execution semantics (step ordering, compensation order, approval resume) are observably identical. The persistence *extension contracts* used by custom-store implementers (`FlowStore`, the step repository) **do** change — see the breaking changes below; applications that only use the fluent builder and facade are unaffected, while anyone who implemented a custom `FlowStore` must migrate.
 
 ### Breaking changes (internal persistence surface)
 

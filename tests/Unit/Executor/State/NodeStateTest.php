@@ -11,9 +11,6 @@ use PHPUnit\Framework\TestCase;
 
 final class NodeStateTest extends TestCase
 {
-    /**
-     * @param  list<NodeState>  $terminal
-     */
     #[DataProvider('terminalCases')]
     public function test_terminal_states_report_terminal(NodeState $state, bool $expected): void
     {

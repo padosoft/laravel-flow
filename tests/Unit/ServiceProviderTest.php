@@ -129,6 +129,14 @@ final class ServiceProviderTest extends TestCase
             realpath($packageRoot.'/database/migrations/2026_07_08_000006_add_definition_version_to_laravel_flow_runs.php'),
             $migrationSources,
         );
+        $this->assertContains(
+            realpath($packageRoot.'/database/migrations/2026_07_09_000007_create_flow_run_nodes_table.php'),
+            $migrationSources,
+        );
+        $this->assertContains(
+            realpath($packageRoot.'/database/migrations/2026_07_09_000008_add_graph_columns_to_laravel_flow_runs.php'),
+            $migrationSources,
+        );
     }
 
     public function test_deliver_webhook_outbox_command_is_registered(): void

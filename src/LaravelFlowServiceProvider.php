@@ -204,6 +204,8 @@ final class LaravelFlowServiceProvider extends ServiceProvider
             __DIR__.'/../database/migrations/2026_05_04_000004_add_previous_token_hash_to_flow_approvals.php' => $this->app->databasePath('migrations/2026_05_04_000004_add_previous_token_hash_to_flow_approvals.php'),
             __DIR__.'/../database/migrations/2026_07_08_000005_create_flow_definitions_table.php' => $this->app->databasePath('migrations/2026_07_08_000005_create_flow_definitions_table.php'),
             __DIR__.'/../database/migrations/2026_07_08_000006_add_definition_version_to_laravel_flow_runs.php' => $this->app->databasePath('migrations/2026_07_08_000006_add_definition_version_to_laravel_flow_runs.php'),
+            __DIR__.'/../database/migrations/2026_07_09_000007_create_flow_run_nodes_table.php' => $this->app->databasePath('migrations/2026_07_09_000007_create_flow_run_nodes_table.php'),
+            __DIR__.'/../database/migrations/2026_07_09_000008_add_graph_columns_to_laravel_flow_runs.php' => $this->app->databasePath('migrations/2026_07_09_000008_add_graph_columns_to_laravel_flow_runs.php'),
         ], 'laravel-flow-migrations');
 
         $this->commands([

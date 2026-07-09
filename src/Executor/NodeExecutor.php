@@ -6,10 +6,12 @@ namespace Padosoft\LaravelFlow\Executor;
 
 use Closure;
 use DateTimeImmutable;
+use Illuminate\Support\Sleep;
 use Padosoft\LaravelFlow\Contracts\FlowStore;
 use Padosoft\LaravelFlow\Executor\State\NodeState;
 use Padosoft\LaravelFlow\Graph\Connection;
 use Padosoft\LaravelFlow\Graph\GraphNode;
+use Padosoft\LaravelFlow\Node\FlowNodeHandler;
 use Padosoft\LaravelFlow\Node\NodeContext;
 use Padosoft\LaravelFlow\Node\NodeResult;
 use Throwable;
@@ -90,18 +92,50 @@ final class NodeExecutor
         }
 
         $context = new NodeContext($runId, $definitionName, $node->id, $routed->inputs, $dryRun);
+        $policy = ($resolved->definition->retry ?? RetryPolicy::fromAttribute(null))->withConfig($this->configRetry($node));
 
-        try {
-            $result = $resolved->handler->execute($context);
-        } catch (Throwable $e) {
-            $result = NodeResult::failed($e);
+        $attempts = 0;
+        $availableAt = null;
+
+        while (true) {
+            $attemptStartedAt = ($this->clock)();
+            $attempts++;
+            $result = $this->runAttempt($resolved->handler, $context, $policy, $attemptStartedAt);
+
+            // A success/paused/skipped attempt, or an exhausted retry budget,
+            // is terminal. `Failed -> Running` retry re-entry stays inline.
+            if ($result->success || $result->paused || $result->dryRunSkipped) {
+                $state = $this->stateFor($result);
+
+                break;
+            }
+
+            if ($policy->isExhausted($attempts)) {
+                // Dead-letter only when a real retry budget (tries > 1) was
+                // exhausted; a single-attempt node that fails is just Failed.
+                $state = $policy->tries() > 1 ? NodeState::DeadLetter : $this->stateFor($result);
+
+                break;
+            }
+
+            // The delay before the Nth retry uses the Nth backoff entry: after
+            // $attempts failures the upcoming retry is number $attempts, so the
+            // first retry (list index 0) is backoffForAttempt($attempts).
+            $backoff = $policy->backoffForAttempt($attempts);
+            $availableAt = ($this->clock)()->modify("+{$backoff} seconds");
+
+            // A dry run must not delay the process (no executor-driven side
+            // effects); it still records the computed schedule.
+            if (! $dryRun) {
+                Sleep::for($backoff)->seconds();
+            }
         }
 
         $finishedAt = ($this->clock)();
-        $state = $this->stateFor($result);
 
         $this->persist($store, $runId, $node, $sequence, [
             'handler' => $resolved->definition->handlerClass,
+            'attempts' => $attempts,
             'inputs' => $routed->inputs,
             'outputs' => $result->success ? $result->outputs : null,
             'business_impact' => $result->businessImpact,
@@ -109,12 +143,48 @@ final class NodeExecutor
             'error_message' => $result->error?->getMessage(),
             'dry_run_skipped' => $result->dryRunSkipped,
             'status' => $state->value,
+            'available_at' => $availableAt,
             'started_at' => $startedAt,
             'finished_at' => $finishedAt,
             'duration_ms' => $this->durationMs($startedAt, $finishedAt),
         ]);
 
         return new NodeExecution($node->id, $state, $result->success ? $result->outputs : [], $result->error);
+    }
+
+    /**
+     * Run one attempt. A throwing handler becomes a failed result; a
+     * successful attempt that overran `timeout` seconds is treated as failed
+     * (post-hoc wall-clock check — the synchronous runner cannot preempt; true
+     * preemptive timeout is a queue-worker concern).
+     */
+    private function runAttempt(FlowNodeHandler $handler, NodeContext $context, RetryPolicy $policy, DateTimeImmutable $attemptStartedAt): NodeResult
+    {
+        try {
+            $result = $handler->execute($context);
+        } catch (Throwable $e) {
+            return NodeResult::failed($e);
+        }
+
+        if ($policy->timeout() > 0 && $result->success) {
+            $elapsed = (float) ($this->clock)()->format('U.u') - (float) $attemptStartedAt->format('U.u');
+
+            if ($elapsed > $policy->timeout()) {
+                return NodeResult::failed(new NodeTimeoutException(sprintf('Node exceeded its %d second timeout.', $policy->timeout())));
+            }
+        }
+
+        return $result;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function configRetry(GraphNode $node): array
+    {
+        $retry = $node->config['retry'] ?? [];
+
+        return is_array($retry) ? $retry : [];
     }
 
     private function stateFor(NodeResult $result): NodeState

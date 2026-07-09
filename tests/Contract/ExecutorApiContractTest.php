@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Padosoft\LaravelFlow\Tests\Contract;
 
+use Padosoft\LaravelFlow\Executor\Attributes\Retry;
 use Padosoft\LaravelFlow\Executor\GraphRunner;
 use Padosoft\LaravelFlow\Executor\GraphRunResult;
 use Padosoft\LaravelFlow\Executor\InputRouter;
@@ -13,6 +14,7 @@ use Padosoft\LaravelFlow\Executor\Nodes\MergeNode;
 use Padosoft\LaravelFlow\Executor\ReadinessDecision;
 use Padosoft\LaravelFlow\Executor\ReadinessResolver;
 use Padosoft\LaravelFlow\Executor\ResolvedNode;
+use Padosoft\LaravelFlow\Executor\RetryPolicy;
 use Padosoft\LaravelFlow\Executor\RoutedInputs;
 use Padosoft\LaravelFlow\Executor\State\IllegalStateTransitionException;
 use Padosoft\LaravelFlow\Executor\State\NodeState;
@@ -74,6 +76,8 @@ final class ExecutorApiContractTest extends TestCase
             NodeExecutor::class,
             GraphRunner::class,
             GraphRunResult::class,
+            Retry::class,
+            RetryPolicy::class,
         ];
 
         foreach ($classes as $class) {

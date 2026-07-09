@@ -7,8 +7,10 @@ namespace Padosoft\LaravelFlow\Console;
 use Illuminate\Console\Command;
 use Illuminate\Database\QueryException;
 use JsonException;
+use Padosoft\LaravelFlow\Contracts\DefinitionRepository;
 use Padosoft\LaravelFlow\Contracts\FlowStore;
 use Padosoft\LaravelFlow\Exceptions\FlowNotRegisteredException;
+use Padosoft\LaravelFlow\Executor\State\RunState;
 use Padosoft\LaravelFlow\FlowDefinition;
 use Padosoft\LaravelFlow\FlowEngine;
 use Padosoft\LaravelFlow\FlowExecutionOptions;
@@ -82,6 +84,10 @@ final class ReplayFlowRunCommand extends Command
         /** @var FlowEngine $flow */
         $flow = $this->getLaravel()->make(FlowEngine::class);
 
+        if ($this->isPinnedGraphRun($original)) {
+            return $this->replayPinnedGraph($flow, $original, $input);
+        }
+
         try {
             $definition = $flow->definition($original->definition_name);
         } catch (FlowNotRegisteredException $e) {
@@ -145,7 +151,96 @@ final class ReplayFlowRunCommand extends Command
             FlowRun::STATUS_COMPENSATED,
             FlowRun::STATUS_FAILED,
             FlowRun::STATUS_SUCCEEDED,
+            RunState::PartiallySucceeded->value, // graph-executor terminal run states
+            RunState::DeadLetter->value,
         ], true);
+    }
+
+    private function isPinnedGraphRun(FlowRunRecord $run): bool
+    {
+        return $run->engine === 'graph'
+            && $run->definition_version !== null
+            && $run->definition_checksum !== null;
+    }
+
+    /**
+     * Version-exact replay: a pinned graph run re-executes the EXACT stored
+     * graph version (`DefinitionRepository::find($name, $version)`) through the
+     * graph executor, regardless of the current `latest()` version. The stored
+     * definition is authoritative and is NOT re-verified against the recorded
+     * `definition_checksum` here — `find()` returns exactly the pinned version,
+     * so no drift check is performed on the graph path.
+     *
+     * @param  array<string, mixed>  $input
+     */
+    private function replayPinnedGraph(FlowEngine $flow, FlowRunRecord $original, array $input): int
+    {
+        $name = (string) $original->definition_name;
+        $version = (int) $original->definition_version;
+
+        try {
+            /** @var DefinitionRepository $definitions */
+            $definitions = $this->getLaravel()->make(DefinitionRepository::class);
+            $stored = $definitions->find($name, $version);
+        } catch (QueryException $e) {
+            $this->reportFailure(
+                'Laravel Flow persistence tables were not found or could not be queried. Publish and run the migrations before replaying.',
+                $e,
+            );
+
+            return self::FAILURE;
+        } catch (Throwable $e) {
+            $this->reportFailure(
+                sprintf('Stored graph version [%d] for definition [%s] could not be loaded for replay.', $version, $name),
+                $e,
+            );
+
+            return self::FAILURE;
+        }
+
+        try {
+            $graph = (new GraphSerializer)->fromArray($stored->graph);
+        } catch (InvalidGraphException|JsonException $e) {
+            $this->reportFailure(
+                sprintf('Stored graph version [%d] for definition [%s] could not be rebuilt for replay.', $version, $name),
+                $e,
+            );
+
+            return self::FAILURE;
+        }
+
+        try {
+            $result = $flow->runGraph(
+                $graph,
+                $input,
+                FlowExecutionOptions::make(
+                    correlationId: $original->correlation_id,
+                    replayedFromRunId: $original->id,
+                ),
+                $name,
+            );
+        } catch (QueryException $e) {
+            $this->reportFailure(
+                'Laravel Flow replay could not persist or query its tables. Publish and run the latest migrations before replaying.',
+                $e,
+            );
+
+            return self::FAILURE;
+        } catch (Throwable $e) {
+            $this->reportFailure('Laravel Flow graph replay failed before a linked run could be completed.', $e);
+
+            return self::FAILURE;
+        }
+
+        $this->info(sprintf(
+            'Replayed graph run [%s] as [%s] using pinned version [%d] with status [%s].',
+            $original->id,
+            $result->runId,
+            $version,
+            $result->state->value,
+        ));
+
+        return self::SUCCESS;
     }
 
     /**

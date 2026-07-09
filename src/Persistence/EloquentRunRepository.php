@@ -25,6 +25,8 @@ final class EloquentRunRepository implements ConditionalRunRepository, RunReposi
         'duration_ms',
         'failed_step',
         'finished_at',
+        'nodes_completed',
+        'nodes_failed',
         'output',
         'status',
     ];

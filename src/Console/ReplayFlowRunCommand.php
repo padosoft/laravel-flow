@@ -10,6 +10,7 @@ use JsonException;
 use Padosoft\LaravelFlow\Contracts\DefinitionRepository;
 use Padosoft\LaravelFlow\Contracts\FlowStore;
 use Padosoft\LaravelFlow\Exceptions\FlowNotRegisteredException;
+use Padosoft\LaravelFlow\Executor\State\RunState;
 use Padosoft\LaravelFlow\FlowDefinition;
 use Padosoft\LaravelFlow\FlowEngine;
 use Padosoft\LaravelFlow\FlowExecutionOptions;
@@ -150,8 +151,8 @@ final class ReplayFlowRunCommand extends Command
             FlowRun::STATUS_COMPENSATED,
             FlowRun::STATUS_FAILED,
             FlowRun::STATUS_SUCCEEDED,
-            'partially_succeeded', // graph-executor terminal run states
-            'dead_letter',
+            RunState::PartiallySucceeded->value, // graph-executor terminal run states
+            RunState::DeadLetter->value,
         ], true);
     }
 

@@ -121,6 +121,42 @@ final class GraphRunnerTest extends PersistenceTestCase
         $this->assertGreaterThanOrEqual(0, (int) $row->duration_ms);
     }
 
+    public function test_node_completion_counters_are_persisted(): void
+    {
+        $graph = new GraphDefinition(
+            [new GraphNode('a', 'test.jsonemit'), new GraphNode('b', 'test.pass')],
+            [new Connection('a', 'data', 'b', 'in')],
+        );
+
+        $result = $this->runner()->run($graph, []);
+
+        $row = DB::table('flow_runs')->where('id', $result->runId)->first();
+        $this->assertNotNull($row);
+        $this->assertSame(2, (int) $row->nodes_total);
+        $this->assertSame(2, (int) $row->nodes_completed);
+        $this->assertSame(0, (int) $row->nodes_failed);
+        $this->assertSame('graph', $row->engine);
+    }
+
+    public function test_resolver_failure_marks_node_failed_and_finalizes_run(): void
+    {
+        // 'test.unknown' is not registered: resolution throws, but the run must
+        // still finalize with a failed node rather than staying stuck running.
+        $graph = new GraphDefinition([new GraphNode('x', 'test.unknown')], []);
+
+        $result = $this->runner()->run($graph, []);
+
+        $this->assertSame(NodeState::Failed, $result->nodeStates['x']);
+        $this->assertSame(RunState::Failed, $result->state);
+
+        $run = DB::table('flow_runs')->where('id', $result->runId)->first();
+        $this->assertSame('failed', $run->status);
+        $this->assertNotNull($run->finished_at);
+
+        $node = DB::table('flow_run_nodes')->where('run_id', $result->runId)->where('node_id', 'x')->first();
+        $this->assertSame('failed', $node->status);
+    }
+
     public function test_dry_run_writes_zero_rows(): void
     {
         $graph = new GraphDefinition([new GraphNode('a', 'test.jsonemit')], []);

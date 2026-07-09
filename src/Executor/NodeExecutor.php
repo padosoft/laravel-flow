@@ -50,9 +50,28 @@ final class NodeExecutor
         int $sequence,
         ?FlowStore $store,
     ): NodeExecution {
-        $resolved = $this->resolver->resolve($node);
-        $routed = $this->router->route($resolved->definition, $node, $connectionsIntoNode, $upstreamOutputs);
         $startedAt = ($this->clock)();
+
+        try {
+            $resolved = $this->resolver->resolve($node);
+        } catch (Throwable $e) {
+            // A resolution failure (unknown/unbound handler, bad legacy config)
+            // must not leave the run stuck `running` with no node row — record
+            // it as a failed node, mirroring v1's handler-resolution behaviour.
+            $this->persist($store, $runId, $node, $sequence, [
+                'status' => NodeState::Failed->value,
+                'error_class' => $e::class,
+                'error_message' => $e->getMessage(),
+                'dry_run_skipped' => false,
+                'started_at' => $startedAt,
+                'finished_at' => ($this->clock)(),
+                'duration_ms' => 0,
+            ]);
+
+            return new NodeExecution($node->id, NodeState::Failed, [], $e);
+        }
+
+        $routed = $this->router->route($resolved->definition, $node, $connectionsIntoNode, $upstreamOutputs);
 
         if (! $routed->valid) {
             $this->persist($store, $runId, $node, $sequence, [

@@ -98,7 +98,7 @@ final class GraphRunner
                     $runId,
                     $definitionName,
                     $node,
-                    $this->connectionsInto($graph, $id),
+                    $this->connectionsInto($graph, $id, $sequenceOf),
                     $outputs,
                     $dryRun,
                     $sequenceOf[$id] ?? 0,
@@ -175,14 +175,24 @@ final class GraphRunner
     }
 
     /**
+     * Incoming wires for a node, ordered by the source node's topological
+     * index (NOT the graph's raw connection-array order) so a `multiple`
+     * (fan-in) port coalesces deterministically regardless of how the graph
+     * JSON/Studio serialized its connections.
+     *
+     * @param  array<string, int>  $sequenceOf  node id => topological index
      * @return list<Connection>
      */
-    private function connectionsInto(GraphDefinition $graph, string $nodeId): array
+    private function connectionsInto(GraphDefinition $graph, string $nodeId, array $sequenceOf): array
     {
-        return array_values(array_filter(
+        $wires = array_values(array_filter(
             $graph->connections,
             static fn (Connection $c): bool => $c->targetNodeId === $nodeId,
         ));
+
+        usort($wires, static fn (Connection $a, Connection $b): int => ($sequenceOf[$a->sourceNodeId] ?? 0) <=> ($sequenceOf[$b->sourceNodeId] ?? 0));
+
+        return $wires;
     }
 
     /**
@@ -261,7 +271,6 @@ final class GraphRunner
             return;
         }
 
-        $finishedAt = ($this->clock)();
         $completed = 0;
         $failed = 0;
 
@@ -273,14 +282,22 @@ final class GraphRunner
             }
         }
 
-        $store->runs()->update($runId, [
+        $attributes = [
             'status' => $runState->value,
             'output' => $outputs,
             'nodes_completed' => $completed,
             'nodes_failed' => $failed,
-            'finished_at' => $finishedAt,
-            'duration_ms' => (int) round(((float) $finishedAt->format('U.u') - (float) $startedAt->format('U.u')) * 1000),
-        ]);
+        ];
+
+        // A paused run is not finished: keep finished_at / duration_ms null so
+        // it is not treated as completed (matching v1's paused-run invariant).
+        if ($runState !== RunState::Paused) {
+            $finishedAt = ($this->clock)();
+            $attributes['finished_at'] = $finishedAt;
+            $attributes['duration_ms'] = (int) round(((float) $finishedAt->format('U.u') - (float) $startedAt->format('U.u')) * 1000);
+        }
+
+        $store->runs()->update($runId, $attributes);
     }
 
     private function generateId(): string

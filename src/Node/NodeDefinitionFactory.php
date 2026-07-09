@@ -99,10 +99,14 @@ final class NodeDefinitionFactory
                     throw new InvalidNodeDefinitionException("Input property [{$class}::\${$property->getName()}] must be public and not readonly.");
                 }
 
-                $this->assertPropertyTypeCompatible($property, $input->type, $class, 'Input');
+                if ($input->multiple && ! in_array($input->type, [PortType::Json, PortType::Any], true)) {
+                    throw new InvalidNodeDefinitionException("Multiple (fan-in) input port [{$class}::\${$property->getName()}] must be of port type json or any, got [{$input->type->value}].");
+                }
+
+                $this->assertPropertyTypeCompatible($property, $input->type, $class, 'Input', $input->multiple);
 
                 try {
-                    $port = new PortDefinition($key, $input->type, $input->required, $input->label, $property->getName());
+                    $port = new PortDefinition($key, $input->type, $input->required, $input->label, $property->getName(), $input->multiple);
                 } catch (InvalidArgumentException $e) {
                     throw new InvalidNodeDefinitionException("Invalid input port on [{$class}::\${$property->getName()}]: {$e->getMessage()}", previous: $e);
                 }
@@ -153,7 +157,7 @@ final class NodeDefinitionFactory
      * able to hold every value its PortType validates at run time, so a
      * mismatch fails fast at boot instead of a TypeError mid-hydration.
      */
-    private function assertPropertyTypeCompatible(\ReflectionProperty $property, PortType $portType, string $class, string $attribute): void
+    private function assertPropertyTypeCompatible(\ReflectionProperty $property, PortType $portType, string $class, string $attribute, bool $multiple = false): void
     {
         $type = $property->getType();
 
@@ -172,6 +176,16 @@ final class NodeDefinitionFactory
 
             if ($name === 'mixed') {
                 return;
+            }
+
+            // A multiple (fan-in) port delivers a coalesced list<mixed>, so the
+            // property must hold an array regardless of the per-item port type.
+            if ($multiple) {
+                if ($name === 'array') {
+                    return;
+                }
+
+                continue;
             }
 
             $compatible = match ($portType) {

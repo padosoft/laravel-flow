@@ -64,10 +64,11 @@ final class GraphValidator
                 $violations[] = "Connection [{$wire->identity()}]: output type [{$out->type->value}] cannot feed input type [{$in->type->value}].";
             }
 
-            // An input port accepts exactly one incoming wire: fan-in would
-            // give the executor ambiguous last-write-wins semantics. Merging
-            // multiple sources requires an explicit merge node (Macro C).
-            if (isset($wiredInputs[$wire->targetNodeId][$wire->targetPortKey])) {
+            // A normal input port accepts exactly one incoming wire: fan-in
+            // would give the executor ambiguous last-write-wins semantics. A
+            // `multiple` (fan-in) port deliberately coalesces every wire into
+            // an ordered list, so N sources are allowed there.
+            if ($in !== null && ! $in->multiple && isset($wiredInputs[$wire->targetNodeId][$wire->targetPortKey])) {
                 $violations[] = "Input port [{$wire->targetPortKey}] on node [{$wire->targetNodeId}] is wired from multiple sources.";
             }
 

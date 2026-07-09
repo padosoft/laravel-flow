@@ -52,6 +52,36 @@ final class NodeInputValidator
                 continue;
             }
 
+            if ($port->multiple) {
+                if (! is_array($value)) {
+                    $violations[$port->key][] = "Input [{$port->key}] is a multiple port and must be a list, got [".get_debug_type($value).'].';
+
+                    continue;
+                }
+
+                if ($port->required && $value === []) {
+                    $violations[$port->key][] = "Input [{$port->key}] is required and must not be an empty list.";
+
+                    continue;
+                }
+
+                $itemViolation = false;
+                foreach ($value as $index => $item) {
+                    if (! $port->type->validates($item)) {
+                        $violations[$port->key][] = "Input [{$port->key}][{$index}] must be of type [{$port->type->value}], got [".get_debug_type($item).'].';
+                        $itemViolation = true;
+                    }
+                }
+
+                if ($itemViolation) {
+                    continue;
+                }
+
+                $validated[$port->key] = array_values($value);
+
+                continue;
+            }
+
             if (! $port->type->validates($value)) {
                 $violations[$port->key][] = "Input [{$port->key}] must be of type [{$port->type->value}], got [".get_debug_type($value).'].';
 

@@ -60,6 +60,55 @@ final class NodeDefinitionFactoryTest extends TestCase
         $this->assertNull($definition->input('missing'));
     }
 
+    public function test_multiple_flag_threads_to_port_definition(): void
+    {
+        $handler = new #[FlowNode(type: 'fanin.node')] class
+        {
+            #[Input(type: PortType::Json, multiple: true)]
+            public array $items = [];
+
+            #[Input(type: PortType::Text, required: true)]
+            public string $label;
+        };
+
+        $definition = $this->factory->fromClass($handler::class);
+
+        $items = $definition->input('items');
+        $this->assertNotNull($items);
+        $this->assertTrue($items->multiple);
+        $this->assertTrue($definition->input('items')->toArray()['multiple']);
+
+        // A normal port stays multiple: false.
+        $this->assertFalse($definition->input('label')->multiple);
+    }
+
+    public function test_multiple_on_scalar_port_is_rejected(): void
+    {
+        $handler = new #[FlowNode(type: 'bad.fanin')] class
+        {
+            #[Input(type: PortType::Text, multiple: true)]
+            public array $items = [];
+        };
+
+        $this->expectException(InvalidNodeDefinitionException::class);
+        $this->expectExceptionMessage('must be of port type json or any');
+
+        $this->factory->fromClass($handler::class);
+    }
+
+    public function test_multiple_port_requires_array_property(): void
+    {
+        $handler = new #[FlowNode(type: 'bad.fanin.type')] class
+        {
+            #[Input(type: PortType::Json, multiple: true)]
+            public string $items = '';
+        };
+
+        $this->expectException(InvalidNodeDefinitionException::class);
+
+        $this->factory->fromClass($handler::class);
+    }
+
     public function test_name_defaults_to_class_basename(): void
     {
         $definition = $this->factory->fromClass(GreetNode::class);
@@ -74,7 +123,7 @@ final class NodeDefinitionFactoryTest extends TestCase
 
         $this->assertSame('test.greet', $array['type']);
         $this->assertSame(
-            [['key' => 'name', 'type' => 'text', 'required' => true, 'label' => 'name']],
+            [['key' => 'name', 'type' => 'text', 'required' => true, 'label' => 'name', 'multiple' => false]],
             $array['inputs'],
         );
         $this->assertArrayHasKey('outputs', $array);

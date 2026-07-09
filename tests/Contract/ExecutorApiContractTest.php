@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace Padosoft\LaravelFlow\Tests\Contract;
 
+use Padosoft\LaravelFlow\Executor\InputRouter;
 use Padosoft\LaravelFlow\Executor\ReadinessDecision;
 use Padosoft\LaravelFlow\Executor\ReadinessResolver;
+use Padosoft\LaravelFlow\Executor\RoutedInputs;
 use Padosoft\LaravelFlow\Executor\State\IllegalStateTransitionException;
 use Padosoft\LaravelFlow\Executor\State\NodeState;
 use Padosoft\LaravelFlow\Executor\State\RunState;
@@ -58,6 +60,8 @@ final class ExecutorApiContractTest extends TestCase
             IllegalStateTransitionException::class,
             ReadinessResolver::class,
             ReadinessDecision::class,
+            InputRouter::class,
+            RoutedInputs::class,
         ];
 
         foreach ($classes as $class) {

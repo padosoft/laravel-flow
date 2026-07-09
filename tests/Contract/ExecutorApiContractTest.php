@@ -5,9 +5,11 @@ declare(strict_types=1);
 namespace Padosoft\LaravelFlow\Tests\Contract;
 
 use Padosoft\LaravelFlow\Executor\InputRouter;
+use Padosoft\LaravelFlow\Executor\NodeResolver;
 use Padosoft\LaravelFlow\Executor\Nodes\MergeNode;
 use Padosoft\LaravelFlow\Executor\ReadinessDecision;
 use Padosoft\LaravelFlow\Executor\ReadinessResolver;
+use Padosoft\LaravelFlow\Executor\ResolvedNode;
 use Padosoft\LaravelFlow\Executor\RoutedInputs;
 use Padosoft\LaravelFlow\Executor\State\IllegalStateTransitionException;
 use Padosoft\LaravelFlow\Executor\State\NodeState;
@@ -64,6 +66,8 @@ final class ExecutorApiContractTest extends TestCase
             InputRouter::class,
             RoutedInputs::class,
             MergeNode::class,
+            NodeResolver::class,
+            ResolvedNode::class,
         ];
 
         foreach ($classes as $class) {

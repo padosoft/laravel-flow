@@ -39,7 +39,9 @@ final class NodeRegistryWiringTest extends TestCase
         $registry = $this->app->make(NodeRegistry::class);
 
         $this->assertTrue($registry->has('test.greet'));
-        $this->assertCount(1, $registry->all());
+        // Configured node + the always-present flow.merge built-in.
+        $this->assertTrue($registry->has('flow.merge'));
+        $this->assertCount(2, $registry->all());
     }
 
     public function test_discovery_roots_are_registered(): void
@@ -70,7 +72,8 @@ final class NodeRegistryWiringTest extends TestCase
 
         $this->assertTrue($registry->has('test.greet'));
         $this->assertTrue($registry->has('test.upper'));
-        $this->assertCount(2, $registry->all());
+        // Two configured/discovered nodes + the flow.merge built-in.
+        $this->assertCount(3, $registry->all());
         $this->assertSame(GreetNode::class, $registry->get('test.greet')->handlerClass);
     }
 
@@ -101,7 +104,8 @@ final class NodeRegistryWiringTest extends TestCase
 
         $this->assertTrue($registry->has('test.greet'));
         $this->assertSame(GreetNode::class, $registry->get('test.greet')->handlerClass);
-        $this->assertCount(1, $registry->all());
+        // Configured node + the flow.merge built-in.
+        $this->assertCount(2, $registry->all());
     }
 
     public function test_discovery_vs_discovery_type_collision_fails_fast(): void
@@ -137,7 +141,8 @@ final class NodeRegistryWiringTest extends TestCase
 
         $this->assertTrue($registry->has('test.greet'));
         $this->assertTrue($registry->has('test.upper'));
-        $this->assertCount(2, $registry->all());
+        // Two discovered nodes + the flow.merge built-in.
+        $this->assertCount(3, $registry->all());
     }
 
     public function test_duplicate_discovery_roots_are_deduplicated(): void
@@ -151,6 +156,7 @@ final class NodeRegistryWiringTest extends TestCase
 
         $this->assertTrue($registry->has('test.greet'));
         $this->assertTrue($registry->has('test.upper'));
-        $this->assertCount(2, $registry->all());
+        // Two discovered nodes + the flow.merge built-in.
+        $this->assertCount(3, $registry->all());
     }
 }

@@ -28,6 +28,7 @@ use Padosoft\LaravelFlow\Contracts\RunRepository;
 use Padosoft\LaravelFlow\Dashboard\Authorization\DashboardActionAuthorizer;
 use Padosoft\LaravelFlow\Dashboard\Authorization\DenyAllAuthorizer;
 use Padosoft\LaravelFlow\Dashboard\FlowDashboardReadModel;
+use Padosoft\LaravelFlow\Executor\Nodes\MergeNode;
 use Padosoft\LaravelFlow\Graph\DefinitionSigner;
 use Padosoft\LaravelFlow\Graph\GraphValidator;
 use Padosoft\LaravelFlow\Node\Attributes\FlowNode;
@@ -56,6 +57,15 @@ use Throwable;
  */
 final class LaravelFlowServiceProvider extends ServiceProvider
 {
+    /**
+     * Executor node types shipped by the package and always registered.
+     *
+     * @var list<class-string>
+     */
+    private const BUILTIN_NODE_HANDLERS = [
+        MergeNode::class,
+    ];
+
     public function register(): void
     {
         $this->mergeConfigFrom(
@@ -172,6 +182,10 @@ final class LaravelFlowServiceProvider extends ServiceProvider
         $this->app->singleton(NodeDefinitionFactory::class);
         $this->app->singleton(NodeRegistry::class, function (Container $app): NodeRegistry {
             $registry = new NodeRegistry($app->make(NodeDefinitionFactory::class));
+            // Package built-in executor node types are always present, before
+            // host config/discovery, so control primitives like flow.merge
+            // cannot be accidentally dropped by an app's node configuration.
+            $registry->registerMany(self::BUILTIN_NODE_HANDLERS);
             /** @var mixed $configured */
             $configured = $app['config']->get('laravel-flow.nodes.handlers', []);
             /** @var list<class-string> $handlers */

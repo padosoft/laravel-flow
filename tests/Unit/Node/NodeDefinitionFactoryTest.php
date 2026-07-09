@@ -109,6 +109,46 @@ final class NodeDefinitionFactoryTest extends TestCase
         $this->factory->fromClass($handler::class);
     }
 
+    public function test_multiple_port_rejects_untyped_property(): void
+    {
+        $handler = new #[FlowNode(type: 'bad.fanin.untyped')] class
+        {
+            #[Input(type: PortType::Json, multiple: true)]
+            public $items = [];
+        };
+
+        $this->expectException(InvalidNodeDefinitionException::class);
+        $this->expectExceptionMessage('must be typed array');
+
+        $this->factory->fromClass($handler::class);
+    }
+
+    public function test_multiple_port_rejects_mixed_property(): void
+    {
+        $handler = new #[FlowNode(type: 'bad.fanin.mixed')] class
+        {
+            #[Input(type: PortType::Json, multiple: true)]
+            public mixed $items = [];
+        };
+
+        $this->expectException(InvalidNodeDefinitionException::class);
+        $this->expectExceptionMessage('must be typed array');
+
+        $this->factory->fromClass($handler::class);
+    }
+
+    public function test_multiple_port_allows_nullable_array_property(): void
+    {
+        $handler = new #[FlowNode(type: 'ok.fanin.nullable')] class
+        {
+            #[Input(type: PortType::Json, multiple: true)]
+            public ?array $items = null;
+        };
+
+        $definition = $this->factory->fromClass($handler::class);
+        $this->assertTrue($definition->input('items')->multiple);
+    }
+
     public function test_name_defaults_to_class_basename(): void
     {
         $definition = $this->factory->fromClass(GreetNode::class);

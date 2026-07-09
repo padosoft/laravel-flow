@@ -160,12 +160,33 @@ final class NodeDefinitionFactory
     private function assertPropertyTypeCompatible(\ReflectionProperty $property, PortType $portType, string $class, string $attribute, bool $multiple = false): void
     {
         $type = $property->getType();
+        $branches = $type === null
+            ? []
+            : ($type instanceof \ReflectionUnionType ? $type->getTypes() : [$type]);
+
+        // A multiple (fan-in) port delivers a coalesced list<mixed>, so the
+        // property must be explicitly typed `array` to hold it. Untyped and
+        // `mixed` are rejected here (they would "work" but violate the
+        // documented contract that a multiple port's property is an array).
+        if ($multiple) {
+            foreach ($branches as $branch) {
+                if ($branch instanceof \ReflectionNamedType && $branch->getName() === 'array') {
+                    return;
+                }
+            }
+
+            throw new InvalidNodeDefinitionException(sprintf(
+                'Multiple (fan-in) %s property [%s::$%s] must be typed array to hold the coalesced list, got [%s].',
+                strtolower($attribute),
+                $class,
+                $property->getName(),
+                $type === null ? 'untyped' : (string) $type,
+            ));
+        }
 
         if ($type === null) {
             return; // untyped holds anything
         }
-
-        $branches = $type instanceof \ReflectionUnionType ? $type->getTypes() : [$type];
 
         foreach ($branches as $branch) {
             if (! $branch instanceof \ReflectionNamedType) {
@@ -176,16 +197,6 @@ final class NodeDefinitionFactory
 
             if ($name === 'mixed') {
                 return;
-            }
-
-            // A multiple (fan-in) port delivers a coalesced list<mixed>, so the
-            // property must hold an array regardless of the per-item port type.
-            if ($multiple) {
-                if ($name === 'array') {
-                    return;
-                }
-
-                continue;
             }
 
             $compatible = match ($portType) {

@@ -241,10 +241,14 @@ return [
     |
     | Runtime knobs for the event-driven graph executor. These are inert for
     | the v1 linear engine, which keeps its own execution and step-timeout
-    | settings above; they take effect only for graph runs reached through
-    | the new Flow::runGraph()/dispatchGraph() entry points. `lock_store` /
-    | `cache.store` default to null (fall back to the app's default cache
-    | store at execution time); `cache.ttl_seconds` null means cache forever.
+    | settings above; they take effect only for graph runs, reached through
+    | the graph executor's dedicated entry points that arrive later in the
+    | Flow 2.0 Macro C program (this slice ships the persistence model and
+    | state machines only). `lock_store` / `cache.store` default to null (fall
+    | back to the app's default cache store at execution time); `tries` /
+    | `backoff` stay uncast so a normalizer can tell null (defer) from 0
+    | (unlimited), matching the `queue` block above; `cache.ttl_seconds` null
+    | means cache forever.
     |
     */
     'executor' => [

@@ -56,6 +56,28 @@ final class RetryPolicyTest extends TestCase
         $this->assertSame(60, $policy->timeout());
     }
 
+    public function test_config_backoff_with_non_int_entries_is_ignored(): void
+    {
+        // A persisted/imported graph may supply a malformed backoff; it must be
+        // rejected (keep the attribute value) rather than crash under strict_types.
+        $policy = RetryPolicy::fromAttribute(
+            new Retry(tries: 3, backoff: 7),
+            ['backoff' => [1, 'two', 3]],
+        );
+
+        $this->assertSame(7, $policy->backoffForAttempt(1));
+    }
+
+    public function test_config_backoff_non_list_array_is_ignored(): void
+    {
+        $policy = RetryPolicy::fromAttribute(
+            new Retry(tries: 3, backoff: 7),
+            ['backoff' => ['first' => 1]],
+        );
+
+        $this->assertSame(7, $policy->backoffForAttempt(1));
+    }
+
     public function test_exhaustion(): void
     {
         $policy = RetryPolicy::fromAttribute(new Retry(tries: 2));

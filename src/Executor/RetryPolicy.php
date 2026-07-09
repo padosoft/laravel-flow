@@ -66,9 +66,12 @@ final class RetryPolicy
             $tries = $configOverride['tries'];
         }
 
-        if (array_key_exists('backoff', $configOverride) && (is_int($configOverride['backoff']) || is_array($configOverride['backoff']))) {
-            /** @var int|list<int> $backoff */
-            $backoff = $configOverride['backoff'];
+        if (array_key_exists('backoff', $configOverride)) {
+            $candidate = self::sanitizeBackoff($configOverride['backoff']);
+
+            if ($candidate !== null) {
+                $backoff = $candidate;
+            }
         }
 
         if (array_key_exists('timeout', $configOverride) && is_int($configOverride['timeout'])) {
@@ -125,5 +128,33 @@ final class RetryPolicy
         }
 
         return array_values(array_map(static fn (int $seconds): int => max(0, $seconds), $backoff));
+    }
+
+    /**
+     * Coerce a config-supplied backoff (any type) into `int` / `list<int>`, or
+     * null when it is not a valid schedule (so the attribute value is kept). A
+     * config array must be a list of ints — non-int entries reject the override
+     * rather than throwing a TypeError under strict_types.
+     *
+     * @return int|list<int>|null
+     */
+    private static function sanitizeBackoff(mixed $backoff): int|array|null
+    {
+        if (is_int($backoff)) {
+            return $backoff;
+        }
+
+        if (! is_array($backoff) || ! array_is_list($backoff)) {
+            return null;
+        }
+
+        foreach ($backoff as $seconds) {
+            if (! is_int($seconds)) {
+                return null;
+            }
+        }
+
+        /** @var list<int> $backoff */
+        return $backoff;
     }
 }

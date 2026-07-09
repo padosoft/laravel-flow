@@ -118,7 +118,10 @@ final class NodeExecutor
                 break;
             }
 
-            $backoff = $policy->backoffForAttempt($attempts + 1);
+            // The delay before the Nth retry uses the Nth backoff entry: after
+            // $attempts failures the upcoming retry is number $attempts, so the
+            // first retry (list index 0) is backoffForAttempt($attempts).
+            $backoff = $policy->backoffForAttempt($attempts);
             $availableAt = ($this->clock)()->modify("+{$backoff} seconds");
             Sleep::for($backoff)->seconds();
         }

@@ -9,8 +9,10 @@ use Padosoft\LaravelFlow\Exceptions\FlowExecutionException;
 use Padosoft\LaravelFlow\FlowDefinition;
 use Padosoft\LaravelFlow\FlowEngine;
 use Padosoft\LaravelFlow\Graph\GraphDefinition;
+use Padosoft\LaravelFlow\Graph\GraphNode;
 use Padosoft\LaravelFlow\Graph\GraphSerializer;
 use Padosoft\LaravelFlow\Graph\StoredDefinition;
+use Padosoft\LaravelFlow\Models\FlowDefinitionRecord;
 use Padosoft\LaravelFlow\Models\FlowRunRecord;
 use Padosoft\LaravelFlow\Persistence\EloquentDefinitionRepository;
 use Padosoft\LaravelFlow\Tests\Unit\Stubs\AlwaysSucceedsHandler;
@@ -351,6 +353,43 @@ final class RunVersionPinningTest extends PersistenceTestCase
         $this->expectExceptionMessage('flow.pinned-invalid-graph');
 
         $engine->registerDefinition(new FlowDefinition('flow.pinned-invalid-graph', [], []));
+    }
+
+    /**
+     * Copilot review (Macro B PR #54): persistRegisteredDefinitionIfEnabled()
+     * also needs to catch DefinitionSignatureException — thrown by
+     * DefinitionRepository read paths when signing is enabled and a
+     * stored row's recomputed checksum no longer verifies against its
+     * signature (e.g. the graph column was edited outside the
+     * repository) — otherwise a Graph-namespace exception leaks out of
+     * registerDefinition() instead of the package-level exception this
+     * feature reports every other failure mode through.
+     */
+    public function test_registering_when_the_latest_stored_version_fails_signature_verification_throws_a_clean_exception(): void
+    {
+        $this->migrateFlowTables();
+        $this->app['config']->set('laravel-flow.definitions.signing_secret', 'top-secret');
+        $engine = $this->enginePersistingRunsAndDefinitions();
+
+        $engine->define('flow.pinned-tampered')
+            ->step('one', AlwaysSucceedsHandler::class)
+            ->register();
+
+        $record = FlowDefinitionRecord::query()->where('name', 'flow.pinned-tampered')->firstOrFail();
+        $record->graph = (new GraphSerializer)->toArray($this->graph('tampered'));
+        $record->save();
+
+        $this->expectException(FlowExecutionException::class);
+        $this->expectExceptionMessage('flow.pinned-tampered');
+
+        $engine->define('flow.pinned-tampered')
+            ->step('one', AlwaysSucceedsHandler::class)
+            ->register();
+    }
+
+    private function graph(string $nodeId = 'node-a'): GraphDefinition
+    {
+        return new GraphDefinition([new GraphNode($nodeId, 'legacy.step')], []);
     }
 
     private function enginePersistingRunsAndDefinitions(): FlowEngine

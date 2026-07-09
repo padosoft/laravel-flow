@@ -32,6 +32,7 @@ use Padosoft\LaravelFlow\Exceptions\FlowCompensationException;
 use Padosoft\LaravelFlow\Exceptions\FlowExecutionException;
 use Padosoft\LaravelFlow\Exceptions\FlowInputException;
 use Padosoft\LaravelFlow\Exceptions\FlowNotRegisteredException;
+use Padosoft\LaravelFlow\Graph\Exceptions\DefinitionSignatureException;
 use Padosoft\LaravelFlow\Graph\Exceptions\InvalidGraphException;
 use Padosoft\LaravelFlow\Graph\GraphSerializer;
 use Padosoft\LaravelFlow\Graph\StoredDefinition;
@@ -189,6 +190,8 @@ class FlowEngine
             throw $this->definitionPersistenceUnavailableException($e);
         } catch (JsonException|InvalidGraphException $e) {
             throw $this->definitionGraphInvalidException($definition->name, $e);
+        } catch (DefinitionSignatureException $e) {
+            throw $this->definitionSignatureUnverifiedException($definition->name, $e);
         }
 
         if ($stored instanceof StoredDefinition) {
@@ -1870,6 +1873,14 @@ class FlowEngine
             'Definition [%s] could not be persisted as a registered definition (laravel-flow.definitions.persist_registered): %s.',
             $definitionName,
             $reason,
+        ), previous: $e);
+    }
+
+    private function definitionSignatureUnverifiedException(string $definitionName, DefinitionSignatureException $e): FlowExecutionException
+    {
+        return new FlowExecutionException(sprintf(
+            'Definition [%s] could not be persisted as a registered definition (laravel-flow.definitions.persist_registered): the latest stored `flow_definitions` version failed signature verification (laravel-flow.definitions.signing_secret is enabled). The stored graph may have been edited outside the repository.',
+            $definitionName,
         ), previous: $e);
     }
 

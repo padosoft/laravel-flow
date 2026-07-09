@@ -319,10 +319,12 @@ final class ReplayFlowRunCommandTest extends PersistenceTestCase
             'updated_at' => $timestamp,
         ];
 
-        // Omit the version-pinning columns entirely for callers that pass
-        // no pin, so legacy/unpinned run rows match production inserts
-        // (both columns absent, not present-and-null) rather than the
-        // insert differing only by an explicit null.
+        // Omit the version-pinning keys from the insert array entirely for
+        // callers that pass no pin (the stored column value is NULL either
+        // way once the schema has these nullable columns — only the INSERT
+        // statement differs, not what ends up persisted), matching how
+        // production code builds this array conditionally rather than
+        // always setting both keys.
         if ($definitionVersion !== null || $definitionChecksum !== null) {
             $attributes['definition_version'] = $definitionVersion;
             $attributes['definition_checksum'] = $definitionChecksum;

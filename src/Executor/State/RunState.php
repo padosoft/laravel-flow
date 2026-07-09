@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace Padosoft\LaravelFlow\Executor\State;
 
-use Padosoft\LaravelFlow\Console\PruneFlowRunsCommand;
-
 /**
  * Run-level lifecycle state, and the single source of truth for the persisted
  * `flow_runs.status` string of both engines. Each case value matches the exact
@@ -15,9 +13,9 @@ use Padosoft\LaravelFlow\Console\PruneFlowRunsCommand;
  *
  * `isTerminal()` means the run has reached a stopping point for its primary
  * execution — v1 independently persists `'failed'` as a final run status
- * (see {@see PruneFlowRunsCommand}'s terminal
- * list: succeeded, failed, compensated, aborted), not merely a stepping stone
- * toward `'compensated'`. Terminal-ness is therefore ORTHOGONAL to
+ * (its terminal statuses are `succeeded`, `failed`, `compensated`, `aborted`),
+ * not merely a stepping stone toward `'compensated'`. Terminal-ness is
+ * therefore ORTHOGONAL to
  * {@see self::canTransitionTo()}'s optional `Failed`/`PartiallySucceeded` ->
  * `Compensated` edge: a run can sit at `Failed` forever (nothing to
  * compensate, or compensation itself failed) and still be a valid, prunable

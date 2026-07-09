@@ -6,6 +6,7 @@ namespace Padosoft\LaravelFlow\Console;
 
 use Illuminate\Console\Command;
 use Illuminate\Database\QueryException;
+use JsonException;
 use Padosoft\LaravelFlow\Contracts\FlowStore;
 use Padosoft\LaravelFlow\Exceptions\FlowNotRegisteredException;
 use Padosoft\LaravelFlow\FlowDefinition;
@@ -175,7 +176,20 @@ final class ReplayFlowRunCommand extends Command
 
     private function warnAboutPinnedDrift(FlowDefinition $definition, FlowRunRecord $original): void
     {
-        $currentChecksum = (new GraphSerializer)->checksum($definition->toGraphDefinition());
+        try {
+            $currentChecksum = (new GraphSerializer)->checksum($definition->toGraphDefinition());
+        } catch (JsonException $e) {
+            $this->warn(sprintf(
+                'Could not evaluate definition drift for flow run [%s]; replay continues without a drift check.',
+                $original->id,
+            ));
+
+            if ($this->getOutput()->isVerbose()) {
+                $this->line($e->getMessage());
+            }
+
+            return;
+        }
 
         if ($currentChecksum === $original->definition_checksum) {
             return;

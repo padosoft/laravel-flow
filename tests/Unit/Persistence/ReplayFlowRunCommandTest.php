@@ -142,6 +142,38 @@ final class ReplayFlowRunCommandTest extends PersistenceTestCase
             ->assertExitCode(0);
     }
 
+    /**
+     * Copilot review (round 3, PR #53): GraphSerializer::checksum() is
+     * documented to throw JsonException (json_encode(..., JSON_THROW_ON_ERROR)
+     * on malformed UTF-8 or non-encodable values); warnAboutPinnedDrift()
+     * called it unguarded, so a definition whose graph can't be
+     * JSON-encoded would crash the whole replay instead of degrading
+     * gracefully. A step handler class name containing invalid UTF-8
+     * bytes flows straight into the compiled graph's node config and
+     * reproduces the real throw path (verified: json_encode() with
+     * JSON_THROW_ON_ERROR throws on "\xB1\x31") without needing to fake
+     * GraphSerializer.
+     */
+    public function test_replay_command_degrades_gracefully_when_checksum_computation_throws(): void
+    {
+        $this->migrateFlowTables();
+        $this->app['config']->set('laravel-flow.persistence.enabled', true);
+
+        Flow::define('flow.replay')
+            ->withInput(['tenant'])
+            ->step('one', "AlwaysSucceedsHandler\xB1\x31")
+            ->register();
+
+        $this->insertRunGraph('pinned-unencodable', FlowRun::STATUS_FAILED, [
+            'tenant' => 'acme',
+        ], definitionVersion: 1, definitionChecksum: str_repeat('a', 64));
+
+        $this->artisan('flow:replay', ['runId' => 'pinned-unencodable'])
+            ->expectsOutputToContain('Could not evaluate definition drift for flow run [pinned-unencodable]; replay continues without a drift check.')
+            ->doesntExpectOutputToContain('was pinned to')
+            ->assertExitCode(1);
+    }
+
     public function test_replay_command_rejects_non_terminal_original_runs(): void
     {
         $this->migrateFlowTables();

@@ -68,6 +68,15 @@ final class RetryPolicyTest extends TestCase
         $this->assertSame(7, $policy->backoffForAttempt(1));
     }
 
+    public function test_attribute_backoff_with_non_int_entries_is_ignored(): void
+    {
+        // #[Retry(backoff: [...])] is typed int|array, so a non-int list is
+        // possible; it must be ignored (0) rather than crash normalizeBackoff().
+        $policy = RetryPolicy::fromAttribute(new Retry(tries: 2, backoff: [1, '2']));
+
+        $this->assertSame(0, $policy->backoffForAttempt(1));
+    }
+
     public function test_config_backoff_non_list_array_is_ignored(): void
     {
         $policy = RetryPolicy::fromAttribute(

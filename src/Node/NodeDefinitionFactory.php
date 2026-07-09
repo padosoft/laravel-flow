@@ -92,12 +92,10 @@ final class NodeDefinitionFactory
         }
 
         try {
-            $retry = $attributes[0]->newInstance();
+            return RetryPolicy::fromAttribute($attributes[0]->newInstance());
         } catch (\Throwable $e) {
             throw new InvalidNodeDefinitionException("Invalid #[Retry] on [{$reflection->getName()}]: {$e->getMessage()}", previous: $e);
         }
-
-        return RetryPolicy::fromAttribute($retry);
     }
 
     /**

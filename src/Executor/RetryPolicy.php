@@ -14,7 +14,10 @@ use Padosoft\LaravelFlow\Executor\Attributes\Retry;
  * a minimum of 1 — a deliberate divergence from Laravel's job-level "0 =
  * unlimited" so a poison node cannot loop forever. `backoff` is seconds: an int
  * for a fixed delay, or a list for a per-attempt schedule clamped to its last
- * value. Exhaustion (`isExhausted`) drives the node to `dead_letter`.
+ * value; a malformed attribute/config backoff (non-list or non-int entries) is
+ * ignored rather than throwing. Exhaustion (`isExhausted`) lets the executor
+ * dead-letter a node that had a real retry budget (`tries > 1`); a single failed
+ * attempt (`tries == 1`) is a plain failure, not a dead-letter.
  *
  * @api
  */
@@ -57,11 +60,15 @@ final class RetryPolicy
     }
 
     /**
-     * @param  int|list<int>  $backoff
      * @param  array<string, mixed>  $configOverride
      */
-    private static function build(int $tries, int|array $backoff, int $timeout, array $configOverride): self
+    private static function build(int $tries, mixed $backoff, int $timeout, array $configOverride): self
     {
+        // Sanitize the base (attribute-supplied) backoff too: `#[Retry]`'s
+        // `int|array $backoff` can carry a non-int list, which must be ignored
+        // rather than crash normalizeBackoff() under strict_types.
+        $backoffValue = self::sanitizeBackoff($backoff) ?? 0;
+
         if (array_key_exists('tries', $configOverride) && is_int($configOverride['tries'])) {
             $tries = $configOverride['tries'];
         }
@@ -70,7 +77,7 @@ final class RetryPolicy
             $candidate = self::sanitizeBackoff($configOverride['backoff']);
 
             if ($candidate !== null) {
-                $backoff = $candidate;
+                $backoffValue = $candidate;
             }
         }
 
@@ -78,7 +85,7 @@ final class RetryPolicy
             $timeout = $configOverride['timeout'];
         }
 
-        return new self(max(1, $tries), self::normalizeBackoff($backoff), max(0, $timeout));
+        return new self(max(1, $tries), self::normalizeBackoff($backoffValue), max(0, $timeout));
     }
 
     public function tries(): int
@@ -92,7 +99,10 @@ final class RetryPolicy
     }
 
     /**
-     * Backoff (seconds) to wait BEFORE the attempt numbered `$attempt` (1-based).
+     * Backoff (seconds) for the `$attempt`-th retry (1-based into the schedule):
+     * the executor, after `$attempts` failures, calls this with `$attempts` to
+     * get the delay before the next attempt — so retry 1 uses the first list
+     * entry. A list shorter than `$attempt` clamps to its last value.
      */
     public function backoffForAttempt(int $attempt): int
     {

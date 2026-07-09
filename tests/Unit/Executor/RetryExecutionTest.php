@@ -11,6 +11,7 @@ use Illuminate\Support\Sleep;
 use Padosoft\LaravelFlow\Executor\GraphRunner;
 use Padosoft\LaravelFlow\Executor\State\NodeState;
 use Padosoft\LaravelFlow\Executor\State\RunState;
+use Padosoft\LaravelFlow\FlowEngine;
 use Padosoft\LaravelFlow\Graph\GraphDefinition;
 use Padosoft\LaravelFlow\Graph\GraphNode;
 use Padosoft\LaravelFlow\Tests\Fixtures\GraphNodes\RetryAlwaysFailNode;
@@ -77,6 +78,15 @@ final class RetryExecutionTest extends PersistenceTestCase
             Carbon::parse('2026-05-03 12:00:05')->timestamp,
             Carbon::parse($row->available_at)->timestamp,
         );
+    }
+
+    public function test_dry_run_does_not_sleep_between_retries(): void
+    {
+        // A dry run of a failing retry node must not delay the process.
+        $this->app->make(FlowEngine::class)
+            ->dryRunGraph(new GraphDefinition([new GraphNode('x', 'test.alwaysfail')], []), []);
+
+        Sleep::assertNeverSlept();
     }
 
     public function test_config_retry_override_reduces_tries(): void

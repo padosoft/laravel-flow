@@ -123,7 +123,12 @@ final class NodeExecutor
             // first retry (list index 0) is backoffForAttempt($attempts).
             $backoff = $policy->backoffForAttempt($attempts);
             $availableAt = ($this->clock)()->modify("+{$backoff} seconds");
-            Sleep::for($backoff)->seconds();
+
+            // A dry run must not delay the process (no executor-driven side
+            // effects); it still records the computed schedule.
+            if (! $dryRun) {
+                Sleep::for($backoff)->seconds();
+            }
         }
 
         $finishedAt = ($this->clock)();

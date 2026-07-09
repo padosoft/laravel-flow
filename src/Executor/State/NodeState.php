@@ -11,6 +11,16 @@ namespace Padosoft\LaravelFlow\Executor\State;
  * the exact string v1 already persisted (`succeeded`, `paused`, `skipped`, …),
  * so unification extends the vocabulary without changing stored status strings.
  *
+ * `isTerminal()` means this node has reached a stopping point for its
+ * execution — v1 never retries a step (`'failed'` is v1's genuinely final
+ * step status), so a node sitting at `Failed` with no retry policy configured
+ * is exactly as done as one that `Succeeded`. Terminal-ness is therefore
+ * ORTHOGONAL to {@see self::canTransitionTo()}'s optional `Failed` ->
+ * `Running` retry edge (a Macro C addition, C-PR4): retrying is an OPTIONAL
+ * follow-up available from an already-terminal state, not a requirement to
+ * leave it, mirroring {@see RunState}'s `Failed`/`PartiallySucceeded` ->
+ * `Compensated` edge.
+ *
  * @api
  */
 enum NodeState: string
@@ -28,8 +38,8 @@ enum NodeState: string
     public function isTerminal(): bool
     {
         return match ($this) {
-            self::Succeeded, self::Skipped, self::Blocked, self::InvalidInput, self::DeadLetter => true,
-            self::Pending, self::Running, self::Paused, self::Failed => false,
+            self::Succeeded, self::Failed, self::Skipped, self::Blocked, self::InvalidInput, self::DeadLetter => true,
+            self::Pending, self::Running, self::Paused => false,
         };
     }
 
@@ -39,8 +49,8 @@ enum NodeState: string
             self::Pending => in_array($to, [self::Running, self::Skipped, self::Blocked, self::InvalidInput], true),
             self::Running => in_array($to, [self::Paused, self::Succeeded, self::Failed, self::DeadLetter], true),
             self::Paused => in_array($to, [self::Running, self::Failed], true), // resume / reject
-            self::Failed => in_array($to, [self::Running, self::DeadLetter], true), // retry / give up
-            self::Succeeded, self::Skipped, self::Blocked, self::InvalidInput, self::DeadLetter => false, // terminal
+            self::Failed => in_array($to, [self::Running, self::DeadLetter], true), // optional retry / give up
+            self::Succeeded, self::Skipped, self::Blocked, self::InvalidInput, self::DeadLetter => false, // terminal, no further transitions at all
         };
     }
 

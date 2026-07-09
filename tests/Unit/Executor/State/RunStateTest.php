@@ -25,8 +25,8 @@ final class RunStateTest extends TestCase
         yield 'pending' => [RunState::Pending, false];
         yield 'running' => [RunState::Running, false];
         yield 'paused' => [RunState::Paused, false];
-        yield 'failed' => [RunState::Failed, false];
-        yield 'partially_succeeded' => [RunState::PartiallySucceeded, false];
+        yield 'failed' => [RunState::Failed, true];
+        yield 'partially_succeeded' => [RunState::PartiallySucceeded, true];
         yield 'succeeded' => [RunState::Succeeded, true];
         yield 'compensated' => [RunState::Compensated, true];
         yield 'aborted' => [RunState::Aborted, true];

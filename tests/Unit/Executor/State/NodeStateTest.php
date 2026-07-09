@@ -25,7 +25,7 @@ final class NodeStateTest extends TestCase
         yield 'pending' => [NodeState::Pending, false];
         yield 'running' => [NodeState::Running, false];
         yield 'paused' => [NodeState::Paused, false];
-        yield 'failed' => [NodeState::Failed, false];
+        yield 'failed' => [NodeState::Failed, true];
         yield 'succeeded' => [NodeState::Succeeded, true];
         yield 'skipped' => [NodeState::Skipped, true];
         yield 'blocked' => [NodeState::Blocked, true];

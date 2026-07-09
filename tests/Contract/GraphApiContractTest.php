@@ -21,6 +21,7 @@ use Padosoft\LaravelFlow\Graph\GraphValidator;
 use Padosoft\LaravelFlow\Graph\StoredDefinition;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
+use ReflectionProperty;
 
 final class GraphApiContractTest extends TestCase
 {
@@ -75,31 +76,19 @@ final class GraphApiContractTest extends TestCase
 
     public function test_graph_node_exposes_readonly_properties(): void
     {
-        $reflection = new ReflectionClass(GraphNode::class);
-
-        foreach (['id', 'type', 'config', 'position'] as $property) {
-            $this->assertTrue($reflection->hasProperty($property), $property);
-        }
+        $this->assertPublicReadonlyProperties(GraphNode::class, ['id', 'type', 'config', 'position']);
     }
 
     public function test_connection_exposes_readonly_properties_and_identity(): void
     {
-        $reflection = new ReflectionClass(Connection::class);
+        $this->assertPublicReadonlyProperties(Connection::class, ['sourceNodeId', 'sourcePortKey', 'targetNodeId', 'targetPortKey']);
 
-        foreach (['sourceNodeId', 'sourcePortKey', 'targetNodeId', 'targetPortKey'] as $property) {
-            $this->assertTrue($reflection->hasProperty($property), $property);
-        }
-
-        $this->assertTrue($reflection->hasMethod('identity'));
+        $this->assertTrue((new ReflectionClass(Connection::class))->hasMethod('identity'));
     }
 
     public function test_stored_definition_exposes_readonly_properties(): void
     {
-        $reflection = new ReflectionClass(StoredDefinition::class);
-
-        foreach (['id', 'name', 'version', 'status', 'graph', 'checksum', 'signature', 'publishedAt'] as $property) {
-            $this->assertTrue($reflection->hasProperty($property), $property);
-        }
+        $this->assertPublicReadonlyProperties(StoredDefinition::class, ['id', 'name', 'version', 'status', 'graph', 'checksum', 'signature', 'publishedAt']);
     }
 
     public function test_stored_definition_statuses_are_pinned(): void
@@ -147,5 +136,27 @@ final class GraphApiContractTest extends TestCase
     {
         $this->assertTrue((new ReflectionClass(FlowDefinition::class))->hasMethod('toGraphDefinition'));
         $this->assertSame('legacy.step', FlowDefinition::LEGACY_NODE_TYPE);
+    }
+
+    /**
+     * hasProperty() alone would still pass if a property became
+     * private/protected or lost readonly, which defeats the point of
+     * pinning a readonly-property surface as @api. Assert visibility and
+     * readonly-ness explicitly.
+     *
+     * @param  class-string  $class
+     * @param  list<string>  $properties
+     */
+    private function assertPublicReadonlyProperties(string $class, array $properties): void
+    {
+        $reflection = new ReflectionClass($class);
+
+        foreach ($properties as $name) {
+            $this->assertTrue($reflection->hasProperty($name), $name);
+
+            $property = new ReflectionProperty($class, $name);
+            $this->assertTrue($property->isPublic(), "{$name} must be public");
+            $this->assertTrue($property->isReadOnly(), "{$name} must be readonly");
+        }
     }
 }

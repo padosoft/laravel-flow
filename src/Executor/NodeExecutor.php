@@ -58,14 +58,15 @@ final class NodeExecutor
             // A resolution failure (unknown/unbound handler, bad legacy config)
             // must not leave the run stuck `running` with no node row — record
             // it as a failed node, mirroring v1's handler-resolution behaviour.
+            $finishedAt = ($this->clock)();
             $this->persist($store, $runId, $node, $sequence, [
                 'status' => NodeState::Failed->value,
                 'error_class' => $e::class,
                 'error_message' => $e->getMessage(),
                 'dry_run_skipped' => false,
                 'started_at' => $startedAt,
-                'finished_at' => ($this->clock)(),
-                'duration_ms' => 0,
+                'finished_at' => $finishedAt,
+                'duration_ms' => $this->durationMs($startedAt, $finishedAt),
             ]);
 
             return new NodeExecution($node->id, NodeState::Failed, [], $e);

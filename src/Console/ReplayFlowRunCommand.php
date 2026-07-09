@@ -165,8 +165,11 @@ final class ReplayFlowRunCommand extends Command
 
     /**
      * Version-exact replay: a pinned graph run re-executes the EXACT stored
-     * graph version through the graph executor, regardless of what the current
-     * `latest()` version is (a checksum mismatch is informational).
+     * graph version (`DefinitionRepository::find($name, $version)`) through the
+     * graph executor, regardless of the current `latest()` version. The stored
+     * definition is authoritative and is NOT re-verified against the recorded
+     * `definition_checksum` here — `find()` returns exactly the pinned version,
+     * so no drift check is performed on the graph path.
      *
      * @param  array<string, mixed>  $input
      */

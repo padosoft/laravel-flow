@@ -44,11 +44,15 @@ final class InputRouter
     ): RoutedInputs {
         $raw = [];
 
+        // Group incoming wires by target port once (avoids O(ports × wires)).
+        /** @var array<string, list<Connection>> $wiresByPort */
+        $wiresByPort = [];
+        foreach ($connectionsIntoNode as $wire) {
+            $wiresByPort[$wire->targetPortKey][] = $wire;
+        }
+
         foreach ($definition->inputs as $port) {
-            $wires = array_values(array_filter(
-                $connectionsIntoNode,
-                static fn (Connection $c): bool => $c->targetPortKey === $port->key,
-            ));
+            $wires = $wiresByPort[$port->key] ?? [];
 
             // Config satisfies a port ONLY when it has no incoming wire at all.
             // A wired port whose upstream produced no value stays absent (the

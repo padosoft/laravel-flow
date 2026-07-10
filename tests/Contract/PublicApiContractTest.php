@@ -59,6 +59,7 @@ final class PublicApiContractTest extends TestCase
         yield 'FlowStore contract' => ['Padosoft\\LaravelFlow\\Contracts\\FlowStore'];
         yield 'RunRepository contract' => ['Padosoft\\LaravelFlow\\Contracts\\RunRepository'];
         yield 'RunNodeRepository contract' => ['Padosoft\\LaravelFlow\\Contracts\\RunNodeRepository'];
+        yield 'NodeCacheRepository contract' => ['Padosoft\\LaravelFlow\\Contracts\\NodeCacheRepository'];
         yield 'AuditRepository contract' => ['Padosoft\\LaravelFlow\\Contracts\\AuditRepository'];
         yield 'ApprovalRepository contract' => ['Padosoft\\LaravelFlow\\Contracts\\ApprovalRepository'];
         yield 'ApprovalDecisionRepository contract' => ['Padosoft\\LaravelFlow\\Contracts\\ApprovalDecisionRepository'];
@@ -209,6 +210,15 @@ final class PublicApiContractTest extends TestCase
             'states',
             'claim',
             'releaseClaim',
+        ]);
+    }
+
+    public function test_node_cache_repository_pins_documented_methods(): void
+    {
+        // Content-hash node cache contract added in Macro C C-PR7.
+        $this->assertHasPublicMethods('Padosoft\\LaravelFlow\\Contracts\\NodeCacheRepository', [
+            'find',
+            'put',
         ]);
     }
 

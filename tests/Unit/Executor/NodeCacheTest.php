@@ -8,6 +8,7 @@ use DateTimeInterface;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Padosoft\LaravelFlow\Contracts\NodeCacheRepository;
 use Padosoft\LaravelFlow\Executor\GraphRunner;
 use Padosoft\LaravelFlow\Executor\NodeCacheHit;
@@ -166,12 +167,17 @@ final class NodeCacheTest extends PersistenceTestCase
             }
         });
 
+        Log::spy();
+
         $result = $this->runner()->run($this->echoGraph(5), []);
 
         $this->assertSame(RunState::Succeeded, $result->state);
         $this->assertSame(NodeState::Succeeded, $result->nodeStates['c']);
         $this->assertSame(1, CacheableEchoNode::$invocations, 'handler ran despite the cache failure');
         $this->assertSame(['echoed' => 5], $result->nodeOutputs['c']);
+
+        // The failure is logged (not silent) so a broken cache is observable.
+        Log::shouldHaveReceived('warning')->atLeast()->once();
     }
 
     public function test_ttl_expiry(): void

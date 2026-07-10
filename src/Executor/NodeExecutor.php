@@ -6,6 +6,7 @@ namespace Padosoft\LaravelFlow\Executor;
 
 use Closure;
 use DateTimeImmutable;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Sleep;
 use Padosoft\LaravelFlow\Contracts\FlowStore;
 use Padosoft\LaravelFlow\Executor\State\NodeState;
@@ -109,8 +110,16 @@ final class NodeExecutor
             try {
                 $contentHash = $this->cache->hash($node->type, $routed->inputs, $node->config);
                 $hit = $this->cache->get($contentHash);
-            } catch (Throwable) {
+            } catch (Throwable $e) {
                 $contentHash = null;
+                // Fail-safe, but not silent: an operator needs a signal that
+                // caching stopped working (e.g. a missing table mid-upgrade),
+                // otherwise it degrades invisibly. Never log the payload.
+                Log::warning('laravel-flow: node cache read failed; running the node without cache.', [
+                    'node_type' => $node->type,
+                    'exception' => $e::class,
+                    'message' => $e->getMessage(),
+                ]);
             }
 
             if ($hit !== null) {
@@ -197,8 +206,15 @@ final class NodeExecutor
         if ($contentHash !== null && $this->cache !== null && $definition->cacheable !== null && $result->success) {
             try {
                 $this->cache->put($contentHash, $node->type, $result->outputs, $result->businessImpact, $definition->cacheable->ttl);
-            } catch (Throwable) {
-                // Optional optimization: ignore cache-write failures.
+            } catch (Throwable $e) {
+                // Optional optimization: a write failure never fails a node whose
+                // handler already succeeded, but log it (no payload) so a broken
+                // cache does not degrade invisibly.
+                Log::warning('laravel-flow: node cache write failed; the node succeeded without caching its output.', [
+                    'node_type' => $node->type,
+                    'exception' => $e::class,
+                    'message' => $e->getMessage(),
+                ]);
             }
         }
 

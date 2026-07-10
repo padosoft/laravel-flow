@@ -29,7 +29,10 @@ final class ContentHasher
             'config' => $this->canonicalize($config),
         ];
 
-        return hash('sha256', json_encode($canonical, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+        // JSON_PRESERVE_ZERO_FRACTION keeps a float 1.0 distinct from an int 1
+        // (both would otherwise encode as `1`), so semantically distinct
+        // int/float inputs never collide into the same cache entry.
+        return hash('sha256', json_encode($canonical, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PRESERVE_ZERO_FRACTION));
     }
 
     private function canonicalize(mixed $value): mixed

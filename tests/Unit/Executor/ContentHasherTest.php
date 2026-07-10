@@ -52,6 +52,16 @@ final class ContentHasherTest extends TestCase
         $this->assertSame($a, $same, 'equal lists in equal order hash the same');
     }
 
+    public function test_int_and_float_hash_differently(): void
+    {
+        // A float 1.0 is semantically distinct from an int 1 for a handler, so
+        // they must not collide into the same cache entry.
+        $int = $this->hasher()->hash('test.node', ['value' => 1], []);
+        $float = $this->hasher()->hash('test.node', ['value' => 1.0], []);
+
+        $this->assertNotSame($int, $float);
+    }
+
     public function test_nested_dict_keys_sorted_recursively(): void
     {
         $a = $this->hasher()->hash('test.node', ['outer' => ['b' => 2, 'a' => 1]], []);

@@ -114,11 +114,13 @@ final class NodeExecutor
                 $contentHash = null;
                 // Fail-safe, but not silent: an operator needs a signal that
                 // caching stopped working (e.g. a missing table mid-upgrade),
-                // otherwise it degrades invisibly. Never log the payload.
+                // otherwise it degrades invisibly. Log only the exception CLASS
+                // and code — a QueryException message embeds the SQL + bound
+                // params (the node payload), which must never reach the logs.
                 Log::warning('laravel-flow: node cache read failed; running the node without cache.', [
                     'node_type' => $node->type,
                     'exception' => $e::class,
-                    'message' => $e->getMessage(),
+                    'code' => $e->getCode(),
                 ]);
             }
 
@@ -208,12 +210,14 @@ final class NodeExecutor
                 $this->cache->put($contentHash, $node->type, $result->outputs, $result->businessImpact, $definition->cacheable->ttl);
             } catch (Throwable $e) {
                 // Optional optimization: a write failure never fails a node whose
-                // handler already succeeded, but log it (no payload) so a broken
-                // cache does not degrade invisibly.
+                // handler already succeeded, but log it (exception CLASS + code
+                // only — never the message, which for a QueryException embeds the
+                // SQL + bound params, i.e. the node payload) so a broken cache
+                // does not degrade invisibly.
                 Log::warning('laravel-flow: node cache write failed; the node succeeded without caching its output.', [
                     'node_type' => $node->type,
                     'exception' => $e::class,
-                    'message' => $e->getMessage(),
+                    'code' => $e->getCode(),
                 ]);
             }
         }

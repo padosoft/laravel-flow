@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Padosoft\LaravelFlow\Tests\Contract;
 
+use Padosoft\LaravelFlow\Contracts\NodeCacheRepository;
 use Padosoft\LaravelFlow\Executor\Attributes\Cacheable;
 use Padosoft\LaravelFlow\Executor\Attributes\Retry;
 use Padosoft\LaravelFlow\Executor\GraphRunner;
@@ -84,6 +85,7 @@ final class ExecutorApiContractTest extends TestCase
             Cacheable::class,
             NodeCache::class,
             NodeCacheHit::class,
+            NodeCacheRepository::class,
         ];
 
         foreach ($classes as $class) {

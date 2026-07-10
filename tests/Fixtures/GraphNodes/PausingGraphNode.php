@@ -15,6 +15,8 @@ use Padosoft\LaravelFlow\Node\PortType;
 #[FlowNode(type: 'test.pause', category: 'testing')]
 final class PausingGraphNode implements FlowNodeHandler
 {
+    public static int $invocations = 0;
+
     #[Input(type: PortType::Json, required: false)]
     public array $in = [];
 
@@ -23,6 +25,8 @@ final class PausingGraphNode implements FlowNodeHandler
 
     public function execute(NodeContext $context): NodeResult
     {
+        self::$invocations++;
+
         return NodeResult::paused();
     }
 }

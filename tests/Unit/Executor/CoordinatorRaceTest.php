@@ -7,6 +7,7 @@ namespace Padosoft\LaravelFlow\Tests\Unit\Executor;
 use Illuminate\Contracts\Bus\Dispatcher as BusDispatcher;
 use Illuminate\Contracts\Cache\LockProvider;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Queue;
 use Mockery;
 use Padosoft\LaravelFlow\Contracts\RunNodeRepository;
 use Padosoft\LaravelFlow\Executor\Jobs\CoordinatorJob;
@@ -109,6 +110,9 @@ final class CoordinatorRaceTest extends PersistenceTestCase
         $graph = new GraphDefinition([new GraphNode('a', 'test.probe')], []);
         $runId = $this->coordinator()->start($graph, [], null, 'graph');
 
+        // The coordinator claims (pending -> running) before dispatching a node job.
+        $this->assertTrue($this->nodeRepository()->claim($runId, 'a', new \DateTimeImmutable));
+
         $this->app->call([$this->nodeJob($runId, 'a', $graph), 'handle']);
         $this->app->call([$this->nodeJob($runId, 'a', $graph), 'handle']);
 
@@ -116,10 +120,29 @@ final class CoordinatorRaceTest extends PersistenceTestCase
         $this->assertSame('succeeded', DB::table('flow_run_nodes')->where('run_id', $runId)->where('node_id', 'a')->value('status'));
     }
 
+    public function test_node_job_only_executes_a_claimed_running_node(): void
+    {
+        // A node job for a still-pending (unclaimed) node must NOT execute — that
+        // would bypass the coordinator's pending -> running claim invariant. Fake
+        // the queue so the coordinator nudge is captured rather than cascading
+        // into a proper claim + run, isolating the node job's own behavior.
+        Queue::fake();
+
+        $graph = new GraphDefinition([new GraphNode('a', 'test.probe')], []);
+        $runId = $this->coordinator()->start($graph, [], null, 'graph');
+
+        $this->app->call([$this->nodeJob($runId, 'a', $graph), 'handle']);
+
+        $this->assertSame(0, QueueProbeNode::count('a'), 'an unclaimed (pending) node must not execute');
+        $this->assertSame('pending', DB::table('flow_run_nodes')->where('run_id', $runId)->where('node_id', 'a')->value('status'), 'the node job must not claim the node itself');
+        Queue::assertPushed(CoordinatorJob::class);
+    }
+
     public function test_node_job_that_cannot_take_the_lock_releases_without_executing(): void
     {
         $graph = new GraphDefinition([new GraphNode('a', 'test.probe')], []);
         $runId = $this->coordinator()->start($graph, [], null, 'graph');
+        $this->assertTrue($this->nodeRepository()->claim($runId, 'a', new \DateTimeImmutable));
 
         $job = $this->nodeJob($runId, 'a', $graph);
 
@@ -135,7 +158,7 @@ final class CoordinatorRaceTest extends PersistenceTestCase
         }
 
         $this->assertSame(0, QueueProbeNode::count('a'), 'a node whose lock is held must not execute');
-        $this->assertSame('pending', DB::table('flow_run_nodes')->where('run_id', $runId)->where('node_id', 'a')->value('status'));
+        $this->assertSame('running', DB::table('flow_run_nodes')->where('run_id', $runId)->where('node_id', 'a')->value('status'));
     }
 
     public function test_dispatch_failure_releases_claim_so_a_retry_can_redispatch(): void

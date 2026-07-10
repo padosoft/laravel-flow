@@ -110,8 +110,8 @@ class FlowEngine
          *     executor?: array{
          *         queue?: string|null,
          *         lock_store?: string|null,
-         *         lock_seconds?: int,
-         *         lock_retry_seconds?: int
+         *         lock_seconds?: int|null,
+         *         lock_retry_seconds?: int|null
          *     }
          * }
          */
@@ -3396,23 +3396,32 @@ class FlowEngine
             return $store;
         }
 
-        $defaultStore = $this->container->make('config')->get('cache.default');
-
-        return is_string($defaultStore) && $defaultStore !== '' ? $defaultStore : null;
+        // Fall back to the v1 queue lock store (which itself falls back to
+        // cache.default) so a host that configured `queue.lock_store` gets the
+        // same shared store for queued graphs without a separate executor knob.
+        return $this->queueLockStore();
     }
 
     private function executorLockSeconds(): int
     {
-        $seconds = $this->config['executor']['lock_seconds'] ?? 3600;
+        $seconds = $this->config['executor']['lock_seconds'] ?? null;
 
-        return is_int($seconds) && $seconds >= 1 ? $seconds : 3600;
+        if (is_int($seconds) && $seconds >= 1) {
+            return $seconds;
+        }
+
+        return $this->queueLockSeconds();
     }
 
     private function executorLockRetrySeconds(): int
     {
-        $seconds = $this->config['executor']['lock_retry_seconds'] ?? 30;
+        $seconds = $this->config['executor']['lock_retry_seconds'] ?? null;
 
-        return is_int($seconds) && $seconds >= 1 ? $seconds : 30;
+        if (is_int($seconds) && $seconds >= 1) {
+            return $seconds;
+        }
+
+        return $this->queueLockRetrySeconds();
     }
 
     private function assertQueuedRunRetryPolicyIsSafe(QueueRetryPolicy $retryPolicy, ?FlowExecutionOptions $options): void

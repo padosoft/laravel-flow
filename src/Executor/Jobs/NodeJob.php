@@ -24,17 +24,18 @@ use RuntimeException;
  * Executes a single graph node that a {@see CoordinatorJob} has claimed, then
  * re-dispatches the coordinator to advance the run.
  *
- * Idempotency is DB-derived: the terminal `flow_run_nodes.status` row IS the
- * completion marker (there is no separate cache marker, so there is no window
- * between "row written" and "marker written"). A per-node cache lock serializes
- * execution so duplicate delivery never runs the handler twice; a duplicate
- * that cannot take the lock releases for retry without executing, and a
- * duplicate that finds the node already terminal skips execution. A node still
- * `running` whose lock is HELD is an in-flight/orphaned node — the recovery
- * attempt cannot take the lock and does not re-enter the handler; genuine
- * dead-worker recovery happens only once the lock TTL frees the lock (taking it
- * is the proof the prior executor is gone). Node handlers must therefore be
- * idempotent, exactly as v1 queued flows require.
+ * Idempotency is DB-derived: a node executes ONLY while its `flow_run_nodes`
+ * row is `running` — the state a coordinator sets by winning the pending ->
+ * running claim. A row that is pending (never claimed), paused, or already
+ * terminal is never (re-)entered, so a duplicate/retried job cannot run a
+ * finished or paused node twice and cannot bypass the claim. A per-node cache
+ * lock additionally serializes concurrent execution: a duplicate that cannot
+ * take the lock releases for retry without executing. A node still `running`
+ * whose lock is HELD is an in-flight/orphaned node — the recovery attempt cannot
+ * take the lock and does not re-enter the handler; genuine dead-worker recovery
+ * happens only once the lock TTL frees the lock (taking it is the proof the
+ * prior executor is gone). Node handlers must therefore be idempotent, exactly
+ * as v1 queued flows require.
  *
  * @internal
  */
@@ -80,11 +81,13 @@ final class NodeJob implements ShouldQueueAfterCommit
             throw new RuntimeException('Laravel Flow queued execution requires a cache store that supports atomic locks.');
         }
 
-        // The terminal node row is the completion marker: a duplicate that
-        // arrives after this node finished must not re-execute, but still nudges
-        // the coordinator so a crash between "row written" and "coordinator
-        // dispatched" cannot strand the run.
-        if ($this->nodeIsTerminal($store)) {
+        // A node executes only while it is `running` — i.e. a coordinator won the
+        // pending -> running claim and dispatched this job. A row that is still
+        // pending (never claimed), paused, or already terminal must NOT (re-)enter
+        // the handler: this both prevents a paused/finished node from running twice
+        // and preserves the coordinator's claim invariant. Nudge the coordinator
+        // so the run keeps advancing, then return.
+        if (! $this->nodeIsRunning($store)) {
             $this->dispatchCoordinator($bus);
 
             return;
@@ -102,7 +105,7 @@ final class NodeJob implements ShouldQueueAfterCommit
         }
 
         try {
-            if ($this->nodeIsTerminal($store)) {
+            if (! $this->nodeIsRunning($store)) {
                 $this->dispatchCoordinator($bus);
 
                 return;
@@ -133,11 +136,11 @@ final class NodeJob implements ShouldQueueAfterCommit
     /**
      * @phpstan-impure The persisted node state changes as other workers advance the run.
      */
-    private function nodeIsTerminal(FlowStore $store): bool
+    private function nodeIsRunning(FlowStore $store): bool
     {
         $state = $store->runNodes()->states($this->runId)[$this->nodeId] ?? NodeState::Pending;
 
-        return $state->isTerminal();
+        return $state === NodeState::Running;
     }
 
     private function nodeFor(): GraphNode

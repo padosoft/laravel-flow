@@ -174,11 +174,14 @@ final class QueueGraphCoordinator
                 }
             }
             $settled = $claimed === [] && $running === 0;
-        });
 
-        if ($allTerminal || $settled) {
-            $this->finalizeRun($runId, $graph);
-        }
+            // Finalize INSIDE the row lock so duplicate coordinators cannot race
+            // to overwrite finished_at/duration_ms/output; finalizeRun() is also
+            // idempotent (it no-ops once the run has left `running`).
+            if ($allTerminal || $settled) {
+                $this->finalizeRun($runId, $graph);
+            }
+        });
 
         return new CoordinatorDecision($claimed, $allTerminal);
     }
@@ -195,6 +198,14 @@ final class QueueGraphCoordinator
 
     private function finalizeRun(string $runId, GraphDefinition $graph): void
     {
+        $run = $this->store->runs()->find($runId);
+
+        // Idempotent: once a run has left `running` it is already finalized, so a
+        // second (duplicate) coordinator must not overwrite its terminal fields.
+        if ($run === null || $run->status !== RunState::Running->value) {
+            return;
+        }
+
         $nodes = $this->store->runNodes()->forRun($runId);
 
         /** @var array<string, NodeState> $states */
@@ -225,17 +236,14 @@ final class QueueGraphCoordinator
         if ($runState !== RunState::Paused) {
             $finishedAt = ($this->clock)();
             $attributes['finished_at'] = $finishedAt;
-            $attributes['duration_ms'] = $this->durationMs($runId, $finishedAt);
+            $attributes['duration_ms'] = $this->durationMs($run->started_at, $finishedAt);
         }
 
         $this->store->runs()->update($runId, $attributes);
     }
 
-    private function durationMs(string $runId, DateTimeImmutable $finishedAt): ?int
+    private function durationMs(mixed $startedAt, DateTimeImmutable $finishedAt): ?int
     {
-        $run = $this->store->runs()->find($runId);
-        $startedAt = $run?->started_at;
-
         if (! $startedAt instanceof \DateTimeInterface) {
             return null;
         }

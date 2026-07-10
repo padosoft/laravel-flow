@@ -33,6 +33,7 @@ final class CoordinatorRecoveryTest extends PersistenceTestCase
         parent::setUp();
         $this->migrateFlowTables();
         QueueProbeNode::reset();
+        PausingGraphNode::$invocations = 0;
     }
 
     private function coordinator(): QueueGraphCoordinator
@@ -64,6 +65,23 @@ final class CoordinatorRecoveryTest extends PersistenceTestCase
 
         $this->assertSame(0, QueueProbeNode::count('a'), 'an orphaned running node whose lock is held must not be re-executed');
         $this->assertSame('running', DB::table('flow_run_nodes')->where('run_id', $runId)->where('node_id', 'a')->value('status'));
+    }
+
+    public function test_paused_node_is_not_re_executed_by_a_duplicate_job(): void
+    {
+        $graph = new GraphDefinition([new GraphNode('a', 'test.pause')], []);
+        $coordinator = $this->coordinator();
+        $runId = $coordinator->start($graph, [], null, 'graph');
+        $this->app->make(RunNodeRepository::class)->claim($runId, 'a', new \DateTimeImmutable);
+
+        // First job pauses the node.
+        $this->app->call([new NodeJob(runId: $runId, nodeId: 'a', graph: $graph, definitionName: 'graph', input: []), 'handle']);
+        $this->assertSame('paused', DB::table('flow_run_nodes')->where('run_id', $runId)->where('node_id', 'a')->value('status'));
+        $this->assertSame(1, PausingGraphNode::$invocations);
+
+        // A duplicate/retried job must NOT re-enter the handler on a paused node.
+        $this->app->call([new NodeJob(runId: $runId, nodeId: 'a', graph: $graph, definitionName: 'graph', input: []), 'handle']);
+        $this->assertSame(1, PausingGraphNode::$invocations, 'a paused node must not be re-executed');
     }
 
     public function test_run_finalizes_when_all_nodes_terminal(): void

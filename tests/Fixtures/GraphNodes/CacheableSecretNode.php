@@ -37,6 +37,9 @@ final class CacheableSecretNode implements FlowNodeHandler
 
         $value = is_numeric($context->inputs['value'] ?? null) ? (int) $context->inputs['value'] : 0;
 
-        return NodeResult::success(['secret' => 'token-'.$value, 'value' => $value]);
+        // Output keyed by the declared `result` port; the nested `secret` key is
+        // what the redaction gate catches (the redactor recurses), so the cache
+        // write is skipped.
+        return NodeResult::success(['result' => ['secret' => 'token-'.$value, 'value' => $value]]);
     }
 }

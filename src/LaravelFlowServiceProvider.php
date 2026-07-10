@@ -8,6 +8,7 @@ use Illuminate\Concurrency\ConcurrencyManager;
 use Illuminate\Contracts\Concurrency\Driver as ConcurrencyDriver;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Contracts\Events\Dispatcher;
+use Illuminate\Database\ConnectionResolverInterface;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\ServiceProvider;
 use Padosoft\LaravelFlow\Console\ApproveFlowCommand;
@@ -33,6 +34,7 @@ use Padosoft\LaravelFlow\Executor\InputRouter;
 use Padosoft\LaravelFlow\Executor\NodeExecutor;
 use Padosoft\LaravelFlow\Executor\NodeResolver;
 use Padosoft\LaravelFlow\Executor\Nodes\MergeNode;
+use Padosoft\LaravelFlow\Executor\QueueGraphCoordinator;
 use Padosoft\LaravelFlow\Executor\ReadinessResolver;
 use Padosoft\LaravelFlow\Graph\DefinitionSigner;
 use Padosoft\LaravelFlow\Graph\GraphValidator;
@@ -223,6 +225,18 @@ final class LaravelFlowServiceProvider extends ServiceProvider
                 $app->make(ReadinessResolver::class),
                 static fn (): \DateTimeImmutable => Date::now()->toDateTimeImmutable(),
                 $store,
+            );
+        });
+        $this->app->bind(QueueGraphCoordinator::class, function (Container $app): QueueGraphCoordinator {
+            /** @var string|null $connection */
+            $connection = $app['config']->get('laravel-flow.default_storage');
+
+            return new QueueGraphCoordinator(
+                $app->make(ConnectionResolverInterface::class),
+                $app->make(FlowStore::class),
+                $app->make(ReadinessResolver::class),
+                static fn (): \DateTimeImmutable => Date::now()->toDateTimeImmutable(),
+                is_string($connection) ? $connection : null,
             );
         });
     }

@@ -199,6 +199,19 @@ final class PublicApiContractTest extends TestCase
         ]);
     }
 
+    public function test_run_node_repository_pins_documented_methods(): void
+    {
+        // `states` and `claim` were added in Macro C C-PR5 for the queued
+        // coordinator; pin them alongside the v1-parity persistence methods.
+        $this->assertHasPublicMethods('Padosoft\\LaravelFlow\\Contracts\\RunNodeRepository', [
+            'createOrUpdate',
+            'forRun',
+            'states',
+            'claim',
+            'releaseClaim',
+        ]);
+    }
+
     public function test_internal_namespaces_are_marked_internal(): void
     {
         $internalClasses = [

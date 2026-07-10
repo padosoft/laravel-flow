@@ -254,8 +254,12 @@ return [
     'executor' => [
         'coordinator_timeout_seconds' => (int) env('LARAVEL_FLOW_EXECUTOR_COORDINATOR_TIMEOUT', 120),
         'node_timeout_seconds' => (int) env('LARAVEL_FLOW_EXECUTOR_NODE_TIMEOUT', 300),
+        // Queued-graph node lock. Null keys inherit the v1 `queue.*` lock config
+        // (which itself falls back to cache.default / sane TTLs), so configuring
+        // `queue.lock_store` covers queued graphs too; set these only to override.
         'lock_store' => env('LARAVEL_FLOW_EXECUTOR_LOCK_STORE', null),
-        'lock_seconds' => (int) env('LARAVEL_FLOW_EXECUTOR_LOCK_SECONDS', 3600),
+        'lock_seconds' => ($executorLockSeconds = env('LARAVEL_FLOW_EXECUTOR_LOCK_SECONDS')) !== null ? (int) $executorLockSeconds : null,
+        'lock_retry_seconds' => ($executorLockRetrySeconds = env('LARAVEL_FLOW_EXECUTOR_LOCK_RETRY_SECONDS')) !== null ? (int) $executorLockRetrySeconds : null,
         'default_tries' => env('LARAVEL_FLOW_EXECUTOR_DEFAULT_TRIES', 1),
         'default_backoff_seconds' => env('LARAVEL_FLOW_EXECUTOR_DEFAULT_BACKOFF', 0),
         'queue' => env('LARAVEL_FLOW_EXECUTOR_QUEUE', null),

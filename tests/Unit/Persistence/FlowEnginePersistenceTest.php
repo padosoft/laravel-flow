@@ -1352,6 +1352,21 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
                     {
                         return $this->inner->forRun($runId);
                     }
+
+                    public function states(string $runId): array
+                    {
+                        return $this->inner->states($runId);
+                    }
+
+                    public function claim(string $runId, string $nodeId, DateTimeInterface $startedAt): bool
+                    {
+                        return $this->inner->claim($runId, $nodeId, $startedAt);
+                    }
+
+                    public function releaseClaim(string $runId, string $nodeId): bool
+                    {
+                        return $this->inner->releaseClaim($runId, $nodeId);
+                    }
                 };
             }
 
@@ -2835,6 +2850,21 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
                         public function forRun(string $runId): Collection
                         {
                             return $this->inner->forRun($runId);
+                        }
+
+                        public function states(string $runId): array
+                        {
+                            return $this->inner->states($runId);
+                        }
+
+                        public function claim(string $runId, string $nodeId, DateTimeInterface $startedAt): bool
+                        {
+                            return $this->inner->claim($runId, $nodeId, $startedAt);
+                        }
+
+                        public function releaseClaim(string $runId, string $nodeId): bool
+                        {
+                            return $this->inner->releaseClaim($runId, $nodeId);
                         }
 
                         private function recordWrite(): void

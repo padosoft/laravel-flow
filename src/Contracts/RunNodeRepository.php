@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Padosoft\LaravelFlow\Contracts;
 
+use DateTimeInterface;
 use Illuminate\Database\Eloquent\Collection;
+use Padosoft\LaravelFlow\Executor\State\NodeState;
 use Padosoft\LaravelFlow\Models\FlowRunNodeRecord;
 
 /**
@@ -38,4 +40,32 @@ interface RunNodeRepository
      * @return Collection<int, FlowRunNodeRecord>
      */
     public function forRun(string $runId): Collection;
+
+    /**
+     * Current state of every persisted node row for a run, keyed by node id.
+     * The queued coordinator reads this snapshot to drive readiness. A node
+     * with no row yet is simply absent (the readiness resolver treats an
+     * absent node as {@see NodeState::Pending}).
+     *
+     * @return array<string, NodeState>
+     */
+    public function states(string $runId): array;
+
+    /**
+     * Atomically claim a pending node for execution: a compare-and-set that
+     * flips `pending` -> `running` (stamping `started_at`) only when the row is
+     * still `pending`. Returns true for the single writer that won the claim
+     * and false for every other coordinator pass, so a node is dispatched at
+     * most once even under duplicate coordinator delivery.
+     */
+    public function claim(string $runId, string $nodeId, DateTimeInterface $startedAt): bool;
+
+    /**
+     * Release a claim: the inverse compare-and-set that flips `running` ->
+     * `pending` (clearing `started_at`) only when the row is still `running`.
+     * The coordinator uses this to make a claimed node re-claimable when the
+     * node job it just claimed could not be enqueued, so a retry re-dispatches
+     * it instead of leaving the run stuck. Returns true iff the reset happened.
+     */
+    public function releaseClaim(string $runId, string $nodeId): bool;
 }

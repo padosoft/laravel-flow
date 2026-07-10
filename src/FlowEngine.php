@@ -34,6 +34,8 @@ use Padosoft\LaravelFlow\Exceptions\FlowInputException;
 use Padosoft\LaravelFlow\Exceptions\FlowNotRegisteredException;
 use Padosoft\LaravelFlow\Executor\GraphRunner;
 use Padosoft\LaravelFlow\Executor\GraphRunResult;
+use Padosoft\LaravelFlow\Executor\Jobs\CoordinatorJob;
+use Padosoft\LaravelFlow\Executor\QueueGraphCoordinator;
 use Padosoft\LaravelFlow\Graph\Exceptions\DefinitionSignatureException;
 use Padosoft\LaravelFlow\Graph\Exceptions\InvalidGraphException;
 use Padosoft\LaravelFlow\Graph\GraphDefinition;
@@ -104,6 +106,12 @@ class FlowEngine
          *         lock_retry_seconds?: int,
          *         tries?: mixed,
          *         backoff_seconds?: mixed
+         *     },
+         *     executor?: array{
+         *         queue?: string|null,
+         *         lock_store?: string|null,
+         *         lock_seconds?: int|null,
+         *         lock_retry_seconds?: int|null
          *     }
          * }
          */
@@ -280,6 +288,40 @@ class FlowEngine
         $runner = $this->container->make(GraphRunner::class);
 
         return $runner;
+    }
+
+    /**
+     * Dispatch a graph definition for queued execution: creates the run, seeds a
+     * pending row per node, and dispatches the coordinator that fans nodes out
+     * to per-node jobs. Returns the new run id. Requires persistence to be
+     * enabled (the queued path coordinates through the run/node rows).
+     *
+     * @param  array<string, mixed>  $input
+     */
+    public function dispatchGraph(GraphDefinition $graph, array $input, ?FlowExecutionOptions $options = null, string $definitionName = 'graph'): string
+    {
+        if ($this->storeForExecution(false) === null) {
+            throw new FlowExecutionException('Queued graph execution requires persistence to be enabled.');
+        }
+
+        /** @var QueueGraphCoordinator $coordinator */
+        $coordinator = $this->container->make(QueueGraphCoordinator::class);
+        $runId = $coordinator->start($graph, $input, $options, $definitionName);
+
+        /** @var BusDispatcher $bus */
+        $bus = $this->container->make(BusDispatcher::class);
+        $bus->dispatch(new CoordinatorJob(
+            runId: $runId,
+            graph: $graph,
+            definitionName: $definitionName,
+            input: $input,
+            queue: $this->executorQueue(),
+            lockStore: $this->executorLockStore(),
+            lockSeconds: $this->executorLockSeconds(),
+            lockRetrySeconds: $this->executorLockRetrySeconds(),
+        ));
+
+        return $runId;
     }
 
     /**
@@ -3337,6 +3379,49 @@ class FlowEngine
         $queue = $this->config['queue'] ?? [];
 
         return QueueRetryPolicy::fromConfig(is_array($queue) ? $queue : []);
+    }
+
+    private function executorQueue(): ?string
+    {
+        $queue = $this->config['executor']['queue'] ?? null;
+
+        return is_string($queue) && $queue !== '' ? $queue : null;
+    }
+
+    private function executorLockStore(): ?string
+    {
+        $store = $this->config['executor']['lock_store'] ?? null;
+
+        if (is_string($store) && $store !== '') {
+            return $store;
+        }
+
+        // Fall back to the v1 queue lock store (which itself falls back to
+        // cache.default) so a host that configured `queue.lock_store` gets the
+        // same shared store for queued graphs without a separate executor knob.
+        return $this->queueLockStore();
+    }
+
+    private function executorLockSeconds(): int
+    {
+        $seconds = $this->config['executor']['lock_seconds'] ?? null;
+
+        if (is_int($seconds) && $seconds >= 1) {
+            return $seconds;
+        }
+
+        return $this->queueLockSeconds();
+    }
+
+    private function executorLockRetrySeconds(): int
+    {
+        $seconds = $this->config['executor']['lock_retry_seconds'] ?? null;
+
+        if (is_int($seconds) && $seconds >= 1) {
+            return $seconds;
+        }
+
+        return $this->queueLockRetrySeconds();
     }
 
     private function assertQueuedRunRetryPolicyIsSafe(QueueRetryPolicy $retryPolicy, ?FlowExecutionOptions $options): void

@@ -31,12 +31,16 @@ use Padosoft\LaravelFlow\Contracts\RunRepository;
 use Padosoft\LaravelFlow\Dashboard\Authorization\DashboardActionAuthorizer;
 use Padosoft\LaravelFlow\Dashboard\Authorization\DenyAllAuthorizer;
 use Padosoft\LaravelFlow\Dashboard\FlowDashboardReadModel;
+use Padosoft\LaravelFlow\Executor\ChildFlowRunner;
 use Padosoft\LaravelFlow\Executor\GraphRunner;
 use Padosoft\LaravelFlow\Executor\InputRouter;
 use Padosoft\LaravelFlow\Executor\JoinCoordinator;
 use Padosoft\LaravelFlow\Executor\NodeExecutor;
 use Padosoft\LaravelFlow\Executor\NodeResolver;
+use Padosoft\LaravelFlow\Executor\Nodes\ForEachNode;
+use Padosoft\LaravelFlow\Executor\Nodes\MapNode;
 use Padosoft\LaravelFlow\Executor\Nodes\MergeNode;
+use Padosoft\LaravelFlow\Executor\Nodes\SubFlowNode;
 use Padosoft\LaravelFlow\Executor\QueueGraphCoordinator;
 use Padosoft\LaravelFlow\Executor\ReadinessResolver;
 use Padosoft\LaravelFlow\Graph\DefinitionSigner;
@@ -75,6 +79,9 @@ final class LaravelFlowServiceProvider extends ServiceProvider
      */
     private const BUILTIN_NODE_HANDLERS = [
         MergeNode::class,
+        SubFlowNode::class,
+        ForEachNode::class,
+        MapNode::class,
     ];
 
     public function register(): void
@@ -237,6 +244,12 @@ final class LaravelFlowServiceProvider extends ServiceProvider
                 $store,
             );
         });
+        $this->app->bind(ChildFlowRunner::class, fn (Container $app): ChildFlowRunner => new ChildFlowRunner(
+            $app->make(DefinitionRepository::class),
+            $app->make(FlowEngine::class),
+            $app->make(NodeChildRepository::class),
+            static fn (): \DateTimeImmutable => Date::now()->toDateTimeImmutable(),
+        ));
         $this->app->bind(JoinCoordinator::class, function (Container $app): JoinCoordinator {
             $lockStore = $app['config']->get('laravel-flow.executor.lock_store')
                 ?? $app['config']->get('laravel-flow.queue.lock_store');

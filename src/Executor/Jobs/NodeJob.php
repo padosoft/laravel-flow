@@ -111,14 +111,19 @@ final class NodeJob implements ShouldQueueAfterCommit
                 return;
             }
 
+            $sequenceOf = $this->sequenceOf();
+            $connections = NodeRouting::connectionsInto($this->graph, $this->nodeId, $sequenceOf);
+
             $executor->execute(
                 $this->runId,
                 $this->definitionName,
                 $this->nodeFor(),
-                NodeRouting::connectionsInto($this->graph, $this->nodeId, $this->sequenceOf()),
-                $this->upstreamOutputs($store),
+                $connections,
+                // A node with no incoming wires (a root) has no upstream to route
+                // from, so skip the persistence read entirely.
+                $connections === [] ? [] : $this->upstreamOutputs($store),
                 false,
-                $this->sequenceOf()[$this->nodeId] ?? 0,
+                $sequenceOf[$this->nodeId] ?? 0,
                 $store,
             );
 

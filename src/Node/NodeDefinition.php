@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Padosoft\LaravelFlow\Node;
 
+use Padosoft\LaravelFlow\Executor\Attributes\Cacheable;
 use Padosoft\LaravelFlow\Executor\RetryPolicy;
 
 /**
@@ -30,6 +31,7 @@ final class NodeDefinition
         public readonly array $outputs,
         public readonly string $handlerClass,
         public readonly ?RetryPolicy $retry = null,
+        public readonly ?Cacheable $cacheable = null,
     ) {}
 
     public function input(string $key): ?PortDefinition
@@ -62,6 +64,10 @@ final class NodeDefinition
 
         if ($this->retry !== null) {
             $array['retry'] = $this->retry->toArray();
+        }
+
+        if ($this->cacheable !== null) {
+            $array['cacheable'] = ['ttl' => $this->cacheable->ttl];
         }
 
         return $array;

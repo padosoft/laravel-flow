@@ -36,6 +36,7 @@ final class NodeExecutor
         private readonly NodeResolver $resolver,
         private readonly InputRouter $router,
         private readonly Closure $clock,
+        private readonly ?NodeCache $cache = null,
     ) {}
 
     /**
@@ -90,6 +91,36 @@ final class NodeExecutor
             ]);
 
             return new NodeExecution($node->id, NodeState::InvalidInput, [], $routed->violation);
+        }
+
+        $definition = $resolved->definition;
+        $contentHash = null;
+
+        // Content-hash cache: only for a #[Cacheable] node on a real persisted
+        // run. $store is null on a dry run / when persistence is off, so the
+        // cache is inert there (never read, never written).
+        if ($this->cache !== null && $store !== null && ! $dryRun && $definition->cacheable !== null) {
+            $contentHash = $this->cache->hash($node->type, $routed->inputs, $node->config);
+            $hit = $this->cache->get($contentHash);
+
+            if ($hit !== null) {
+                $finishedAt = ($this->clock)();
+                $this->persist($store, $runId, $node, $sequence, [
+                    'handler' => $definition->handlerClass,
+                    'attempts' => 0,
+                    'inputs' => $routed->inputs,
+                    'outputs' => $hit->outputs,
+                    'business_impact' => $hit->businessImpact,
+                    'dry_run_skipped' => false,
+                    'status' => NodeState::Succeeded->value,
+                    'cache_hit' => $contentHash,
+                    'started_at' => $startedAt,
+                    'finished_at' => $finishedAt,
+                    'duration_ms' => $this->durationMs($startedAt, $finishedAt),
+                ]);
+
+                return new NodeExecution($node->id, NodeState::Succeeded, $hit->outputs, null);
+            }
         }
 
         $context = new NodeContext($runId, $definitionName, $node->id, $routed->inputs, $dryRun, $queued);
@@ -149,6 +180,12 @@ final class NodeExecutor
             'finished_at' => $finishedAt,
             'duration_ms' => $this->durationMs($startedAt, $finishedAt),
         ]);
+
+        // Populate the cache after a fresh success (redaction gate + skip-on-
+        // divergence enforced inside NodeCache::put()).
+        if ($contentHash !== null && $this->cache !== null && $definition->cacheable !== null && $result->success) {
+            $this->cache->put($contentHash, $node->type, $result->outputs, $result->businessImpact, $definition->cacheable->ttl);
+        }
 
         return new NodeExecution($node->id, $state, $result->success ? $result->outputs : [], $result->error);
     }

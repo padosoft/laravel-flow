@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Padosoft\LaravelFlow\Node;
 
 use InvalidArgumentException;
+use Padosoft\LaravelFlow\Executor\Attributes\Cacheable;
 use Padosoft\LaravelFlow\Executor\Attributes\Retry;
 use Padosoft\LaravelFlow\Executor\RetryPolicy;
 use Padosoft\LaravelFlow\Node\Attributes\FlowNode;
@@ -68,7 +69,36 @@ final class NodeDefinitionFactory
             outputs: $outputs,
             handlerClass: $class,
             retry: $this->retryFor($reflection),
+            cacheable: $this->cacheableFor($reflection),
         );
+    }
+
+    /**
+     * Read the node's cache policy from a `#[Cacheable]` on `execute()`
+     * (preferred) or on the handler class. Returns null when neither declares
+     * one (the node is not cached).
+     *
+     * @param  ReflectionClass<object>  $reflection
+     */
+    private function cacheableFor(ReflectionClass $reflection): ?Cacheable
+    {
+        $attributes = $reflection->hasMethod('execute')
+            ? $reflection->getMethod('execute')->getAttributes(Cacheable::class)
+            : [];
+
+        if ($attributes === []) {
+            $attributes = $reflection->getAttributes(Cacheable::class);
+        }
+
+        if ($attributes === []) {
+            return null;
+        }
+
+        try {
+            return $attributes[0]->newInstance();
+        } catch (\Throwable $e) {
+            throw new InvalidNodeDefinitionException("Invalid #[Cacheable] on [{$reflection->getName()}]: {$e->getMessage()}", previous: $e);
+        }
     }
 
     /**

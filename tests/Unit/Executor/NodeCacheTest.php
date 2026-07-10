@@ -1,0 +1,165 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Padosoft\LaravelFlow\Tests\Unit\Executor;
+
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Date;
+use Illuminate\Support\Facades\DB;
+use Padosoft\LaravelFlow\Executor\GraphRunner;
+use Padosoft\LaravelFlow\Executor\State\NodeState;
+use Padosoft\LaravelFlow\FlowEngine;
+use Padosoft\LaravelFlow\Graph\GraphDefinition;
+use Padosoft\LaravelFlow\Graph\GraphNode;
+use Padosoft\LaravelFlow\Tests\Fixtures\GraphNodes\CacheableEchoNode;
+use Padosoft\LaravelFlow\Tests\Fixtures\GraphNodes\CacheableSecretNode;
+use Padosoft\LaravelFlow\Tests\Fixtures\GraphNodes\CacheableTtlNode;
+use Padosoft\LaravelFlow\Tests\Unit\Persistence\PersistenceTestCase;
+
+final class NodeCacheTest extends PersistenceTestCase
+{
+    protected function defineEnvironment($app): void
+    {
+        parent::defineEnvironment($app);
+        $app['config']->set('laravel-flow.persistence.enabled', true);
+        $app['config']->set('laravel-flow.nodes.handlers', [
+            CacheableEchoNode::class,
+            CacheableSecretNode::class,
+            CacheableTtlNode::class,
+        ]);
+    }
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $this->migrateFlowTables();
+        CacheableEchoNode::$invocations = 0;
+        CacheableSecretNode::$invocations = 0;
+        CacheableTtlNode::$invocations = 0;
+    }
+
+    protected function tearDown(): void
+    {
+        Date::setTestNow();
+        parent::tearDown();
+    }
+
+    private function runner(): GraphRunner
+    {
+        return $this->app->make(GraphRunner::class);
+    }
+
+    private function echoGraph(int $value): GraphDefinition
+    {
+        return new GraphDefinition([new GraphNode('c', 'test.cache.echo', ['value' => $value])], []);
+    }
+
+    public function test_miss_then_store_then_hit(): void
+    {
+        $this->runner()->run($this->echoGraph(5), []);
+
+        $this->assertSame(1, CacheableEchoNode::$invocations, 'first run is a miss: handler runs');
+        $this->assertSame(1, DB::table('flow_node_cache')->count(), 'a cache row was stored');
+
+        $this->runner()->run($this->echoGraph(5), []);
+
+        $this->assertSame(1, CacheableEchoNode::$invocations, 'second run is a hit: handler is NOT re-run');
+        $this->assertSame(1, DB::table('flow_node_cache')->count(), 'still one cache row');
+    }
+
+    public function test_hit_returns_cached_outputs_without_running_handler(): void
+    {
+        $first = $this->runner()->run($this->echoGraph(7), []);
+        $second = $this->runner()->run($this->echoGraph(7), []);
+
+        $this->assertSame(1, CacheableEchoNode::$invocations);
+        $this->assertSame(['echoed' => 7], $first->nodeOutputs['c']);
+        $this->assertSame($first->nodeOutputs['c'], $second->nodeOutputs['c'], 'hit reproduces the miss output');
+    }
+
+    public function test_cache_hit_records_content_hash_on_the_node_run(): void
+    {
+        $first = $this->runner()->run($this->echoGraph(3), []);
+        $second = $this->runner()->run($this->echoGraph(3), []);
+
+        $firstRow = DB::table('flow_run_nodes')->where('run_id', $first->runId)->where('node_id', 'c')->first();
+        $secondRow = DB::table('flow_run_nodes')->where('run_id', $second->runId)->where('node_id', 'c')->first();
+
+        $this->assertNull($firstRow->cache_hit, 'a fresh computation records no cache hit');
+        $this->assertNotNull($secondRow->cache_hit, 'a served-from-cache node records its content hash');
+        $this->assertSame(NodeState::Succeeded->value, $secondRow->status);
+        $this->assertMatchesRegularExpression('/^[0-9a-f]{64}$/', (string) $secondRow->cache_hit);
+    }
+
+    public function test_different_inputs_do_not_share_a_cache_entry(): void
+    {
+        $this->runner()->run($this->echoGraph(1), []);
+        $this->runner()->run($this->echoGraph(2), []);
+
+        $this->assertSame(2, CacheableEchoNode::$invocations, 'distinct inputs miss independently');
+        $this->assertSame(2, DB::table('flow_node_cache')->count());
+    }
+
+    public function test_dry_run_never_reads_or_writes_cache(): void
+    {
+        $this->app->make(FlowEngine::class)->dryRunGraph($this->echoGraph(5), []);
+
+        $this->assertSame(0, DB::table('flow_node_cache')->count(), 'a dry run writes no cache rows');
+
+        // A subsequent real run is still a miss (nothing was cached by the dry run).
+        $this->runner()->run($this->echoGraph(5), []);
+        $this->assertSame(1, DB::table('flow_node_cache')->count());
+    }
+
+    public function test_stored_outputs_pass_through_the_redaction_gate_like_every_other_persisted_payload(): void
+    {
+        $this->app['config']->set('laravel-flow.persistence.redaction.enabled', true);
+        $this->app['config']->set('laravel-flow.persistence.redaction.keys', ['secret']);
+
+        // The echo output has no redacted-list key, so it is cached unchanged —
+        // the stored value equals the raw value (the write went through the gate
+        // with nothing to redact), proving no bypass.
+        $this->runner()->run($this->echoGraph(9), []);
+
+        $row = DB::table('flow_node_cache')->first();
+        $this->assertNotNull($row);
+        $this->assertSame(['echoed' => 9], json_decode((string) $row->outputs, true));
+    }
+
+    public function test_output_containing_a_redacted_key_is_never_cached(): void
+    {
+        $this->app['config']->set('laravel-flow.persistence.redaction.enabled', true);
+        $this->app['config']->set('laravel-flow.persistence.redaction.keys', ['secret']);
+
+        $graph = new GraphDefinition([new GraphNode('s', 'test.cache.secret', ['value' => 4])], []);
+
+        $this->runner()->run($graph, []);
+        $this->assertSame(0, DB::table('flow_node_cache')->count(), 'a redacted output is never cached');
+
+        // A second run is therefore still a miss: the handler runs again, so a
+        // cache hit can never return a value that diverges from a fresh run.
+        $this->runner()->run($graph, []);
+        $this->assertSame(2, CacheableSecretNode::$invocations);
+        $this->assertSame(0, DB::table('flow_node_cache')->count());
+    }
+
+    public function test_ttl_expiry(): void
+    {
+        Date::setTestNow(Carbon::parse('2026-07-10 12:00:00'));
+        $graph = new GraphDefinition([new GraphNode('t', 'test.cache.ttl', ['value' => 1])], []);
+
+        $this->runner()->run($graph, []);
+        $this->assertSame(1, CacheableTtlNode::$invocations);
+
+        // Within the TTL window: still a hit.
+        Date::setTestNow(Carbon::parse('2026-07-10 12:00:30'));
+        $this->runner()->run($graph, []);
+        $this->assertSame(1, CacheableTtlNode::$invocations, 'served from cache before expiry');
+
+        // Past the 60s TTL: the entry has expired, so the handler runs again.
+        Date::setTestNow(Carbon::parse('2026-07-10 12:02:00'));
+        $this->runner()->run($graph, []);
+        $this->assertSame(2, CacheableTtlNode::$invocations, 'expired entry misses and re-runs');
+    }
+}

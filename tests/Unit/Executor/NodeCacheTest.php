@@ -9,9 +9,11 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Padosoft\LaravelFlow\Contracts\FlowStore;
 use Padosoft\LaravelFlow\Contracts\NodeCacheRepository;
 use Padosoft\LaravelFlow\Executor\GraphRunner;
 use Padosoft\LaravelFlow\Executor\NodeCacheHit;
+use Padosoft\LaravelFlow\Executor\NodeExecutor;
 use Padosoft\LaravelFlow\Executor\State\NodeState;
 use Padosoft\LaravelFlow\Executor\State\RunState;
 use Padosoft\LaravelFlow\FlowEngine;
@@ -178,6 +180,53 @@ final class NodeCacheTest extends PersistenceTestCase
 
         // The failure is logged (not silent) so a broken cache is observable.
         Log::shouldHaveReceived('warning')->atLeast()->once();
+    }
+
+    public function test_cache_hit_clears_stale_error_fields_from_a_prior_failed_attempt(): void
+    {
+        $executor = $this->app->make(NodeExecutor::class);
+        $store = $this->app->make(FlowStore::class);
+        // Same node object for both invocations so the content hash is identical
+        // (a hit on the second call is guaranteed).
+        $node = new GraphNode('c', 'test.cache.echo', ['value' => 5]);
+
+        // First invocation populates the cache (its own run row).
+        DB::table('flow_runs')->insert([
+            'id' => 'seed-run', 'definition_name' => 'graph', 'status' => 'running',
+            'engine' => 'graph', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $executor->execute('seed-run', 'graph', $node, [], [], false, 0, $store);
+        $this->assertSame(1, DB::table('flow_node_cache')->count(), 'cache populated');
+
+        // A prior FAILED attempt on a DIFFERENT run left error/backoff fields on
+        // its row (queued retry / replay reaches the same (run_id, node_id) row).
+        DB::table('flow_runs')->insert([
+            'id' => 'retry-run', 'definition_name' => 'graph', 'status' => 'running',
+            'engine' => 'graph', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        DB::table('flow_run_nodes')->insert([
+            'run_id' => 'retry-run',
+            'node_id' => 'c',
+            'node_type' => 'test.cache.echo',
+            'status' => 'failed',
+            'attempts' => 1,
+            'error_class' => 'RuntimeException',
+            'error_message' => 'boom',
+            'available_at' => now(),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        // Re-invoke the same node for the failed run: it hits the cache and
+        // persists success — the stale error fields must be cleared.
+        $executor->execute('retry-run', 'graph', $node, [], [], false, 0, $store);
+
+        $row = DB::table('flow_run_nodes')->where('run_id', 'retry-run')->where('node_id', 'c')->first();
+        $this->assertSame('succeeded', $row->status);
+        $this->assertNotNull($row->cache_hit, 'served from cache');
+        $this->assertNull($row->error_class, 'stale error class cleared');
+        $this->assertNull($row->error_message, 'stale error message cleared');
+        $this->assertNull($row->available_at, 'stale backoff gate cleared');
     }
 
     public function test_ttl_expiry(): void

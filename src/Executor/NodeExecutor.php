@@ -132,6 +132,13 @@ final class NodeExecutor
                     'inputs' => $routed->inputs,
                     'outputs' => $hit->outputs,
                     'business_impact' => $hit->businessImpact,
+                    // Clear any error/backoff fields a PRIOR failed attempt on
+                    // this same (run_id, node_id) row left behind — the upsert
+                    // only writes provided keys, so a cache hit on a retry would
+                    // otherwise persist a `succeeded` row with stale error data.
+                    'error_class' => null,
+                    'error_message' => null,
+                    'available_at' => null,
                     'dry_run_skipped' => false,
                     'status' => NodeState::Succeeded->value,
                     'cache_hit' => $contentHash,

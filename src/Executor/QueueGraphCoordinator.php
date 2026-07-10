@@ -104,7 +104,10 @@ final class QueueGraphCoordinator
     /**
      * Advance the run one pass. Serialized by a `flow_runs` row lock; ready
      * nodes are claimed by compare-and-set. Returns the node ids this pass
-     * exclusively claimed and whether the run reached a terminal state.
+     * exclusively claimed and whether EVERY node is terminal. The run is
+     * finalized when all nodes are terminal OR when it has settled with no work
+     * in flight (nothing claimed, nothing running) — the latter covers a run
+     * that stalls on a paused node, which finalizes as `paused` (not terminal).
      */
     public function advance(string $runId, GraphDefinition $graph): CoordinatorDecision
     {

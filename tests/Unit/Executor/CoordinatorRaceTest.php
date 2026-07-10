@@ -6,6 +6,7 @@ namespace Padosoft\LaravelFlow\Tests\Unit\Executor;
 
 use Illuminate\Contracts\Bus\Dispatcher as BusDispatcher;
 use Illuminate\Contracts\Cache\LockProvider;
+use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Mockery;
@@ -103,6 +104,37 @@ final class CoordinatorRaceTest extends PersistenceTestCase
         $this->assertTrue($this->nodeRepository()->claim($runId, 'a', $now));
         $this->assertFalse($this->nodeRepository()->claim($runId, 'a', $now), 'a node can be claimed only once');
         $this->assertSame('running', DB::table('flow_run_nodes')->where('run_id', $runId)->where('node_id', 'a')->value('status'));
+    }
+
+    public function test_duplicate_coordinator_finalization_does_not_overwrite_finished_at(): void
+    {
+        // Two independent terminal leaves ⇒ two coordinator passes each observe
+        // allTerminal=true and both reach finalizeRun(). Because finalize runs
+        // under the flow_runs row lock and is idempotent (no-op once the run has
+        // left `running`), the second pass must NOT re-stamp finished_at.
+        $graph = new GraphDefinition(
+            [new GraphNode('a', 'test.probe'), new GraphNode('b', 'test.probe')],
+            [],
+        );
+        $coordinator = $this->coordinator();
+        $runId = $coordinator->start($graph, [], null, 'graph');
+
+        $this->nodeRepository()->createOrUpdate($runId, 'a', ['node_type' => 'test.probe', 'status' => 'succeeded']);
+        $this->nodeRepository()->createOrUpdate($runId, 'b', ['node_type' => 'test.probe', 'status' => 'succeeded']);
+
+        Date::setTestNow('2026-07-10 10:00:00');
+        $coordinator->advance($runId, $graph);
+        $first = DB::table('flow_runs')->where('id', $runId)->value('finished_at');
+        $this->assertNotNull($first);
+        $this->assertSame('succeeded', DB::table('flow_runs')->where('id', $runId)->value('status'));
+
+        Date::setTestNow('2026-07-10 11:00:00');
+        $coordinator->advance($runId, $graph);
+        $second = DB::table('flow_runs')->where('id', $runId)->value('finished_at');
+
+        Date::setTestNow();
+
+        $this->assertSame($first, $second, 'a duplicate coordinator pass must not re-finalize / overwrite finished_at');
     }
 
     public function test_duplicate_node_job_does_not_re_execute(): void

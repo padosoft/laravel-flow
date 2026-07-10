@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Padosoft\LaravelFlow;
 
 use Illuminate\Concurrency\ConcurrencyManager;
+use Illuminate\Contracts\Bus\Dispatcher as BusDispatcher;
+use Illuminate\Contracts\Cache\Factory as CacheFactory;
 use Illuminate\Contracts\Concurrency\Driver as ConcurrencyDriver;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Contracts\Events\Dispatcher;
@@ -23,17 +25,23 @@ use Padosoft\LaravelFlow\Contracts\ApprovalRepository;
 use Padosoft\LaravelFlow\Contracts\AuditRepository;
 use Padosoft\LaravelFlow\Contracts\DefinitionRepository;
 use Padosoft\LaravelFlow\Contracts\FlowStore;
+use Padosoft\LaravelFlow\Contracts\NodeChildRepository;
 use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
 use Padosoft\LaravelFlow\Contracts\RunNodeRepository;
 use Padosoft\LaravelFlow\Contracts\RunRepository;
 use Padosoft\LaravelFlow\Dashboard\Authorization\DashboardActionAuthorizer;
 use Padosoft\LaravelFlow\Dashboard\Authorization\DenyAllAuthorizer;
 use Padosoft\LaravelFlow\Dashboard\FlowDashboardReadModel;
+use Padosoft\LaravelFlow\Executor\ChildFlowRunner;
 use Padosoft\LaravelFlow\Executor\GraphRunner;
 use Padosoft\LaravelFlow\Executor\InputRouter;
+use Padosoft\LaravelFlow\Executor\JoinCoordinator;
 use Padosoft\LaravelFlow\Executor\NodeExecutor;
 use Padosoft\LaravelFlow\Executor\NodeResolver;
+use Padosoft\LaravelFlow\Executor\Nodes\ForEachNode;
+use Padosoft\LaravelFlow\Executor\Nodes\MapNode;
 use Padosoft\LaravelFlow\Executor\Nodes\MergeNode;
+use Padosoft\LaravelFlow\Executor\Nodes\SubFlowNode;
 use Padosoft\LaravelFlow\Executor\QueueGraphCoordinator;
 use Padosoft\LaravelFlow\Executor\ReadinessResolver;
 use Padosoft\LaravelFlow\Graph\DefinitionSigner;
@@ -46,6 +54,7 @@ use Padosoft\LaravelFlow\Node\NodeRegistry;
 use Padosoft\LaravelFlow\Persistence\EloquentApprovalRepository;
 use Padosoft\LaravelFlow\Persistence\EloquentDefinitionRepository;
 use Padosoft\LaravelFlow\Persistence\EloquentFlowStore;
+use Padosoft\LaravelFlow\Persistence\EloquentNodeChildRepository;
 use Padosoft\LaravelFlow\Persistence\EloquentWebhookOutboxRepository;
 use Padosoft\LaravelFlow\Persistence\ExecutionScopedPayloadRedactor;
 use Padosoft\LaravelFlow\Persistence\KeyBasedPayloadRedactor;
@@ -71,6 +80,9 @@ final class LaravelFlowServiceProvider extends ServiceProvider
      */
     private const BUILTIN_NODE_HANDLERS = [
         MergeNode::class,
+        SubFlowNode::class,
+        ForEachNode::class,
+        MapNode::class,
     ];
 
     public function register(): void
@@ -120,6 +132,12 @@ final class LaravelFlowServiceProvider extends ServiceProvider
 
         $this->app->bind(RunRepository::class, fn (Container $app): RunRepository => $app->make(FlowStore::class)->runs());
         $this->app->bind(RunNodeRepository::class, fn (Container $app): RunNodeRepository => $app->make(FlowStore::class)->runNodes());
+        $this->app->bind(NodeChildRepository::class, function (Container $app): NodeChildRepository {
+            /** @var string|null $connection */
+            $connection = $app['config']->get('laravel-flow.default_storage');
+
+            return new EloquentNodeChildRepository($connection, $app->make(ExecutionScopedPayloadRedactor::class));
+        });
         $this->app->bind(AuditRepository::class, fn (Container $app): AuditRepository => $app->make(FlowStore::class)->audit());
         $this->app->singleton(EloquentWebhookOutboxRepository::class, function (Container $app): EloquentWebhookOutboxRepository {
             /** @var string|null $connection */
@@ -227,9 +245,38 @@ final class LaravelFlowServiceProvider extends ServiceProvider
                 $store,
             );
         });
+        $this->app->bind(ChildFlowRunner::class, fn (Container $app): ChildFlowRunner => new ChildFlowRunner(
+            $app->make(DefinitionRepository::class),
+            $app->make(FlowEngine::class),
+            $app->make(NodeChildRepository::class),
+            $app->make(FlowStore::class),
+            static fn (): \DateTimeImmutable => Date::now()->toDateTimeImmutable(),
+        ));
+        $this->app->bind(JoinCoordinator::class, function (Container $app): JoinCoordinator {
+            $lockStore = $app['config']->get('laravel-flow.executor.lock_store')
+                ?? $app['config']->get('laravel-flow.queue.lock_store');
+
+            // The join uses its own small dedicated lock TTL + bounded block wait
+            // (its critical section is fast), NOT the long node-execution lock
+            // config — so only the lock STORE is wired here.
+            return new JoinCoordinator(
+                $app->make(NodeChildRepository::class),
+                $app->make(RunNodeRepository::class),
+                $app->make(ChildFlowRunner::class),
+                $app->make(CacheFactory::class),
+                static fn (): \DateTimeImmutable => Date::now()->toDateTimeImmutable(),
+                is_string($lockStore) && $lockStore !== '' ? $lockStore : null,
+            );
+        });
         $this->app->bind(QueueGraphCoordinator::class, function (Container $app): QueueGraphCoordinator {
             /** @var string|null $connection */
             $connection = $app['config']->get('laravel-flow.default_storage');
+            $config = $app['config'];
+
+            $lockStore = $config->get('laravel-flow.executor.lock_store') ?? $config->get('laravel-flow.queue.lock_store');
+            $lockSeconds = $config->get('laravel-flow.executor.lock_seconds') ?? $config->get('laravel-flow.queue.lock_seconds');
+            $lockRetrySeconds = $config->get('laravel-flow.executor.lock_retry_seconds') ?? $config->get('laravel-flow.queue.lock_retry_seconds');
+            $queue = $config->get('laravel-flow.executor.queue');
 
             return new QueueGraphCoordinator(
                 $app->make(ConnectionResolverInterface::class),
@@ -237,6 +284,12 @@ final class LaravelFlowServiceProvider extends ServiceProvider
                 $app->make(ReadinessResolver::class),
                 static fn (): \DateTimeImmutable => Date::now()->toDateTimeImmutable(),
                 is_string($connection) ? $connection : null,
+                $app->make(JoinCoordinator::class),
+                $app->make(BusDispatcher::class),
+                is_string($queue) && $queue !== '' ? $queue : null,
+                is_string($lockStore) && $lockStore !== '' ? $lockStore : null,
+                is_numeric($lockSeconds) && (int) $lockSeconds >= 1 ? (int) $lockSeconds : 3600,
+                is_numeric($lockRetrySeconds) && (int) $lockRetrySeconds >= 1 ? (int) $lockRetrySeconds : 30,
             );
         });
     }
@@ -261,6 +314,8 @@ final class LaravelFlowServiceProvider extends ServiceProvider
             __DIR__.'/../database/migrations/2026_07_09_000007_create_flow_run_nodes_table.php' => $this->app->databasePath('migrations/2026_07_09_000007_create_flow_run_nodes_table.php'),
             __DIR__.'/../database/migrations/2026_07_09_000008_add_graph_columns_to_laravel_flow_runs.php' => $this->app->databasePath('migrations/2026_07_09_000008_add_graph_columns_to_laravel_flow_runs.php'),
             __DIR__.'/../database/migrations/2026_07_09_000009_migrate_flow_steps_to_run_nodes.php' => $this->app->databasePath('migrations/2026_07_09_000009_migrate_flow_steps_to_run_nodes.php'),
+            __DIR__.'/../database/migrations/2026_07_09_000010_create_flow_node_children_table.php' => $this->app->databasePath('migrations/2026_07_09_000010_create_flow_node_children_table.php'),
+            __DIR__.'/../database/migrations/2026_07_09_000011_add_graph_to_laravel_flow_runs.php' => $this->app->databasePath('migrations/2026_07_09_000011_add_graph_to_laravel_flow_runs.php'),
         ], 'laravel-flow-migrations');
 
         $this->commands([

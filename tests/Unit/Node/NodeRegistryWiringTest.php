@@ -39,9 +39,10 @@ final class NodeRegistryWiringTest extends TestCase
         $registry = $this->app->make(NodeRegistry::class);
 
         $this->assertTrue($registry->has('test.greet'));
-        // Configured node + the always-present flow.merge built-in.
+        // Configured node + the always-present control built-ins
+        // (flow.merge / flow.subflow / flow.foreach / flow.map).
         $this->assertTrue($registry->has('flow.merge'));
-        $this->assertCount(2, $registry->all());
+        $this->assertCount(5, $registry->all());
     }
 
     public function test_discovery_roots_are_registered(): void
@@ -72,8 +73,8 @@ final class NodeRegistryWiringTest extends TestCase
 
         $this->assertTrue($registry->has('test.greet'));
         $this->assertTrue($registry->has('test.upper'));
-        // Two configured/discovered nodes + the flow.merge built-in.
-        $this->assertCount(3, $registry->all());
+        // Two configured/discovered nodes + the four control built-ins.
+        $this->assertCount(6, $registry->all());
         $this->assertSame(GreetNode::class, $registry->get('test.greet')->handlerClass);
     }
 
@@ -104,8 +105,8 @@ final class NodeRegistryWiringTest extends TestCase
 
         $this->assertTrue($registry->has('test.greet'));
         $this->assertSame(GreetNode::class, $registry->get('test.greet')->handlerClass);
-        // Configured node + the flow.merge built-in.
-        $this->assertCount(2, $registry->all());
+        // Configured node + the four control built-ins.
+        $this->assertCount(5, $registry->all());
     }
 
     public function test_discovery_vs_discovery_type_collision_fails_fast(): void
@@ -141,8 +142,8 @@ final class NodeRegistryWiringTest extends TestCase
 
         $this->assertTrue($registry->has('test.greet'));
         $this->assertTrue($registry->has('test.upper'));
-        // Two discovered nodes + the flow.merge built-in.
-        $this->assertCount(3, $registry->all());
+        // Two discovered nodes + the four control built-ins.
+        $this->assertCount(6, $registry->all());
     }
 
     public function test_duplicate_discovery_roots_are_deduplicated(): void
@@ -156,7 +157,7 @@ final class NodeRegistryWiringTest extends TestCase
 
         $this->assertTrue($registry->has('test.greet'));
         $this->assertTrue($registry->has('test.upper'));
-        // Two discovered nodes + the flow.merge built-in.
-        $this->assertCount(3, $registry->all());
+        // Two discovered nodes + the four control built-ins.
+        $this->assertCount(6, $registry->all());
     }
 }

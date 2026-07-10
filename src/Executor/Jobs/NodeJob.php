@@ -125,6 +125,7 @@ final class NodeJob implements ShouldQueueAfterCommit
                 false,
                 $sequenceOf[$this->nodeId] ?? 0,
                 $store,
+                true,
             );
 
             $this->dispatchCoordinator($bus);

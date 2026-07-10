@@ -51,6 +51,7 @@ final class NodeExecutor
         bool $dryRun,
         int $sequence,
         ?FlowStore $store,
+        bool $queued = false,
     ): NodeExecution {
         $startedAt = ($this->clock)();
 
@@ -91,7 +92,7 @@ final class NodeExecutor
             return new NodeExecution($node->id, NodeState::InvalidInput, [], $routed->violation);
         }
 
-        $context = new NodeContext($runId, $definitionName, $node->id, $routed->inputs, $dryRun);
+        $context = new NodeContext($runId, $definitionName, $node->id, $routed->inputs, $dryRun, $queued);
         $policy = ($resolved->definition->retry ?? RetryPolicy::fromAttribute(null))->withConfig($this->configRetry($node));
 
         $attempts = 0;

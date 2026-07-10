@@ -134,6 +134,30 @@ final class ControlNodeQueuedTest extends PersistenceTestCase
         $this->assertSame(0, DB::table('flow_node_children')->where('run_id', $runId)->count());
     }
 
+    public function test_queued_max_concurrency_caps_in_flight_children(): void
+    {
+        // 5 items, cap 2: at no point during the drain may more than 2 child
+        // ledger rows be `running` — the join releases the next pending item only
+        // as a running child terminates.
+        $graph = new GraphDefinition([
+            new GraphNode('fe', 'flow.foreach', ['flow' => 'doubler', 'maxConcurrency' => 2, 'items' => [1, 2, 3, 4, 5]]),
+        ], []);
+
+        $runId = $this->app->make(FlowEngine::class)->dispatchGraph($graph, []);
+
+        $peak = 0;
+        for ($i = 0; $i < 300 && DB::table('jobs')->count() > 0; $i++) {
+            Artisan::call('queue:work', ['connection' => 'database', '--once' => true, '--queue' => 'default']);
+            $running = DB::table('flow_node_children')->where('run_id', $runId)->where('parent_node_id', 'fe')->where('status', 'running')->count();
+            $peak = max($peak, $running);
+        }
+
+        $this->assertSame(0, DB::table('jobs')->count(), 'the queue must drain');
+        $this->assertLessThanOrEqual(2, $peak, 'in-flight children never exceed maxConcurrency');
+        $this->assertSame('succeeded', DB::table('flow_runs')->where('id', $runId)->value('status'));
+        $this->assertSame(5, DB::table('flow_node_children')->where('run_id', $runId)->where('status', 'succeeded')->count(), 'every item ran');
+    }
+
     public function test_sync_and_queued_foreach_produce_identical_results(): void
     {
         $graph = new GraphDefinition([

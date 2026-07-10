@@ -33,6 +33,7 @@ final class JoinCoordinator
     public function __construct(
         private readonly NodeChildRepository $children,
         private readonly RunNodeRepository $nodes,
+        private readonly ChildFlowRunner $childRunner,
         private readonly CacheFactory $cache,
         private readonly Closure $clock,
         private readonly ?string $lockStore = null,
@@ -71,15 +72,15 @@ final class JoinCoordinator
                 return null; // a duplicate completion; the original drives the join
             }
 
-            $siblings = $this->children->forParent($parentRunId, $parentNodeId);
+            // Windowing: release the next pending item now that a running slot
+            // freed up, keeping in-flight children capped at maxConcurrency.
+            $this->childRunner->spawnNext($parentRunId, $parentNodeId);
 
-            foreach ($siblings as $sibling) {
-                if ($sibling->status === NodeState::Running->value) {
-                    return null; // still-running children remain; not the last one
-                }
+            if ($this->children->countUnfinished($parentRunId, $parentNodeId) > 0) {
+                return null; // pending or still-running children remain
             }
 
-            return $this->resumeParent($parentRunId, $parentNodeId, $siblings, $finishedAt);
+            return $this->resumeParent($parentRunId, $parentNodeId, $this->children->forParent($parentRunId, $parentNodeId), $finishedAt);
         } finally {
             $lock->release();
         }

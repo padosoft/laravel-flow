@@ -16,12 +16,14 @@ use Padosoft\LaravelFlow\Models\FlowNodeChildRecord;
  */
 final class EloquentNodeChildRepository implements NodeChildRepository
 {
+    private const PENDING = 'pending';
+
     public function __construct(
         private readonly ?string $connection,
         private readonly PayloadRedactor $redactor,
     ) {}
 
-    public function record(string $runId, string $parentNodeId, string $childRunId, int $childIndex, DateTimeInterface $startedAt): FlowNodeChildRecord
+    public function recordPending(string $runId, string $parentNodeId, int $childIndex, string $childFlow, ?int $childVersion, array $input): FlowNodeChildRecord
     {
         $model = $this->newModel();
         $timestamp = $model->freshTimestamp();
@@ -29,16 +31,50 @@ final class EloquentNodeChildRepository implements NodeChildRepository
         $model->forceFill([
             'run_id' => $runId,
             'parent_node_id' => $parentNodeId,
-            'child_run_id' => $childRunId,
             'child_index' => $childIndex,
-            'status' => NodeState::Running->value,
-            'started_at' => $startedAt,
+            'child_flow' => $childFlow,
+            'child_version' => $childVersion,
+            'input' => $this->redact(['input' => $input], ['input'])['input'],
+            'status' => self::PENDING,
             'created_at' => $timestamp,
             'updated_at' => $timestamp,
         ]);
         $model->save();
 
         return $model;
+    }
+
+    public function activate(string $runId, string $parentNodeId, int $childIndex, string $childRunId, DateTimeInterface $startedAt): bool
+    {
+        $affected = $this->newModel()->newQuery()
+            ->where('run_id', $runId)
+            ->where('parent_node_id', $parentNodeId)
+            ->where('child_index', $childIndex)
+            ->where('status', self::PENDING)
+            ->update([
+                'child_run_id' => $childRunId,
+                'status' => NodeState::Running->value,
+                'started_at' => $startedAt,
+                'updated_at' => $this->newModel()->freshTimestamp(),
+            ]);
+
+        return $affected === 1;
+    }
+
+    public function nextPending(string $runId, string $parentNodeId): ?FlowNodeChildRecord
+    {
+        // forParent() is ordered by child_index, so the first pending row is the
+        // lowest-index one to release next.
+        return $this->forParent($runId, $parentNodeId)->firstWhere('status', self::PENDING);
+    }
+
+    public function countUnfinished(string $runId, string $parentNodeId): int
+    {
+        return $this->newModel()->newQuery()
+            ->where('run_id', $runId)
+            ->where('parent_node_id', $parentNodeId)
+            ->whereIn('status', [self::PENDING, NodeState::Running->value])
+            ->count();
     }
 
     public function findByChildRun(string $childRunId): ?FlowNodeChildRecord
@@ -55,8 +91,7 @@ final class EloquentNodeChildRepository implements NodeChildRepository
         ];
 
         if ($outputs !== null) {
-            $redacted = PersistencePayloadRedaction::redactFields($this->redactor, ['outputs' => $outputs], ['outputs']);
-            $values['outputs'] = $redacted['outputs'];
+            $values['outputs'] = $this->redact(['outputs' => $outputs], ['outputs'])['outputs'];
         }
 
         $affected = $this->newModel()->newQuery()
@@ -74,6 +109,16 @@ final class EloquentNodeChildRepository implements NodeChildRepository
             ->where('parent_node_id', $parentNodeId)
             ->orderBy('child_index')
             ->get();
+    }
+
+    /**
+     * @param  array<string, mixed>  $attributes
+     * @param  list<string>  $fields
+     * @return array<string, mixed>
+     */
+    private function redact(array $attributes, array $fields): array
+    {
+        return PersistencePayloadRedaction::redactFields($this->redactor, $attributes, $fields);
     }
 
     private function newModel(): FlowNodeChildRecord

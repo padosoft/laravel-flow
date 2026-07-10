@@ -70,14 +70,24 @@ abstract class AbstractControlNode implements FlowNodeHandler
             $graph = $this->runner->loadGraph($flow, $version);
 
             if ($context->queued) {
+                // Record every item as a `pending` child, then spawn only up to
+                // maxConcurrency of them; the join releases the next pending item
+                // as each running child terminates, so in-flight children never
+                // exceed the cap (REAL concurrency, not just a batch size).
                 foreach ($childInputs as $index => $childInput) {
-                    $this->runner->spawn($context->flowRunId, $context->nodeId, $graph, $childInput, $index);
+                    $this->runner->recordPending($context->flowRunId, $context->nodeId, $index, $flow, $version, $childInput);
+                }
+
+                for ($spawned = 0; $spawned < $this->maxConcurrency($context); $spawned++) {
+                    if (! $this->runner->spawnNext($context->flowRunId, $context->nodeId, $graph)) {
+                        break;
+                    }
                 }
 
                 return NodeResult::paused();
             }
 
-            return $this->runInlineBatches($context, $graph, $childInputs);
+            return $this->runInlineBatches($context, $graph, $flow, $version, $childInputs);
         } catch (Throwable $e) {
             return NodeResult::failed($e);
         }
@@ -116,7 +126,7 @@ abstract class AbstractControlNode implements FlowNodeHandler
     /**
      * @param  list<array<string, mixed>>  $childInputs
      */
-    private function runInlineBatches(NodeContext $context, GraphDefinition $graph, array $childInputs): NodeResult
+    private function runInlineBatches(NodeContext $context, GraphDefinition $graph, string $flow, ?int $version, array $childInputs): NodeResult
     {
         /** @var array<int, mixed> $outputs */
         $outputs = [];
@@ -124,7 +134,7 @@ abstract class AbstractControlNode implements FlowNodeHandler
 
         foreach (array_chunk($childInputs, $this->maxConcurrency($context), true) as $batch) {
             foreach ($batch as $index => $childInput) {
-                $outcome = $this->runner->runInline($context->flowRunId, $context->nodeId, $graph, $childInput, $index);
+                $outcome = $this->runner->runInline($context->flowRunId, $context->nodeId, $graph, $flow, $version, $childInput, $index);
                 $outputs[$index] = $outcome['output'];
                 $anyFailed = $anyFailed || ! $outcome['succeeded'];
             }

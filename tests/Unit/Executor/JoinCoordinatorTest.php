@@ -57,7 +57,11 @@ final class JoinCoordinatorTest extends PersistenceTestCase
         ]);
 
         for ($i = 0; $i < $childCount; $i++) {
-            $this->children()->record('parent-run', 'fanout', "child-{$i}", $i, new \DateTimeImmutable);
+            // All children already spawned + running (no pending window) so the
+            // join tests exercise completion + resume without needing a published
+            // child flow to release the next pending item.
+            $this->children()->recordPending('parent-run', 'fanout', $i, 'doubler', null, []);
+            $this->children()->activate('parent-run', 'fanout', $i, "child-{$i}", new \DateTimeImmutable);
         }
     }
 

@@ -259,6 +259,7 @@ final class LaravelFlowServiceProvider extends ServiceProvider
             return new JoinCoordinator(
                 $app->make(NodeChildRepository::class),
                 $app->make(RunNodeRepository::class),
+                $app->make(ChildFlowRunner::class),
                 $app->make(CacheFactory::class),
                 static fn (): \DateTimeImmutable => Date::now()->toDateTimeImmutable(),
                 is_string($lockStore) && $lockStore !== '' ? $lockStore : null,

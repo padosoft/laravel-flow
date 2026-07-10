@@ -17,9 +17,10 @@ use RuntimeException;
 
 /**
  * Shared child-run primitive for the fan-out / sub-flow control nodes: loads a
- * published child flow, and either runs it inline (synchronous executor) or
- * spawns it as a queued run — recording a {@see NodeChildRepository} ledger row
- * either way so a sub-flow is visible for audit/Dashboard in both paths.
+ * published child flow and runs each child inline (synchronous executor) or
+ * spawns pending children as their own queued runs, recording a
+ * {@see NodeChildRepository} ledger row in both paths so a sub-flow is visible
+ * for audit/Dashboard.
  *
  * @internal
  */
@@ -50,44 +51,66 @@ final class ChildFlowRunner
     }
 
     /**
-     * Run a child flow inline (synchronous path) and record it in the ledger as
-     * a completed child. Returns the child's per-node output map and whether it
-     * fully succeeded.
+     * Record an item as a `pending` child (no run spawned yet).
+     *
+     * @param  array<string, mixed>  $input
+     */
+    public function recordPending(string $parentRunId, string $parentNodeId, int $childIndex, string $flow, ?int $version, array $input): void
+    {
+        $this->children->recordPending($parentRunId, $parentNodeId, $childIndex, $flow, $version, $input);
+    }
+
+    /**
+     * Spawn the next still-`pending` child (windowing): create its run and flip
+     * its ledger row to `running`. Returns false when no pending item remains.
+     * Both call sites are serialized (the control node's initial burst is
+     * single-threaded; the join holds the per-parent lock), so `nextPending` +
+     * spawn cannot double-spawn a slot.
+     */
+    public function spawnNext(string $parentRunId, string $parentNodeId, ?GraphDefinition $graph = null): bool
+    {
+        $pending = $this->children->nextPending($parentRunId, $parentNodeId);
+
+        if ($pending === null) {
+            return false;
+        }
+
+        $graph ??= $this->loadGraph($pending->child_flow, $pending->child_version);
+        $input = is_array($pending->input) ? $pending->input : [];
+        $childIndex = $pending->child_index;
+
+        // One transaction: the child run + its ledger activation commit together,
+        // and the child's after-commit coordinator cannot run (and drive the
+        // join) before the ledger row is committed.
+        $this->store->transaction(function () use ($graph, $input, $parentRunId, $parentNodeId, $childIndex): void {
+            $childRunId = $this->engine->dispatchGraph($graph, $input);
+            $this->children->activate($parentRunId, $parentNodeId, $childIndex, $childRunId, ($this->clock)());
+        });
+
+        return true;
+    }
+
+    /**
+     * Run a child flow inline (synchronous path): record it pending, run it, and
+     * complete its ledger row. Returns the child's per-node output map and
+     * whether it fully succeeded.
      *
      * @param  array<string, mixed>  $input
      * @return array{output: array<string, mixed>, succeeded: bool}
      */
-    public function runInline(string $parentRunId, string $parentNodeId, GraphDefinition $child, array $input, int $childIndex): array
+    public function runInline(string $parentRunId, string $parentNodeId, GraphDefinition $graph, string $flow, ?int $version, array $input, int $childIndex): array
     {
-        $result = $this->engine->runGraph($child, $input);
+        $this->children->recordPending($parentRunId, $parentNodeId, $childIndex, $flow, $version, $input);
+
+        $result = $this->engine->runGraph($graph, $input);
         $now = ($this->clock)();
 
-        $this->children->record($parentRunId, $parentNodeId, $result->runId, $childIndex, $now);
+        $this->children->activate($parentRunId, $parentNodeId, $childIndex, $result->runId, $now);
         $this->children->completeChild($result->runId, $result->state->value, $result->nodeOutputs, $now);
 
         return [
             'output' => $result->nodeOutputs,
             'succeeded' => $result->state === RunState::Succeeded,
         ];
-    }
-
-    /**
-     * Spawn a child flow as a queued run (queued path) and record it in the
-     * ledger as a running child. Returns the child run id.
-     *
-     * @param  array<string, mixed>  $input
-     */
-    public function spawn(string $parentRunId, string $parentNodeId, GraphDefinition $child, array $input, int $childIndex): string
-    {
-        // Create the child run and its ledger row in ONE transaction. The child's
-        // coordinator job dispatches after-commit, so it cannot run (and drive the
-        // join via findByChildRun) before the ledger row is committed — otherwise
-        // a fast/sync worker could finalize the child first and strand the parent.
-        return $this->store->transaction(function () use ($parentRunId, $parentNodeId, $child, $input, $childIndex): string {
-            $childRunId = $this->engine->dispatchGraph($child, $input);
-            $this->children->record($parentRunId, $parentNodeId, $childRunId, $childIndex, ($this->clock)());
-
-            return $childRunId;
-        });
     }
 }

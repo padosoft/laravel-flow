@@ -111,12 +111,16 @@ final class QueueGraphCoordinator
         /** @var list<string> $claimed */
         $claimed = [];
         $allTerminal = false;
+        $settled = false;
         $sequenceOf = array_flip($graph->topologicalOrder());
 
-        $this->connection()->transaction(function () use ($runId, $graph, $sequenceOf, &$claimed, &$allTerminal): void {
+        $this->connection()->transaction(function () use ($runId, $graph, $sequenceOf, &$claimed, &$allTerminal, &$settled): void {
             // Serialize advancement: two coordinators for the same run cannot
             // interleave readiness resolution + claiming.
             $this->connection()->table('flow_runs')->where('id', $runId)->lockForUpdate()->first();
+
+            /** @var array<string, NodeState> $states */
+            $states = [];
 
             // Poison spreads one level per readiness pass, and blocking claims no
             // jobs to re-trigger the coordinator, so drain all newly-blocked
@@ -149,6 +153,7 @@ final class QueueGraphCoordinator
                 foreach ($decision->ready as $id) {
                     if ($this->store->runNodes()->claim($runId, $id, ($this->clock)())) {
                         $claimed[] = $id;
+                        $states[$id] = NodeState::Running;
                     }
                 }
 
@@ -156,23 +161,61 @@ final class QueueGraphCoordinator
 
                 break;
             }
+
+            // A run with no work in flight (nothing newly claimed, nothing still
+            // running) and no ready/blocked work left cannot advance on its own —
+            // it has stalled (e.g. it settled on a paused node). Finalize it here
+            // so it does not hang as `running` forever waiting for a job that will
+            // never be dispatched.
+            $running = 0;
+            foreach ($states as $state) {
+                if ($state === NodeState::Running) {
+                    $running++;
+                }
+            }
+            $settled = $claimed === [] && $running === 0;
         });
 
-        if ($allTerminal) {
+        if ($allTerminal || $settled) {
             $this->finalizeRun($runId, $graph);
         }
 
         return new CoordinatorDecision($claimed, $allTerminal);
     }
 
+    /**
+     * Release a claim the coordinator won but could not enqueue a node job for,
+     * so a retry re-claims and re-dispatches it (used by {@see Jobs\CoordinatorJob}
+     * when the queue backend throws mid-wave).
+     */
+    public function releaseClaim(string $runId, string $nodeId): bool
+    {
+        return $this->store->runNodes()->releaseClaim($runId, $nodeId);
+    }
+
     private function finalizeRun(string $runId, GraphDefinition $graph): void
     {
-        $states = $this->store->runNodes()->states($runId);
+        $nodes = $this->store->runNodes()->forRun($runId);
+
+        /** @var array<string, NodeState> $states */
+        $states = [];
+        /** @var array<string, mixed> $output */
+        $output = [];
+
+        foreach ($nodes as $row) {
+            $states[(string) $row->node_id] = NodeState::from((string) $row->status);
+
+            if ($row->status === NodeState::Succeeded->value && is_array($row->outputs)) {
+                $output[(string) $row->node_id] = $row->outputs;
+            }
+        }
+
         $runState = RunRollup::state($graph, $states);
         $counters = RunRollup::counters($states);
 
         $attributes = [
             'status' => $runState->value,
+            'output' => $output,
             'nodes_completed' => $counters['completed'],
             'nodes_failed' => $counters['failed'],
         ];

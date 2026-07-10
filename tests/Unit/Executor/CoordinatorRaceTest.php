@@ -4,9 +4,12 @@ declare(strict_types=1);
 
 namespace Padosoft\LaravelFlow\Tests\Unit\Executor;
 
+use Illuminate\Contracts\Bus\Dispatcher as BusDispatcher;
 use Illuminate\Contracts\Cache\LockProvider;
 use Illuminate\Support\Facades\DB;
+use Mockery;
 use Padosoft\LaravelFlow\Contracts\RunNodeRepository;
+use Padosoft\LaravelFlow\Executor\Jobs\CoordinatorJob;
 use Padosoft\LaravelFlow\Executor\Jobs\NodeJob;
 use Padosoft\LaravelFlow\Executor\QueueGraphCoordinator;
 use Padosoft\LaravelFlow\Graph\Connection;
@@ -133,6 +136,30 @@ final class CoordinatorRaceTest extends PersistenceTestCase
 
         $this->assertSame(0, QueueProbeNode::count('a'), 'a node whose lock is held must not execute');
         $this->assertSame('pending', DB::table('flow_run_nodes')->where('run_id', $runId)->where('node_id', 'a')->value('status'));
+    }
+
+    public function test_dispatch_failure_releases_claim_so_a_retry_can_redispatch(): void
+    {
+        $graph = new GraphDefinition([new GraphNode('a', 'test.probe')], []);
+        $coordinator = $this->coordinator();
+        $runId = $coordinator->start($graph, [], null, 'graph');
+
+        // A queue backend that throws when enqueueing the node job: the claim
+        // (pending -> running) has already committed, so the coordinator must
+        // release it back to pending for a retry rather than stranding it.
+        $bus = Mockery::mock(BusDispatcher::class);
+        $bus->shouldReceive('dispatch')->andThrow(new \RuntimeException('queue down'));
+
+        $job = new CoordinatorJob(runId: $runId, graph: $graph, definitionName: 'graph', input: []);
+
+        try {
+            $job->handle($coordinator, $bus);
+            $this->fail('expected the dispatch failure to propagate');
+        } catch (\RuntimeException $e) {
+            $this->assertSame('queue down', $e->getMessage());
+        }
+
+        $this->assertSame('pending', DB::table('flow_run_nodes')->where('run_id', $runId)->where('node_id', 'a')->value('status'), 'an undispatched claim must be released back to pending');
     }
 
     /**

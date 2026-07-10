@@ -70,7 +70,8 @@ final class QueueCoordinatorTest extends PersistenceTestCase
     public function test_parallel_independent_nodes_both_run_in_the_same_graph(): void
     {
         // a fans out to b and c; both must execute (the coordinator claims both
-        // in one wave), then d joins after both.
+        // in one wave). d is a further downstream of b, exercising a subsequent
+        // wave after the parallel pair.
         $graph = new GraphDefinition(
             [
                 new GraphNode('a', 'test.probe'),
@@ -110,6 +111,22 @@ final class QueueCoordinatorTest extends PersistenceTestCase
         $this->assertSame(0, QueueProbeNode::count('a'));
 
         Queue::assertPushed(CoordinatorJob::class, 1);
+    }
+
+    public function test_run_level_output_is_persisted_on_finalization(): void
+    {
+        $graph = new GraphDefinition(
+            [new GraphNode('a', 'test.probe'), new GraphNode('b', 'test.probe')],
+            [new Connection('a', 'out', 'b', 'in')],
+        );
+
+        $runId = $this->engine()->dispatchGraph($graph, []);
+
+        $output = json_decode((string) DB::table('flow_runs')->where('id', $runId)->value('output'), true);
+        $this->assertIsArray($output);
+        $this->assertArrayHasKey('a', $output);
+        $this->assertArrayHasKey('b', $output);
+        $this->assertSame(['id' => 'a'], $output['a']['out']);
     }
 
     public function test_dispatch_graph_requires_persistence(): void

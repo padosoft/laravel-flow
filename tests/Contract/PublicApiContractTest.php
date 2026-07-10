@@ -208,6 +208,7 @@ final class PublicApiContractTest extends TestCase
             'forRun',
             'states',
             'claim',
+            'releaseClaim',
         ]);
     }
 

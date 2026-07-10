@@ -59,4 +59,13 @@ interface RunNodeRepository
      * most once even under duplicate coordinator delivery.
      */
     public function claim(string $runId, string $nodeId, DateTimeInterface $startedAt): bool;
+
+    /**
+     * Release a claim: the inverse compare-and-set that flips `running` ->
+     * `pending` (clearing `started_at`) only when the row is still `running`.
+     * The coordinator uses this to make a claimed node re-claimable when the
+     * node job it just claimed could not be enqueued, so a retry re-dispatches
+     * it instead of leaving the run stuck. Returns true iff the reset happened.
+     */
+    public function releaseClaim(string $runId, string $nodeId): bool;
 }

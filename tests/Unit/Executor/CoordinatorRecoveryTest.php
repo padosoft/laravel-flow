@@ -14,6 +14,7 @@ use Padosoft\LaravelFlow\Graph\Connection;
 use Padosoft\LaravelFlow\Graph\GraphDefinition;
 use Padosoft\LaravelFlow\Graph\GraphNode;
 use Padosoft\LaravelFlow\Tests\Fixtures\GraphNodes\FailingGraphNode;
+use Padosoft\LaravelFlow\Tests\Fixtures\GraphNodes\PausingGraphNode;
 use Padosoft\LaravelFlow\Tests\Fixtures\GraphNodes\QueueProbeNode;
 use Padosoft\LaravelFlow\Tests\Unit\Persistence\PersistenceTestCase;
 
@@ -24,7 +25,7 @@ final class CoordinatorRecoveryTest extends PersistenceTestCase
         parent::defineEnvironment($app);
         $app['config']->set('queue.default', 'sync');
         $app['config']->set('laravel-flow.persistence.enabled', true);
-        $app['config']->set('laravel-flow.nodes.handlers', [QueueProbeNode::class, FailingGraphNode::class]);
+        $app['config']->set('laravel-flow.nodes.handlers', [QueueProbeNode::class, FailingGraphNode::class, PausingGraphNode::class]);
     }
 
     protected function setUp(): void
@@ -86,6 +87,21 @@ final class CoordinatorRecoveryTest extends PersistenceTestCase
         $this->assertSame('succeeded', $run->status);
         $this->assertSame(2, (int) $run->nodes_completed);
         $this->assertNotNull($run->finished_at);
+    }
+
+    public function test_paused_node_finalizes_run_as_paused(): void
+    {
+        // A node that pauses settles the run with no ready/blocked/running work
+        // left; the coordinator must finalize it as `paused` rather than leaving
+        // it hanging in `running` forever.
+        $graph = new GraphDefinition([new GraphNode('a', 'test.pause')], []);
+
+        $runId = $this->app->make(FlowEngine::class)->dispatchGraph($graph, []);
+
+        $this->assertSame('paused', DB::table('flow_run_nodes')->where('run_id', $runId)->where('node_id', 'a')->value('status'));
+        $run = DB::table('flow_runs')->where('id', $runId)->first();
+        $this->assertSame('paused', $run->status);
+        $this->assertNull($run->finished_at, 'a paused run is not finished');
     }
 
     public function test_blocked_run_finalizes_partially_succeeded(): void

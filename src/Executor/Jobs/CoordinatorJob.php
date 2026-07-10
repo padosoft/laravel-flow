@@ -10,6 +10,7 @@ use Illuminate\Contracts\Queue\ShouldQueueAfterCommit;
 use Illuminate\Queue\InteractsWithQueue;
 use Padosoft\LaravelFlow\Executor\QueueGraphCoordinator;
 use Padosoft\LaravelFlow\Graph\GraphDefinition;
+use Throwable;
 
 /**
  * Advances a queued graph run one pass: it asks the {@see QueueGraphCoordinator}
@@ -48,19 +49,33 @@ final class CoordinatorJob implements ShouldQueueAfterCommit
     public function handle(QueueGraphCoordinator $coordinator, BusDispatcher $bus): void
     {
         $decision = $coordinator->advance($this->runId, $this->graph);
+        $dispatched = 0;
 
-        foreach ($decision->claimed as $nodeId) {
-            $bus->dispatch(new NodeJob(
-                runId: $this->runId,
-                nodeId: $nodeId,
-                graph: $this->graph,
-                definitionName: $this->definitionName,
-                input: $this->input,
-                queue: $this->queue,
-                lockStore: $this->lockStore,
-                lockSeconds: $this->lockSeconds,
-                lockRetrySeconds: $this->lockRetrySeconds,
-            ));
+        try {
+            foreach ($decision->claimed as $nodeId) {
+                $bus->dispatch(new NodeJob(
+                    runId: $this->runId,
+                    nodeId: $nodeId,
+                    graph: $this->graph,
+                    definitionName: $this->definitionName,
+                    input: $this->input,
+                    queue: $this->queue,
+                    lockStore: $this->lockStore,
+                    lockSeconds: $this->lockSeconds,
+                    lockRetrySeconds: $this->lockRetrySeconds,
+                ));
+                $dispatched++;
+            }
+        } catch (Throwable $e) {
+            // The claims committed (pending -> running) but a node job could not
+            // be enqueued; release the claims we did not dispatch so a retry of
+            // this coordinator re-claims and re-dispatches them instead of
+            // leaving those nodes stuck `running` with no job in flight.
+            foreach (array_slice($decision->claimed, $dispatched) as $nodeId) {
+                $coordinator->releaseClaim($this->runId, $nodeId);
+            }
+
+            throw $e;
         }
     }
 }

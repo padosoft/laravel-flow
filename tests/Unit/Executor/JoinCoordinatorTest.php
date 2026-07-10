@@ -61,7 +61,8 @@ final class JoinCoordinatorTest extends PersistenceTestCase
             // join tests exercise completion + resume without needing a published
             // child flow to release the next pending item.
             $this->children()->recordPending('parent-run', 'fanout', $i, 'doubler', null, []);
-            $this->children()->activate('parent-run', 'fanout', $i, "child-{$i}", new \DateTimeImmutable);
+            $this->children()->claimNextPending('parent-run', 'fanout', new \DateTimeImmutable);
+            $this->children()->attachChildRun('parent-run', 'fanout', $i, "child-{$i}");
         }
     }
 

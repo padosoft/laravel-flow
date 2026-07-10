@@ -11,36 +11,42 @@ use Padosoft\LaravelFlow\Models\FlowNodeChildRecord;
 /**
  * Suspend/join ledger for fan-out and sub-flow control nodes. Every item is
  * first recorded as a `pending` row (holding the child flow + item input); the
- * control node spawns only up to `maxConcurrency` of them (each `activate`d to
- * `running` with its child run id), and the join releases the next pending item
- * as each running child terminates — so in-flight children never exceed the cap.
- * The parent resumes EXACTLY once when the last child terminates.
+ * control node spawns only up to `maxConcurrency` of them (each claimed to
+ * `running` BEFORE its child run is dispatched), and the join releases the next
+ * pending item as each running child terminates — so in-flight children never
+ * exceed the cap. The parent resumes EXACTLY once when the last child terminates.
  *
  * @internal
  */
 interface NodeChildRepository
 {
     /**
-     * Record an item to run as a `pending` child (no child run yet). `input` is
-     * the item's child-run input; `childFlow`/`childVersion` let the join spawn
-     * it later.
+     * Record an item to run as a `pending` child (no run yet). `input` is the
+     * item's child-run input; `childFlow`/`childVersion` let a later caller spawn
+     * it.
      *
      * @param  array<string, mixed>  $input
      */
     public function recordPending(string $runId, string $parentNodeId, int $childIndex, string $childFlow, ?int $childVersion, array $input): FlowNodeChildRecord;
 
     /**
-     * Compare-and-set a `pending` item to `running` for a just-spawned child run
-     * (stamping `child_run_id` + `started_at`). Returns true for the single
-     * caller that won it, so an item is spawned at most once.
+     * Atomically claim the lowest-`child_index` still-`pending` child of a parent
+     * and flip it to `running` (stamping `started_at`, no child run id yet),
+     * returning the claimed row — or null when none remain. Selected
+     * `lockForUpdate` so two concurrent spawners can never claim the same slot;
+     * MUST be called inside a transaction, and the caller dispatches the child +
+     * calls {@see self::attachChildRun()} in that SAME transaction so a dispatch
+     * failure rolls the claim back to `pending`. The claim (not any cache lock) is
+     * the mutual-exclusion primitive across the control node's initial burst and
+     * the join's release.
      */
-    public function activate(string $runId, string $parentNodeId, int $childIndex, string $childRunId, DateTimeInterface $startedAt): bool;
+    public function claimNextPending(string $runId, string $parentNodeId, DateTimeInterface $startedAt): ?FlowNodeChildRecord;
 
     /**
-     * The lowest-`child_index` still-`pending` item for a parent, or null when
-     * none remain — the next item the join should release.
+     * Stamp the spawned child run id onto a row the caller already exclusively
+     * owns (it won {@see self::claimNextPending()}); no CAS needed.
      */
-    public function nextPending(string $runId, string $parentNodeId): ?FlowNodeChildRecord;
+    public function attachChildRun(string $runId, string $parentNodeId, int $childIndex, string $childRunId): void;
 
     /**
      * Count the not-yet-terminal children of a parent (`pending` + `running`) —

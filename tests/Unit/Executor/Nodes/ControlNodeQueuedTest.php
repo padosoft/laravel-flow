@@ -116,6 +116,10 @@ final class ControlNodeQueuedTest extends PersistenceTestCase
         // One child run per item plus the parent run.
         $this->assertSame(3, DoubleNode::$invocations);
         $this->assertSame(3, DB::table('flow_node_children')->where('run_id', $runId)->where('parent_node_id', 'fe')->count());
+
+        // Child runs are traceable by the published flow name (not "graph").
+        $childRunId = DB::table('flow_node_children')->where('run_id', $runId)->where('parent_node_id', 'fe')->value('child_run_id');
+        $this->assertSame('doubler', DB::table('flow_runs')->where('id', $childRunId)->value('definition_name'));
     }
 
     public function test_queued_empty_foreach_completes_without_stranding_the_run(): void

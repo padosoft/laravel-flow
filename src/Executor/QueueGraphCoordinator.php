@@ -278,9 +278,11 @@ final class QueueGraphCoordinator
     }
 
     /**
-     * Roll up and persist the run's terminal fields. Returns true iff THIS call
-     * actually finalized the run (it was still `running`); false on the idempotent
-     * no-op so a duplicate coordinator does not re-drive the parent join.
+     * Roll up and persist the run's terminal fields. Finalizes a run in a
+     * non-terminal state — `running` OR `paused` (a suspended fan-out/sub-flow
+     * parent being resumed by the join). Returns true iff THIS call actually
+     * finalized it; false on the idempotent no-op (already terminal) so a
+     * duplicate coordinator does not re-drive the parent join.
      */
     private function finalizeRun(string $runId, GraphDefinition $graph): bool
     {

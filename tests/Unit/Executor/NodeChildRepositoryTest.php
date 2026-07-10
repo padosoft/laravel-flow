@@ -40,18 +40,19 @@ final class NodeChildRepositoryTest extends PersistenceTestCase
         ]);
     }
 
-    public function test_pending_lifecycle_record_activate_complete(): void
+    public function test_pending_lifecycle_claim_attach_complete(): void
     {
         $repo = $this->repository();
         $repo->recordPending('parent-run', 'fanout', 0, 'doubler', null, ['value' => 1]);
-
-        $pending = $repo->nextPending('parent-run', 'fanout');
-        $this->assertNotNull($pending);
-        $this->assertSame('pending', $pending->status);
         $this->assertSame(1, $repo->countUnfinished('parent-run', 'fanout'));
 
-        $this->assertTrue($repo->activate('parent-run', 'fanout', 0, 'child-0', new \DateTimeImmutable));
-        $this->assertNull($repo->nextPending('parent-run', 'fanout'), 'the row is no longer pending once activated');
+        $claimed = $repo->claimNextPending('parent-run', 'fanout', new \DateTimeImmutable);
+        $this->assertNotNull($claimed);
+        $this->assertSame(0, $claimed->child_index);
+        $this->assertSame('running', $claimed->status, 'claimed BEFORE dispatch, no child run id yet');
+        $this->assertNull($claimed->child_run_id);
+
+        $repo->attachChildRun('parent-run', 'fanout', 0, 'child-0');
         $this->assertNotNull($repo->findByChildRun('child-0'));
         $this->assertSame(1, $repo->countUnfinished('parent-run', 'fanout'), 'a running child is still unfinished');
 
@@ -60,16 +61,24 @@ final class NodeChildRepositoryTest extends PersistenceTestCase
         $this->assertSame(0, $repo->countUnfinished('parent-run', 'fanout'));
     }
 
-    public function test_next_pending_is_ordered_by_child_index(): void
+    public function test_claim_next_pending_is_exclusive_and_ordered(): void
     {
+        // The claim (not any cache lock) is what prevents two spawners from
+        // picking the same slot: each call claims a DISTINCT lowest-index pending
+        // row, in order, and returns null once none remain.
         $repo = $this->repository();
         $repo->recordPending('parent-run', 'fanout', 2, 'doubler', null, []);
         $repo->recordPending('parent-run', 'fanout', 0, 'doubler', null, []);
         $repo->recordPending('parent-run', 'fanout', 1, 'doubler', null, []);
 
-        $this->assertSame(0, $repo->nextPending('parent-run', 'fanout')?->child_index);
-        $repo->activate('parent-run', 'fanout', 0, 'child-0', new \DateTimeImmutable);
-        $this->assertSame(1, $repo->nextPending('parent-run', 'fanout')?->child_index);
-        $this->assertSame(3, $repo->countUnfinished('parent-run', 'fanout'));
+        $indices = [
+            $repo->claimNextPending('parent-run', 'fanout', new \DateTimeImmutable)?->child_index,
+            $repo->claimNextPending('parent-run', 'fanout', new \DateTimeImmutable)?->child_index,
+            $repo->claimNextPending('parent-run', 'fanout', new \DateTimeImmutable)?->child_index,
+        ];
+
+        $this->assertSame([0, 1, 2], $indices, 'each claim takes the next distinct pending row in index order');
+        $this->assertNull($repo->claimNextPending('parent-run', 'fanout', new \DateTimeImmutable), 'nothing left to claim');
+        $this->assertSame(3, $repo->countUnfinished('parent-run', 'fanout'), 'all three now running');
     }
 }

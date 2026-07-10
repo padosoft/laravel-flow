@@ -69,25 +69,26 @@ final class ChildFlowRunner
      */
     public function spawnNext(string $parentRunId, string $parentNodeId, ?GraphDefinition $graph = null): bool
     {
-        $pending = $this->children->nextPending($parentRunId, $parentNodeId);
+        // One transaction: CLAIM the next pending row (pending -> running) BEFORE
+        // dispatching, so two concurrent spawners can never dispatch the same
+        // slot; the child run + ledger activation commit together (a dispatch
+        // failure rolls the claim back to pending), and the child's after-commit
+        // coordinator cannot drive the join before the ledger row is committed.
+        return $this->store->transaction(function () use ($graph, $parentRunId, $parentNodeId): bool {
+            $claimed = $this->children->claimNextPending($parentRunId, $parentNodeId, ($this->clock)());
 
-        if ($pending === null) {
-            return false;
-        }
+            if ($claimed === null) {
+                return false;
+            }
 
-        $graph ??= $this->loadGraph($pending->child_flow, $pending->child_version);
-        $input = is_array($pending->input) ? $pending->input : [];
-        $childIndex = $pending->child_index;
+            $graph ??= $this->loadGraph($claimed->child_flow, $claimed->child_version);
+            $input = is_array($claimed->input) ? $claimed->input : [];
 
-        // One transaction: the child run + its ledger activation commit together,
-        // and the child's after-commit coordinator cannot run (and drive the
-        // join) before the ledger row is committed.
-        $this->store->transaction(function () use ($graph, $input, $parentRunId, $parentNodeId, $childIndex): void {
-            $childRunId = $this->engine->dispatchGraph($graph, $input);
-            $this->children->activate($parentRunId, $parentNodeId, $childIndex, $childRunId, ($this->clock)());
+            $childRunId = $this->engine->dispatchGraph($graph, $input, null, $claimed->child_flow);
+            $this->children->attachChildRun($parentRunId, $parentNodeId, $claimed->child_index, $childRunId);
+
+            return true;
         });
-
-        return true;
     }
 
     /**
@@ -101,11 +102,12 @@ final class ChildFlowRunner
     public function runInline(string $parentRunId, string $parentNodeId, GraphDefinition $graph, string $flow, ?int $version, array $input, int $childIndex): array
     {
         $this->children->recordPending($parentRunId, $parentNodeId, $childIndex, $flow, $version, $input);
+        $this->children->claimNextPending($parentRunId, $parentNodeId, ($this->clock)());
 
-        $result = $this->engine->runGraph($graph, $input);
+        $result = $this->engine->runGraph($graph, $input, null, $flow);
         $now = ($this->clock)();
 
-        $this->children->activate($parentRunId, $parentNodeId, $childIndex, $result->runId, $now);
+        $this->children->attachChildRun($parentRunId, $parentNodeId, $childIndex, $result->runId);
         $this->children->completeChild($result->runId, $result->state->value, $result->nodeOutputs, $now);
 
         return [

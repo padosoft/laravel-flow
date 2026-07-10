@@ -44,28 +44,48 @@ final class EloquentNodeChildRepository implements NodeChildRepository
         return $model;
     }
 
-    public function activate(string $runId, string $parentNodeId, int $childIndex, string $childRunId, DateTimeInterface $startedAt): bool
+    public function claimNextPending(string $runId, string $parentNodeId, DateTimeInterface $startedAt): ?FlowNodeChildRecord
     {
-        $affected = $this->newModel()->newQuery()
+        // Lock + take the lowest-index pending id in one ordered query (so two
+        // concurrent spawners block rather than pick the same slot), then load +
+        // flip that row. `value('id')` keeps the ordered/locked query cheap.
+        $id = $this->newModel()->newQuery()
+            ->where('run_id', $runId)
+            ->where('parent_node_id', $parentNodeId)
+            ->where('status', self::PENDING)
+            ->orderBy('child_index')
+            ->lockForUpdate()
+            ->value('id');
+
+        if ($id === null) {
+            return null;
+        }
+
+        $row = $this->newModel()->newQuery()->whereKey($id)->first();
+
+        if ($row === null) {
+            return null;
+        }
+
+        $row->forceFill([
+            'status' => NodeState::Running->value,
+            'started_at' => $startedAt,
+            'updated_at' => $this->newModel()->freshTimestamp(),
+        ])->save();
+
+        return $row;
+    }
+
+    public function attachChildRun(string $runId, string $parentNodeId, int $childIndex, string $childRunId): void
+    {
+        $this->newModel()->newQuery()
             ->where('run_id', $runId)
             ->where('parent_node_id', $parentNodeId)
             ->where('child_index', $childIndex)
-            ->where('status', self::PENDING)
             ->update([
                 'child_run_id' => $childRunId,
-                'status' => NodeState::Running->value,
-                'started_at' => $startedAt,
                 'updated_at' => $this->newModel()->freshTimestamp(),
             ]);
-
-        return $affected === 1;
-    }
-
-    public function nextPending(string $runId, string $parentNodeId): ?FlowNodeChildRecord
-    {
-        // forParent() is ordered by child_index, so the first pending row is the
-        // lowest-index one to release next.
-        return $this->forParent($runId, $parentNodeId)->firstWhere('status', self::PENDING);
     }
 
     public function countUnfinished(string $runId, string $parentNodeId): int

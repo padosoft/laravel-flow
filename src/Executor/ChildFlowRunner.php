@@ -61,11 +61,13 @@ final class ChildFlowRunner
     }
 
     /**
-     * Spawn the next still-`pending` child (windowing): create its run and flip
-     * its ledger row to `running`. Returns false when no pending item remains.
-     * Both call sites are serialized (the control node's initial burst is
-     * single-threaded; the join holds the per-parent lock), so `nextPending` +
-     * spawn cannot double-spawn a slot.
+     * Spawn the next still-`pending` child (windowing): claim its ledger row
+     * (`pending` -> `running`) and create its run. Returns false when no pending
+     * item remains. Mutual exclusion between the two call sites (the control
+     * node's initial burst and the join's release) comes from the atomic
+     * {@see NodeChildRepository::claimNextPending()} claim inside the spawn
+     * transaction — NOT from any cache lock — so two spawners can never take the
+     * same slot even without caller-side serialization.
      */
     public function spawnNext(string $parentRunId, string $parentNodeId, ?GraphDefinition $graph = null): bool
     {

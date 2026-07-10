@@ -6,13 +6,16 @@ namespace Padosoft\LaravelFlow\Executor;
 
 use Closure;
 use DateTimeImmutable;
+use Illuminate\Contracts\Bus\Dispatcher as BusDispatcher;
 use Illuminate\Database\ConnectionInterface;
 use Illuminate\Database\ConnectionResolverInterface;
 use Padosoft\LaravelFlow\Contracts\FlowStore;
+use Padosoft\LaravelFlow\Executor\Jobs\CoordinatorJob;
 use Padosoft\LaravelFlow\Executor\State\NodeState;
 use Padosoft\LaravelFlow\Executor\State\RunState;
 use Padosoft\LaravelFlow\FlowExecutionOptions;
 use Padosoft\LaravelFlow\Graph\GraphDefinition;
+use Padosoft\LaravelFlow\Graph\GraphSerializer;
 
 /**
  * Drives a queued graph run. {@see self::start()} creates the run row and
@@ -25,7 +28,7 @@ use Padosoft\LaravelFlow\Graph\GraphDefinition;
  * coordinator delivery. When every node is terminal the run is finalized (roll
  * up {@see RunState}); a blocked/failed run finalizes rather than hanging.
  *
- * Node execution itself and job dispatch live in the {@see Jobs\CoordinatorJob}
+ * Node execution itself and job dispatch live in the {@see CoordinatorJob}
  * / {@see Jobs\NodeJob} pair, which share the synchronous {@see GraphRunner}'s
  * {@see NodeExecutor} seam so the queued and synchronous paths cannot diverge.
  *
@@ -42,6 +45,12 @@ final class QueueGraphCoordinator
         private readonly ReadinessResolver $readiness,
         private readonly Closure $clock,
         private readonly ?string $connectionName = null,
+        private readonly ?JoinCoordinator $join = null,
+        private readonly ?BusDispatcher $bus = null,
+        private readonly ?string $queue = null,
+        private readonly ?string $lockStore = null,
+        private readonly int $lockSeconds = 3600,
+        private readonly int $lockRetrySeconds = 30,
     ) {}
 
     /**
@@ -71,6 +80,10 @@ final class QueueGraphCoordinator
                 'dry_run' => false,
                 'engine' => 'graph',
                 'input' => $input,
+                // Store the canonical graph (unredacted structure) so the queued
+                // fan-out join can reload a suspended parent run's graph by id and
+                // re-advance it. Same rationale as flow_definitions.graph.
+                'graph' => (new GraphSerializer)->toArray($graph),
                 'nodes_total' => count($graph->nodeIds()),
                 'started_at' => $startedAt,
                 'status' => RunState::Running->value,
@@ -115,9 +128,10 @@ final class QueueGraphCoordinator
         $claimed = [];
         $allTerminal = false;
         $settled = false;
+        $finalized = false;
         $sequenceOf = array_flip($graph->topologicalOrder());
 
-        $this->connection()->transaction(function () use ($runId, $graph, $sequenceOf, &$claimed, &$allTerminal, &$settled): void {
+        $this->connection()->transaction(function () use ($runId, $graph, $sequenceOf, &$claimed, &$allTerminal, &$settled, &$finalized): void {
             // Serialize advancement: two coordinators for the same run cannot
             // interleave readiness resolution + claiming.
             $this->connection()->table('flow_runs')->where('id', $runId)->lockForUpdate()->first();
@@ -182,16 +196,69 @@ final class QueueGraphCoordinator
             // to overwrite finished_at/duration_ms/output; finalizeRun() is also
             // idempotent (it no-ops once the run has left `running`).
             if ($allTerminal || $settled) {
-                $this->finalizeRun($runId, $graph);
+                $finalized = $this->finalizeRun($runId, $graph);
             }
         });
+
+        // If THIS pass finalized the run (not a duplicate no-op), and the run is a
+        // spawned child of a fan-out/sub-flow parent, drive the join AFTER the
+        // lock is released so the child's terminal state is committed first.
+        if ($finalized) {
+            $this->resumeParentIfChild($runId);
+        }
 
         return new CoordinatorDecision($claimed, $allTerminal);
     }
 
     /**
+     * If the just-finalized run is a spawned child, record its completion in the
+     * join ledger; when it is the last child, the join flips the suspended parent
+     * node and we re-advance the parent run (reloading its graph from
+     * `flow_runs.graph`).
+     */
+    private function resumeParentIfChild(string $runId): void
+    {
+        if ($this->join === null || $this->bus === null) {
+            return; // no queued-join wiring bound (e.g. a bare coordinator)
+        }
+
+        $child = $this->store->runs()->find($runId);
+
+        if ($child === null) {
+            return;
+        }
+
+        $joinResult = $this->join->childCompleted(
+            $runId,
+            (string) $child->status,
+            is_array($child->output) ? $child->output : null,
+        );
+
+        if ($joinResult === null) {
+            return; // not a child, a duplicate, or not the last sibling
+        }
+
+        $parent = $this->store->runs()->find($joinResult->parentRunId);
+
+        if ($parent === null || ! is_array($parent->graph)) {
+            return;
+        }
+
+        $this->bus->dispatch(new CoordinatorJob(
+            runId: $joinResult->parentRunId,
+            graph: (new GraphSerializer)->fromArray($parent->graph),
+            definitionName: (string) $parent->definition_name,
+            input: is_array($parent->input) ? $parent->input : [],
+            queue: $this->queue,
+            lockStore: $this->lockStore,
+            lockSeconds: $this->lockSeconds,
+            lockRetrySeconds: $this->lockRetrySeconds,
+        ));
+    }
+
+    /**
      * Release a claim the coordinator won but could not enqueue a node job for,
-     * so a retry re-claims and re-dispatches it (used by {@see Jobs\CoordinatorJob}
+     * so a retry re-claims and re-dispatches it (used by {@see CoordinatorJob}
      * when the queue backend throws mid-wave).
      */
     public function releaseClaim(string $runId, string $nodeId): bool
@@ -199,14 +266,23 @@ final class QueueGraphCoordinator
         return $this->store->runNodes()->releaseClaim($runId, $nodeId);
     }
 
-    private function finalizeRun(string $runId, GraphDefinition $graph): void
+    /**
+     * Roll up and persist the run's terminal fields. Returns true iff THIS call
+     * actually finalized the run (it was still `running`); false on the idempotent
+     * no-op so a duplicate coordinator does not re-drive the parent join.
+     */
+    private function finalizeRun(string $runId, GraphDefinition $graph): bool
     {
         $run = $this->store->runs()->find($runId);
 
-        // Idempotent: once a run has left `running` it is already finalized, so a
-        // second (duplicate) coordinator must not overwrite its terminal fields.
-        if ($run === null || $run->status !== RunState::Running->value) {
-            return;
+        // Idempotent: finalize only a run still in a non-terminal state (`running`
+        // or `paused` — the latter is a suspended fan-out/sub-flow parent being
+        // resumed by the join). Once it reached a terminal RunState a duplicate
+        // coordinator must not overwrite its terminal fields.
+        $current = $run !== null ? RunState::tryFrom((string) $run->status) : null;
+
+        if ($current === null || $current->isTerminal()) {
+            return false;
         }
 
         $nodes = $this->store->runNodes()->forRun($runId);
@@ -243,6 +319,8 @@ final class QueueGraphCoordinator
         }
 
         $this->store->runs()->update($runId, $attributes);
+
+        return true;
     }
 
     private function durationMs(mixed $startedAt, DateTimeImmutable $finishedAt): ?int

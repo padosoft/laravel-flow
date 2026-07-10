@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Padosoft\LaravelFlow;
 
 use Illuminate\Concurrency\ConcurrencyManager;
+use Illuminate\Contracts\Bus\Dispatcher as BusDispatcher;
 use Illuminate\Contracts\Cache\Factory as CacheFactory;
 use Illuminate\Contracts\Concurrency\Driver as ConcurrencyDriver;
 use Illuminate\Contracts\Container\Container;
@@ -265,6 +266,12 @@ final class LaravelFlowServiceProvider extends ServiceProvider
         $this->app->bind(QueueGraphCoordinator::class, function (Container $app): QueueGraphCoordinator {
             /** @var string|null $connection */
             $connection = $app['config']->get('laravel-flow.default_storage');
+            $config = $app['config'];
+
+            $lockStore = $config->get('laravel-flow.executor.lock_store') ?? $config->get('laravel-flow.queue.lock_store');
+            $lockSeconds = $config->get('laravel-flow.executor.lock_seconds') ?? $config->get('laravel-flow.queue.lock_seconds');
+            $lockRetrySeconds = $config->get('laravel-flow.executor.lock_retry_seconds') ?? $config->get('laravel-flow.queue.lock_retry_seconds');
+            $queue = $config->get('laravel-flow.executor.queue');
 
             return new QueueGraphCoordinator(
                 $app->make(ConnectionResolverInterface::class),
@@ -272,6 +279,12 @@ final class LaravelFlowServiceProvider extends ServiceProvider
                 $app->make(ReadinessResolver::class),
                 static fn (): \DateTimeImmutable => Date::now()->toDateTimeImmutable(),
                 is_string($connection) ? $connection : null,
+                $app->make(JoinCoordinator::class),
+                $app->make(BusDispatcher::class),
+                is_string($queue) && $queue !== '' ? $queue : null,
+                is_string($lockStore) && $lockStore !== '' ? $lockStore : null,
+                is_numeric($lockSeconds) && (int) $lockSeconds >= 1 ? (int) $lockSeconds : 3600,
+                is_numeric($lockRetrySeconds) && (int) $lockRetrySeconds >= 1 ? (int) $lockRetrySeconds : 30,
             );
         });
     }
@@ -297,6 +310,7 @@ final class LaravelFlowServiceProvider extends ServiceProvider
             __DIR__.'/../database/migrations/2026_07_09_000008_add_graph_columns_to_laravel_flow_runs.php' => $this->app->databasePath('migrations/2026_07_09_000008_add_graph_columns_to_laravel_flow_runs.php'),
             __DIR__.'/../database/migrations/2026_07_09_000009_migrate_flow_steps_to_run_nodes.php' => $this->app->databasePath('migrations/2026_07_09_000009_migrate_flow_steps_to_run_nodes.php'),
             __DIR__.'/../database/migrations/2026_07_09_000010_create_flow_node_children_table.php' => $this->app->databasePath('migrations/2026_07_09_000010_create_flow_node_children_table.php'),
+            __DIR__.'/../database/migrations/2026_07_09_000011_add_graph_to_laravel_flow_runs.php' => $this->app->databasePath('migrations/2026_07_09_000011_add_graph_to_laravel_flow_runs.php'),
         ], 'laravel-flow-migrations');
 
         $this->commands([

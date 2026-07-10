@@ -14,6 +14,7 @@ use Padosoft\LaravelFlow\FlowRun;
  * @property string $status
  * @property bool $dry_run
  * @property array<string, mixed>|null $input
+ * @property array<string, mixed>|null $graph
  * @property array<string, mixed>|null $output
  * @property array<string, mixed>|null $business_impact
  * @property string|null $failed_step
@@ -58,6 +59,7 @@ final class FlowRunRecord extends Model
         'duration_ms' => 'integer',
         'dry_run' => 'boolean',
         'finished_at' => 'immutable_datetime',
+        'graph' => 'array',
         'input' => 'array',
         'nodes_completed' => 'integer',
         'nodes_failed' => 'integer',

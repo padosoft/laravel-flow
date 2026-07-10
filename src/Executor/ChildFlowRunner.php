@@ -7,6 +7,7 @@ namespace Padosoft\LaravelFlow\Executor;
 use Closure;
 use DateTimeImmutable;
 use Padosoft\LaravelFlow\Contracts\DefinitionRepository;
+use Padosoft\LaravelFlow\Contracts\FlowStore;
 use Padosoft\LaravelFlow\Contracts\NodeChildRepository;
 use Padosoft\LaravelFlow\Executor\State\RunState;
 use Padosoft\LaravelFlow\FlowEngine;
@@ -31,6 +32,7 @@ final class ChildFlowRunner
         private readonly DefinitionRepository $definitions,
         private readonly FlowEngine $engine,
         private readonly NodeChildRepository $children,
+        private readonly FlowStore $store,
         private readonly Closure $clock,
     ) {}
 
@@ -77,9 +79,15 @@ final class ChildFlowRunner
      */
     public function spawn(string $parentRunId, string $parentNodeId, GraphDefinition $child, array $input, int $childIndex): string
     {
-        $childRunId = $this->engine->dispatchGraph($child, $input);
-        $this->children->record($parentRunId, $parentNodeId, $childRunId, $childIndex, ($this->clock)());
+        // Create the child run and its ledger row in ONE transaction. The child's
+        // coordinator job dispatches after-commit, so it cannot run (and drive the
+        // join via findByChildRun) before the ledger row is committed — otherwise
+        // a fast/sync worker could finalize the child first and strand the parent.
+        return $this->store->transaction(function () use ($parentRunId, $parentNodeId, $child, $input, $childIndex): string {
+            $childRunId = $this->engine->dispatchGraph($child, $input);
+            $this->children->record($parentRunId, $parentNodeId, $childRunId, $childIndex, ($this->clock)());
 
-        return $childRunId;
+            return $childRunId;
+        });
     }
 }

@@ -249,6 +249,7 @@ final class LaravelFlowServiceProvider extends ServiceProvider
             $app->make(DefinitionRepository::class),
             $app->make(FlowEngine::class),
             $app->make(NodeChildRepository::class),
+            $app->make(FlowStore::class),
             static fn (): \DateTimeImmutable => Date::now()->toDateTimeImmutable(),
         ));
         $this->app->bind(JoinCoordinator::class, function (Container $app): JoinCoordinator {

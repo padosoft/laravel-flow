@@ -118,6 +118,22 @@ final class ControlNodeQueuedTest extends PersistenceTestCase
         $this->assertSame(3, DB::table('flow_node_children')->where('run_id', $runId)->where('parent_node_id', 'fe')->count());
     }
 
+    public function test_queued_empty_foreach_completes_without_stranding_the_run(): void
+    {
+        // A queued fan-out over an empty list must NOT pause: no children are
+        // spawned, so nothing would ever drive the join to resume the parent.
+        $graph = new GraphDefinition([
+            new GraphNode('fe', 'flow.foreach', ['flow' => 'doubler', 'items' => []]),
+        ], []);
+
+        $runId = $this->app->make(FlowEngine::class)->dispatchGraph($graph, []);
+        $this->drainQueue();
+
+        $this->assertSame('succeeded', DB::table('flow_runs')->where('id', $runId)->value('status'));
+        $this->assertSame('succeeded', DB::table('flow_run_nodes')->where('run_id', $runId)->where('node_id', 'fe')->value('status'));
+        $this->assertSame(0, DB::table('flow_node_children')->where('run_id', $runId)->count());
+    }
+
     public function test_sync_and_queued_foreach_produce_identical_results(): void
     {
         $graph = new GraphDefinition([

@@ -228,6 +228,17 @@ final class QueueGraphCoordinator
             return;
         }
 
+        // Only a TERMINAL child drives the join. A child that merely paused (e.g.
+        // on a nested queued control node) is not done — recording it would flip
+        // the ledger row off `running` and let the outer parent resume before the
+        // nested children finish. When the child later reaches a terminal state
+        // its finalize re-enters here and drives the join for real.
+        $childState = RunState::tryFrom((string) $child->status);
+
+        if ($childState === null || ! $childState->isTerminal()) {
+            return;
+        }
+
         $joinResult = $this->join->childCompleted(
             $runId,
             (string) $child->status,

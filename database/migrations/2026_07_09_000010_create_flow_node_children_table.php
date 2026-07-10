@@ -27,7 +27,9 @@ return new class extends Migration
             $table->timestampsTz();
 
             $table->unique(['run_id', 'parent_node_id', 'child_index']);
-            $table->index('child_run_id');
+            // One ledger row per child run (1:1) — keeps findByChildRun() /
+            // completeChild() unambiguous under any duplicate-insert attempt.
+            $table->unique('child_run_id');
             $table->foreign('run_id')->references('id')->on('flow_runs')->cascadeOnDelete();
         });
     }

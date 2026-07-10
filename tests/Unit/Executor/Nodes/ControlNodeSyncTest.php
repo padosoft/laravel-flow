@@ -96,6 +96,19 @@ final class ControlNodeSyncTest extends PersistenceTestCase
         $this->assertSame(4, DoubleNode::$invocations);
     }
 
+    public function test_empty_foreach_completes_with_empty_results(): void
+    {
+        $graph = new GraphDefinition([
+            new GraphNode('fe', 'flow.foreach', ['flow' => 'doubler', 'items' => []]),
+        ], []);
+
+        $result = $this->runner()->run($graph, []);
+
+        $this->assertSame(NodeState::Succeeded, $result->nodeStates['fe']);
+        $this->assertSame([], $result->nodeOutputs['fe']['results']);
+        $this->assertSame(0, DoubleNode::$invocations);
+    }
+
     public function test_child_failure_propagates_to_parent(): void
     {
         $graph = new GraphDefinition([

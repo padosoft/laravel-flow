@@ -49,8 +49,25 @@ abstract class AbstractControlNode implements FlowNodeHandler
                 ? (int) $context->inputs['version']
                 : null;
 
-            $graph = $this->runner->loadGraph($flow, $version);
+            // Dry-run must have zero side effects: a control node neither spawns
+            // queued child runs nor executes children for real. Deep dry-run
+            // recursion through child graphs is a later concern (DAG dry-run).
+            if ($context->dryRun) {
+                return NodeResult::dryRunSkipped();
+            }
+
             $childInputs = $this->childInputs($context);
+
+            // No children to run (e.g. a fan-out over an empty `items` list) —
+            // complete immediately with an empty result. Crucially the queued
+            // path must NOT pause here: with zero children spawned nothing would
+            // ever finalize to drive the join, so the parent run would be stranded
+            // in `paused` forever.
+            if ($childInputs === []) {
+                return NodeResult::success(['results' => []]);
+            }
+
+            $graph = $this->runner->loadGraph($flow, $version);
 
             if ($context->queued) {
                 foreach ($childInputs as $index => $childInput) {

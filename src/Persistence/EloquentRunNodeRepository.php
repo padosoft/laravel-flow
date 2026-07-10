@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace Padosoft\LaravelFlow\Persistence;
 
+use DateTimeInterface;
 use Illuminate\Database\Eloquent\Collection;
 use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
 use Padosoft\LaravelFlow\Contracts\RunNodeRepository;
+use Padosoft\LaravelFlow\Executor\State\NodeState;
 use Padosoft\LaravelFlow\Models\FlowRunNodeRecord;
 
 /**
@@ -47,6 +49,33 @@ final class EloquentRunNodeRepository implements RunNodeRepository
             ->orderBy('sequence')
             ->orderBy('id')
             ->get();
+    }
+
+    public function states(string $runId): array
+    {
+        /** @var array<string, NodeState> $states */
+        $states = [];
+
+        foreach ($this->newModel()->newQuery()->where('run_id', $runId)->get(['node_id', 'status']) as $row) {
+            $states[(string) $row->node_id] = NodeState::from((string) $row->status);
+        }
+
+        return $states;
+    }
+
+    public function claim(string $runId, string $nodeId, DateTimeInterface $startedAt): bool
+    {
+        $affected = $this->newModel()->newQuery()
+            ->where('run_id', $runId)
+            ->where('node_id', $nodeId)
+            ->where('status', NodeState::Pending->value)
+            ->update([
+                'status' => NodeState::Running->value,
+                'started_at' => $startedAt,
+                'updated_at' => $this->newModel()->freshTimestamp(),
+            ]);
+
+        return $affected === 1;
     }
 
     private function newModel(): FlowRunNodeRecord

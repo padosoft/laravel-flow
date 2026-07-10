@@ -21,6 +21,7 @@ use Padosoft\LaravelFlow\FlowRun;
  * @method static mixed dispatch(string $name, array<string, mixed> $input, ?\Padosoft\LaravelFlow\FlowExecutionOptions $options = null)
  * @method static \Padosoft\LaravelFlow\Executor\GraphRunResult runGraph(\Padosoft\LaravelFlow\Graph\GraphDefinition $graph, array<string, mixed> $input, ?\Padosoft\LaravelFlow\FlowExecutionOptions $options = null, string $definitionName = 'graph')
  * @method static \Padosoft\LaravelFlow\Executor\GraphRunResult dryRunGraph(\Padosoft\LaravelFlow\Graph\GraphDefinition $graph, array<string, mixed> $input, ?\Padosoft\LaravelFlow\FlowExecutionOptions $options = null, string $definitionName = 'graph')
+ * @method static string dispatchGraph(\Padosoft\LaravelFlow\Graph\GraphDefinition $graph, array<string, mixed> $input, ?\Padosoft\LaravelFlow\FlowExecutionOptions $options = null, string $definitionName = 'graph')
  * @method static FlowRun resume(string $token, array<string, mixed> $payload = [], array<string, mixed> $actor = [])
  * @method static FlowRun reject(string $token, array<string, mixed> $payload = [], array<string, mixed> $actor = [])
  * @method static array<string, FlowDefinition> definitions()

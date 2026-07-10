@@ -10,9 +10,7 @@ use Padosoft\LaravelFlow\Contracts\FlowStore;
 use Padosoft\LaravelFlow\Executor\State\NodeState;
 use Padosoft\LaravelFlow\Executor\State\RunState;
 use Padosoft\LaravelFlow\FlowExecutionOptions;
-use Padosoft\LaravelFlow\Graph\Connection;
 use Padosoft\LaravelFlow\Graph\GraphDefinition;
-use Padosoft\LaravelFlow\Graph\GraphNode;
 
 /**
  * Synchronous graph executor: the correctness reference for the queued
@@ -56,10 +54,7 @@ final class GraphRunner
         // `input` port — this is how the compiled v1 first step reads the flow
         // input, and it is a harmless no-op for graph nodes without an `input`
         // port (the router only reads config for ports the node actually has).
-        $hasIncoming = [];
-        foreach ($graph->connections as $wire) {
-            $hasIncoming[$wire->targetNodeId] = true;
-        }
+        $hasIncoming = NodeRouting::nodesWithIncoming($graph);
 
         $this->persistRunStarted($store, $runId, $definitionName, $input, $dryRun, count($graph->nodeIds()), $startedAt, $options);
 
@@ -92,13 +87,13 @@ final class GraphRunner
                     continue;
                 }
 
-                $node = $this->seedRootInput($node, ! isset($hasIncoming[$id]), $input);
+                $node = NodeRouting::seedRootInput($node, ! isset($hasIncoming[$id]), $input);
 
                 $execution = $this->executor->execute(
                     $runId,
                     $definitionName,
                     $node,
-                    $this->connectionsInto($graph, $id, $sequenceOf),
+                    NodeRouting::connectionsInto($graph, $id, $sequenceOf),
                     $outputs,
                     $dryRun,
                     $sequenceOf[$id] ?? 0,
@@ -123,76 +118,10 @@ final class GraphRunner
             }
         }
 
-        $runState = $this->rollUp($graph, $states);
+        $runState = RunRollup::state($graph, $states);
         $this->persistRunFinished($store, $runId, $runState, $states, $outputs, $startedAt);
 
         return new GraphRunResult($runId, $runState, $states, $outputs, $errors);
-    }
-
-    /**
-     * @param  array<string, NodeState>  $states
-     */
-    private function rollUp(GraphDefinition $graph, array $states): RunState
-    {
-        $succeeded = 0;
-        $poisoned = 0;
-        $paused = 0;
-        $nonTerminal = 0;
-
-        foreach ($graph->nodeIds() as $id) {
-            $state = $states[$id] ?? NodeState::Pending;
-
-            match (true) {
-                $state === NodeState::Succeeded => $succeeded++,
-                $state === NodeState::Paused => $paused++,
-                in_array($state, [NodeState::Failed, NodeState::Blocked, NodeState::InvalidInput, NodeState::DeadLetter], true) => $poisoned++,
-                $state === NodeState::Skipped => null,
-                default => $nonTerminal++,
-            };
-        }
-
-        if ($paused > 0) {
-            return RunState::Paused;
-        }
-
-        if ($poisoned === 0 && $nonTerminal === 0) {
-            return RunState::Succeeded;
-        }
-
-        return $succeeded > 0 ? RunState::PartiallySucceeded : RunState::Failed;
-    }
-
-    /**
-     * @param  array<string, mixed>  $input
-     */
-    private function seedRootInput(GraphNode $node, bool $isRoot, array $input): GraphNode
-    {
-        if (! $isRoot || array_key_exists('input', $node->config)) {
-            return $node;
-        }
-
-        return new GraphNode($node->id, $node->type, ['input' => $input] + $node->config, $node->position);
-    }
-
-    /**
-     * Incoming wires for a node, ordered by the source node's topological
-     * index (NOT the graph's raw connection-array order) so a `multiple`
-     * (fan-in) port coalesces deterministically regardless of how the graph
-     * JSON/Studio serialized its connections.
-     *
-     * @param  array<string, int>  $sequenceOf  node id => topological index
-     * @return list<Connection>
-     */
-    private function connectionsInto(GraphDefinition $graph, string $nodeId, array $sequenceOf): array
-    {
-        $wires = array_values(array_filter(
-            $graph->connections,
-            static fn (Connection $c): bool => $c->targetNodeId === $nodeId,
-        ));
-
-        usort($wires, static fn (Connection $a, Connection $b): int => ($sequenceOf[$a->sourceNodeId] ?? 0) <=> ($sequenceOf[$b->sourceNodeId] ?? 0));
-
-        return $wires;
     }
 
     /**
@@ -271,22 +200,13 @@ final class GraphRunner
             return;
         }
 
-        $completed = 0;
-        $failed = 0;
-
-        foreach ($states as $state) {
-            if ($state === NodeState::Succeeded || $state === NodeState::Skipped) {
-                $completed++;
-            } elseif (in_array($state, [NodeState::Failed, NodeState::Blocked, NodeState::InvalidInput, NodeState::DeadLetter], true)) {
-                $failed++;
-            }
-        }
+        $counters = RunRollup::counters($states);
 
         $attributes = [
             'status' => $runState->value,
             'output' => $outputs,
-            'nodes_completed' => $completed,
-            'nodes_failed' => $failed,
+            'nodes_completed' => $counters['completed'],
+            'nodes_failed' => $counters['failed'],
         ];
 
         // A paused run is not finished: keep finished_at / duration_ms null so

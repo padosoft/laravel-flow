@@ -200,10 +200,14 @@ final class QueueGraphCoordinator
             }
         });
 
-        // If THIS pass finalized the run (not a duplicate no-op), and the run is a
-        // spawned child of a fan-out/sub-flow parent, drive the join AFTER the
-        // lock is released so the child's terminal state is committed first.
-        if ($finalized) {
+        // Drive the parent join AFTER the lock is released (so the child's
+        // terminal state is committed first) whenever the run is terminal — not
+        // only on the finalizing pass. This makes the join re-drivable: if a join
+        // block-wait timed out and the coordinator job was retried, the retry
+        // (finalized=false, allTerminal=true) re-attempts it. resumeParentIfChild
+        // self-gates (not a child / not terminal / already joined) and its
+        // completeChild CAS keeps it idempotent.
+        if ($finalized || $allTerminal) {
             $this->resumeParentIfChild($runId);
         }
 

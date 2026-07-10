@@ -81,4 +81,30 @@ final class NodeChildRepositoryTest extends PersistenceTestCase
         $this->assertNull($repo->claimNextPending('parent-run', 'fanout', new \DateTimeImmutable), 'nothing left to claim');
         $this->assertSame(3, $repo->countUnfinished('parent-run', 'fanout'), 'all three now running');
     }
+
+    public function test_record_pending_is_idempotent(): void
+    {
+        // A retried control-node execution re-records items; it must be a no-op,
+        // not throw on the (run_id, parent_node_id, child_index) unique key.
+        $repo = $this->repository();
+        $first = $repo->recordPending('parent-run', 'fanout', 0, 'doubler', null, ['value' => 1]);
+        $again = $repo->recordPending('parent-run', 'fanout', 0, 'doubler', null, ['value' => 1]);
+
+        $this->assertSame($first->id, $again->id, 'the same ledger row is returned, not a duplicate');
+        $this->assertSame(1, DB::table('flow_node_children')->where('run_id', 'parent-run')->where('child_index', 0)->count());
+    }
+
+    public function test_count_running_tracks_in_flight_children(): void
+    {
+        $repo = $this->repository();
+        $repo->recordPending('parent-run', 'fanout', 0, 'doubler', null, []);
+        $repo->recordPending('parent-run', 'fanout', 1, 'doubler', null, []);
+        $repo->recordPending('parent-run', 'fanout', 2, 'doubler', null, []);
+
+        $this->assertSame(0, $repo->countRunning('parent-run', 'fanout'));
+        $repo->claimNextPending('parent-run', 'fanout', new \DateTimeImmutable);
+        $repo->claimNextPending('parent-run', 'fanout', new \DateTimeImmutable);
+        $this->assertSame(2, $repo->countRunning('parent-run', 'fanout'), 'two claimed = two running');
+        $this->assertSame(3, $repo->countUnfinished('parent-run', 'fanout'));
+    }
 }

@@ -255,9 +255,10 @@ final class LaravelFlowServiceProvider extends ServiceProvider
         $this->app->bind(JoinCoordinator::class, function (Container $app): JoinCoordinator {
             $lockStore = $app['config']->get('laravel-flow.executor.lock_store')
                 ?? $app['config']->get('laravel-flow.queue.lock_store');
-            $lockSeconds = $app['config']->get('laravel-flow.executor.lock_seconds')
-                ?? $app['config']->get('laravel-flow.queue.lock_seconds');
 
+            // The join uses its own small dedicated lock TTL + bounded block wait
+            // (its critical section is fast), NOT the long node-execution lock
+            // config — so only the lock STORE is wired here.
             return new JoinCoordinator(
                 $app->make(NodeChildRepository::class),
                 $app->make(RunNodeRepository::class),
@@ -265,7 +266,6 @@ final class LaravelFlowServiceProvider extends ServiceProvider
                 $app->make(CacheFactory::class),
                 static fn (): \DateTimeImmutable => Date::now()->toDateTimeImmutable(),
                 is_string($lockStore) && $lockStore !== '' ? $lockStore : null,
-                is_numeric($lockSeconds) && (int) $lockSeconds >= 1 ? (int) $lockSeconds : 3600,
             );
         });
         $this->app->bind(QueueGraphCoordinator::class, function (Container $app): QueueGraphCoordinator {

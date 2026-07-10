@@ -37,7 +37,12 @@ final class JoinCoordinator
         private readonly CacheFactory $cache,
         private readonly Closure $clock,
         private readonly ?string $lockStore = null,
-        private readonly int $lockSeconds = 10,
+        // The join's critical section is a handful of fast DB queries, so it uses
+        // its OWN small lock TTL — deliberately NOT the (legitimately long)
+        // node-execution lock_seconds — and a short, bounded block wait so a
+        // contended worker retries rather than parking for the whole TTL.
+        private readonly int $lockSeconds = 30,
+        private readonly int $blockSeconds = 5,
     ) {}
 
     /**
@@ -63,7 +68,10 @@ final class JoinCoordinator
         }
 
         $lock = $store->lock('laravel-flow:join:'.$parentRunId.':'.$parentNodeId, $this->lockSeconds);
-        $lock->block(max(1, $this->lockSeconds));
+        // Bounded wait: on timeout this throws, the caller's coordinator job is
+        // retried, and the re-driven join (idempotent via the CAS steps) tries
+        // again — a worker never parks for the full TTL under contention.
+        $lock->block(max(1, $this->blockSeconds));
 
         try {
             $finishedAt = ($this->clock)();

@@ -78,10 +78,11 @@ abstract class AbstractControlNode implements FlowNodeHandler
                     $this->runner->recordPending($context->flowRunId, $context->nodeId, $index, $flow, $version, $childInput);
                 }
 
-                for ($spawned = 0; $spawned < $this->maxConcurrency($context); $spawned++) {
-                    if (! $this->runner->spawnNext($context->flowRunId, $context->nodeId, $graph)) {
-                        break;
-                    }
+                // Spawn until in-flight children reach the cap (or no pending
+                // remain). spawnNextIfUnderCap counts currently-running children,
+                // so a retried control-node execution never over-spawns.
+                while ($this->runner->spawnNextIfUnderCap($context->flowRunId, $context->nodeId, $this->maxConcurrency($context), $graph)) {
+                    // keep spawning
                 }
 
                 return NodeResult::paused();

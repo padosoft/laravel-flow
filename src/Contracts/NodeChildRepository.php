@@ -55,6 +55,13 @@ interface NodeChildRepository
     public function countUnfinished(string $runId, string $parentNodeId): int;
 
     /**
+     * Count the currently in-flight (`running`) children of a parent — used by
+     * the control node's initial burst to cap concurrency, so a retried burst
+     * does not over-spawn past `maxConcurrency`.
+     */
+    public function countRunning(string $runId, string $parentNodeId): int;
+
+    /**
      * The ledger row for a spawned child run, or null if the run is not a child.
      */
     public function findByChildRun(string $childRunId): ?FlowNodeChildRecord;

@@ -25,6 +25,19 @@ final class EloquentNodeChildRepository implements NodeChildRepository
 
     public function recordPending(string $runId, string $parentNodeId, int $childIndex, string $childFlow, ?int $childVersion, array $input): FlowNodeChildRecord
     {
+        // Idempotent: a retried control-node execution (the C-PR5 lock-timeout
+        // recovery model) must be a no-op on items it already recorded, not throw
+        // on the (run_id, parent_node_id, child_index) unique constraint.
+        $existing = $this->newModel()->newQuery()
+            ->where('run_id', $runId)
+            ->where('parent_node_id', $parentNodeId)
+            ->where('child_index', $childIndex)
+            ->first();
+
+        if ($existing !== null) {
+            return $existing;
+        }
+
         $model = $this->newModel();
         $timestamp = $model->freshTimestamp();
 
@@ -94,6 +107,15 @@ final class EloquentNodeChildRepository implements NodeChildRepository
             ->where('run_id', $runId)
             ->where('parent_node_id', $parentNodeId)
             ->whereIn('status', [self::PENDING, NodeState::Running->value])
+            ->count();
+    }
+
+    public function countRunning(string $runId, string $parentNodeId): int
+    {
+        return $this->newModel()->newQuery()
+            ->where('run_id', $runId)
+            ->where('parent_node_id', $parentNodeId)
+            ->where('status', NodeState::Running->value)
             ->count();
     }
 

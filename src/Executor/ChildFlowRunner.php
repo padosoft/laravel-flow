@@ -71,26 +71,50 @@ final class ChildFlowRunner
      */
     public function spawnNext(string $parentRunId, string $parentNodeId, ?GraphDefinition $graph = null): bool
     {
-        // One transaction: CLAIM the next pending row (pending -> running) BEFORE
-        // dispatching, so two concurrent spawners can never dispatch the same
-        // slot; the child run + ledger activation commit together (a dispatch
-        // failure rolls the claim back to pending), and the child's after-commit
-        // coordinator cannot drive the join before the ledger row is committed.
-        return $this->store->transaction(function () use ($graph, $parentRunId, $parentNodeId): bool {
-            $claimed = $this->children->claimNextPending($parentRunId, $parentNodeId, ($this->clock)());
+        return $this->store->transaction(fn (): bool => $this->claimAndDispatch($parentRunId, $parentNodeId, $graph));
+    }
 
-            if ($claimed === null) {
+    /**
+     * Spawn the next pending child ONLY while fewer than `maxConcurrency` are
+     * already `running` — used by the control node's initial burst so a retried
+     * execution (which re-runs the burst) never pushes in-flight children past
+     * the cap. The join's {@see self::spawnNext()} needs no cap: it releases one
+     * child per completion (1-for-1 under the join lock), which keeps in-flight
+     * at the cap.
+     */
+    public function spawnNextIfUnderCap(string $parentRunId, string $parentNodeId, int $maxConcurrency, ?GraphDefinition $graph = null): bool
+    {
+        return $this->store->transaction(function () use ($parentRunId, $parentNodeId, $maxConcurrency, $graph): bool {
+            if ($this->children->countRunning($parentRunId, $parentNodeId) >= $maxConcurrency) {
                 return false;
             }
 
-            $graph ??= $this->loadGraph($claimed->child_flow, $claimed->child_version);
-            $input = is_array($claimed->input) ? $claimed->input : [];
-
-            $childRunId = $this->engine->dispatchGraph($graph, $input, null, $claimed->child_flow);
-            $this->children->attachChildRun($parentRunId, $parentNodeId, $claimed->child_index, $childRunId);
-
-            return true;
+            return $this->claimAndDispatch($parentRunId, $parentNodeId, $graph);
         });
+    }
+
+    /**
+     * Claim the next pending row (`pending` -> `running`) BEFORE dispatching, so
+     * two concurrent spawners can never dispatch the same slot; the child run +
+     * ledger activation commit together (a dispatch failure rolls the claim back
+     * to pending), and the child's after-commit coordinator cannot drive the join
+     * before the ledger row is committed. MUST run inside a transaction.
+     */
+    private function claimAndDispatch(string $parentRunId, string $parentNodeId, ?GraphDefinition $graph): bool
+    {
+        $claimed = $this->children->claimNextPending($parentRunId, $parentNodeId, ($this->clock)());
+
+        if ($claimed === null) {
+            return false;
+        }
+
+        $graph ??= $this->loadGraph($claimed->child_flow, $claimed->child_version);
+        $input = is_array($claimed->input) ? $claimed->input : [];
+
+        $childRunId = $this->engine->dispatchGraph($graph, $input, null, $claimed->child_flow);
+        $this->children->attachChildRun($parentRunId, $parentNodeId, $claimed->child_index, $childRunId);
+
+        return true;
     }
 
     /**

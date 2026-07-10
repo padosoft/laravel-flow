@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Padosoft\LaravelFlow\Executor\Attributes;
 
 use Attribute;
+use InvalidArgumentException;
 
 /**
  * Marks a node whose output may be served from the content-hash cache: on a hit
@@ -24,5 +25,12 @@ final class Cacheable
 {
     public function __construct(
         public readonly ?int $ttl = null,
-    ) {}
+    ) {
+        // A ttl of 0/negative is nonsensical (it would write a row that is
+        // already expired and always misses); reject it at construction so a
+        // bad attribute fails fast as an invalid node definition.
+        if ($ttl !== null && $ttl < 1) {
+            throw new InvalidArgumentException('#[Cacheable] ttl must be null (never expires) or a positive number of seconds.');
+        }
+    }
 }

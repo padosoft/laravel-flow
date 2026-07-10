@@ -100,8 +100,18 @@ final class NodeExecutor
         // run. $store is null on a dry run / when persistence is off, so the
         // cache is inert there (never read, never written).
         if ($this->cache !== null && $store !== null && ! $dryRun && $definition->cacheable !== null) {
-            $contentHash = $this->cache->hash($node->type, $routed->inputs, $node->config);
-            $hit = $this->cache->get($contentHash);
+            // Caching is an optional optimization: a cache-infrastructure failure
+            // (missing table mid-upgrade, DB or JSON error) must never abort node
+            // execution. On any failure, disable caching for this run and fall
+            // through to a normal handler execution.
+            $hit = null;
+
+            try {
+                $contentHash = $this->cache->hash($node->type, $routed->inputs, $node->config);
+                $hit = $this->cache->get($contentHash);
+            } catch (Throwable) {
+                $contentHash = null;
+            }
 
             if ($hit !== null) {
                 $finishedAt = ($this->clock)();
@@ -182,9 +192,14 @@ final class NodeExecutor
         ]);
 
         // Populate the cache after a fresh success (redaction gate + skip-on-
-        // divergence enforced inside NodeCache::put()).
+        // divergence enforced inside NodeCache::put()). Best-effort: a failed
+        // cache write must not fail a node whose handler already succeeded.
         if ($contentHash !== null && $this->cache !== null && $definition->cacheable !== null && $result->success) {
-            $this->cache->put($contentHash, $node->type, $result->outputs, $result->businessImpact, $definition->cacheable->ttl);
+            try {
+                $this->cache->put($contentHash, $node->type, $result->outputs, $result->businessImpact, $definition->cacheable->ttl);
+            } catch (Throwable) {
+                // Optional optimization: ignore cache-write failures.
+            }
         }
 
         return new NodeExecution($node->id, $state, $result->success ? $result->outputs : [], $result->error);

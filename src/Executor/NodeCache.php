@@ -47,16 +47,7 @@ final class NodeCache
 
     public function get(string $contentHash): ?NodeCacheHit
     {
-        $row = $this->repository->find($contentHash, ($this->clock)());
-
-        if ($row === null) {
-            return null;
-        }
-
-        return new NodeCacheHit(
-            is_array($row->outputs) ? $row->outputs : [],
-            is_array($row->business_impact) ? $row->business_impact : null,
-        );
+        return $this->repository->find($contentHash, ($this->clock)());
     }
 
     /**

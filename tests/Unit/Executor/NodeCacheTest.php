@@ -4,11 +4,15 @@ declare(strict_types=1);
 
 namespace Padosoft\LaravelFlow\Tests\Unit\Executor;
 
+use DateTimeInterface;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
+use Padosoft\LaravelFlow\Contracts\NodeCacheRepository;
 use Padosoft\LaravelFlow\Executor\GraphRunner;
+use Padosoft\LaravelFlow\Executor\NodeCacheHit;
 use Padosoft\LaravelFlow\Executor\State\NodeState;
+use Padosoft\LaravelFlow\Executor\State\RunState;
 use Padosoft\LaravelFlow\FlowEngine;
 use Padosoft\LaravelFlow\Graph\GraphDefinition;
 use Padosoft\LaravelFlow\Graph\GraphNode;
@@ -16,6 +20,7 @@ use Padosoft\LaravelFlow\Tests\Fixtures\GraphNodes\CacheableEchoNode;
 use Padosoft\LaravelFlow\Tests\Fixtures\GraphNodes\CacheableSecretNode;
 use Padosoft\LaravelFlow\Tests\Fixtures\GraphNodes\CacheableTtlNode;
 use Padosoft\LaravelFlow\Tests\Unit\Persistence\PersistenceTestCase;
+use RuntimeException;
 
 final class NodeCacheTest extends PersistenceTestCase
 {
@@ -142,6 +147,31 @@ final class NodeCacheTest extends PersistenceTestCase
         $this->runner()->run($graph, []);
         $this->assertSame(2, CacheableSecretNode::$invocations);
         $this->assertSame(0, DB::table('flow_node_cache')->count());
+    }
+
+    public function test_cache_infrastructure_failure_does_not_abort_the_node(): void
+    {
+        // Best-effort caching: a cache backend that throws on read AND write must
+        // not fail the node — the handler runs and the run succeeds.
+        $this->app->bind(NodeCacheRepository::class, fn (): NodeCacheRepository => new class implements NodeCacheRepository
+        {
+            public function find(string $contentHash, DateTimeInterface $now): ?NodeCacheHit
+            {
+                throw new RuntimeException('cache read down');
+            }
+
+            public function put(string $contentHash, string $nodeType, array $outputs, ?array $businessImpact, ?DateTimeInterface $expiresAt): void
+            {
+                throw new RuntimeException('cache write down');
+            }
+        });
+
+        $result = $this->runner()->run($this->echoGraph(5), []);
+
+        $this->assertSame(RunState::Succeeded, $result->state);
+        $this->assertSame(NodeState::Succeeded, $result->nodeStates['c']);
+        $this->assertSame(1, CacheableEchoNode::$invocations, 'handler ran despite the cache failure');
+        $this->assertSame(['echoed' => 5], $result->nodeOutputs['c']);
     }
 
     public function test_ttl_expiry(): void

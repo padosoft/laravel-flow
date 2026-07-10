@@ -6,6 +6,7 @@ namespace Padosoft\LaravelFlow\Persistence;
 
 use DateTimeInterface;
 use Padosoft\LaravelFlow\Contracts\NodeCacheRepository;
+use Padosoft\LaravelFlow\Executor\NodeCacheHit;
 use Padosoft\LaravelFlow\Models\FlowNodeCacheRecord;
 
 /**
@@ -17,14 +18,23 @@ final class EloquentNodeCacheRepository implements NodeCacheRepository
         private readonly ?string $connection,
     ) {}
 
-    public function find(string $contentHash, DateTimeInterface $now): ?FlowNodeCacheRecord
+    public function find(string $contentHash, DateTimeInterface $now): ?NodeCacheHit
     {
-        return $this->newModel()->newQuery()
+        $row = $this->newModel()->newQuery()
             ->where('content_hash', $contentHash)
             ->where(function ($query) use ($now): void {
                 $query->whereNull('expires_at')->orWhere('expires_at', '>', $now);
             })
             ->first();
+
+        if ($row === null) {
+            return null;
+        }
+
+        return new NodeCacheHit(
+            is_array($row->outputs) ? $row->outputs : [],
+            is_array($row->business_impact) ? $row->business_impact : null,
+        );
     }
 
     public function put(string $contentHash, string $nodeType, array $outputs, ?array $businessImpact, ?DateTimeInterface $expiresAt): void

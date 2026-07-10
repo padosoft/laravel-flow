@@ -103,8 +103,8 @@ final class NodeExecutor
         if ($this->cache !== null && $store !== null && ! $dryRun && $definition->cacheable !== null) {
             // Caching is an optional optimization: a cache-infrastructure failure
             // (missing table mid-upgrade, DB or JSON error) must never abort node
-            // execution. On any failure, disable caching for this run and fall
-            // through to a normal handler execution.
+            // execution. On any failure, skip the cache for THIS node execution
+            // ($contentHash stays null) and fall through to a normal handler run.
             $hit = null;
 
             try {

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Padosoft\LaravelFlow;
 
 use Illuminate\Concurrency\ConcurrencyManager;
+use Illuminate\Contracts\Cache\Factory as CacheFactory;
 use Illuminate\Contracts\Concurrency\Driver as ConcurrencyDriver;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Contracts\Events\Dispatcher;
@@ -32,6 +33,7 @@ use Padosoft\LaravelFlow\Dashboard\Authorization\DenyAllAuthorizer;
 use Padosoft\LaravelFlow\Dashboard\FlowDashboardReadModel;
 use Padosoft\LaravelFlow\Executor\GraphRunner;
 use Padosoft\LaravelFlow\Executor\InputRouter;
+use Padosoft\LaravelFlow\Executor\JoinCoordinator;
 use Padosoft\LaravelFlow\Executor\NodeExecutor;
 use Padosoft\LaravelFlow\Executor\NodeResolver;
 use Padosoft\LaravelFlow\Executor\Nodes\MergeNode;
@@ -233,6 +235,18 @@ final class LaravelFlowServiceProvider extends ServiceProvider
                 $app->make(ReadinessResolver::class),
                 static fn (): \DateTimeImmutable => Date::now()->toDateTimeImmutable(),
                 $store,
+            );
+        });
+        $this->app->bind(JoinCoordinator::class, function (Container $app): JoinCoordinator {
+            $lockStore = $app['config']->get('laravel-flow.executor.lock_store')
+                ?? $app['config']->get('laravel-flow.queue.lock_store');
+
+            return new JoinCoordinator(
+                $app->make(NodeChildRepository::class),
+                $app->make(RunNodeRepository::class),
+                $app->make(CacheFactory::class),
+                static fn (): \DateTimeImmutable => Date::now()->toDateTimeImmutable(),
+                is_string($lockStore) && $lockStore !== '' ? $lockStore : null,
             );
         });
         $this->app->bind(QueueGraphCoordinator::class, function (Container $app): QueueGraphCoordinator {

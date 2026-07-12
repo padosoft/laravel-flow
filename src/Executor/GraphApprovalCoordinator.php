@@ -93,9 +93,11 @@ final class GraphApprovalCoordinator
         $sequence = array_search($nodeId, $graph->topologicalOrder(), true);
 
         // The decision IS the node's outcome — no handler attempt to run.
-        // `node_type`/`sequence` are RE-SUPPLIED even though the row already
-        // exists: the upsert's underlying INSERT clause must satisfy every
-        // NOT NULL column regardless of whether it resolves to an update.
+        // `node_type` is RE-SUPPLIED even though the row already exists: the
+        // upsert's underlying INSERT clause must satisfy every NOT NULL column
+        // (node_type — sequence is nullable) regardless of whether it resolves
+        // to an update; `sequence` is included too for consistency with every
+        // other write path, not because the schema requires it.
         // Explicitly clear error/backoff fields (same stale-field-clearing
         // discipline as a cache-hit persist): this row's only prior status was
         // `paused`, so they should already be null, but a defensive clear

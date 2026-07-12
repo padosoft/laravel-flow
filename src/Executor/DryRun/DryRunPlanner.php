@@ -7,7 +7,6 @@ namespace Padosoft\LaravelFlow\Executor\DryRun;
 use Padosoft\LaravelFlow\FlowDefinition;
 use Padosoft\LaravelFlow\Graph\GraphDefinition;
 use Padosoft\LaravelFlow\Graph\GraphNode;
-use Padosoft\LaravelFlow\Node\NodeDefinition;
 use Padosoft\LaravelFlow\Node\NodeRegistry;
 use Throwable;
 
@@ -19,8 +18,8 @@ use Throwable;
  *
  * The plan is OPTIMISTIC: a node's dry-run self-skip is only knowable at run
  * time, so every node lands in a wave (see {@see ExecutionPlan::$skipped}).
- * Cost hints are read from the already-reflected {@see NodeDefinition}s in the
- * {@see NodeRegistry} — no handler is EVER constructed by the planner (a
+ * Cost hints are read from the {@see NodeRegistry}'s already-reflected node
+ * definitions — no handler is EVER constructed by the planner (a
  * container-built handler could run side-effectful constructors, breaking the
  * zero-work contract). A node whose type is unregistered, a compiled v1 step
  * (whose definition carries no `#[Cost]`), or a node without a hint simply

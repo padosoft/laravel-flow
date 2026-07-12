@@ -31,8 +31,16 @@ final class EloquentNodeCacheRepository implements NodeCacheRepository
             return null;
         }
 
+        // A corrupted row (e.g. `outputs` that decoded to a non-array) must be
+        // treated as a MISS, not served: returning a hit with empty outputs
+        // would masquerade as a successful node execution. Falling through to
+        // null lets the handler run and recompute the real outputs.
+        if (! is_array($row->outputs)) {
+            return null;
+        }
+
         return new NodeCacheHit(
-            is_array($row->outputs) ? $row->outputs : [],
+            $row->outputs,
             is_array($row->business_impact) ? $row->business_impact : null,
         );
     }

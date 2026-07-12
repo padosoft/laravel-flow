@@ -155,10 +155,12 @@ final class NodeCacheTest extends PersistenceTestCase
         $this->assertSame(0, DB::table('flow_node_cache')->count());
     }
 
-    public function test_cache_infrastructure_failure_does_not_abort_the_node(): void
+    public function test_cache_read_failure_does_not_abort_the_node(): void
     {
-        // Best-effort caching: a cache backend that throws on read AND write must
-        // not fail the node — the handler runs and the run succeeds.
+        // Best-effort caching: a backend that throws on READ must not fail the
+        // node. The read throw clears $contentHash, so the write path is not
+        // reached — the handler runs and the run succeeds. (Write-failure is
+        // covered separately below, since it needs find() to return a miss.)
         $this->app->bind(NodeCacheRepository::class, fn (): NodeCacheRepository => new class implements NodeCacheRepository
         {
             public function find(string $contentHash, DateTimeInterface $now): ?NodeCacheHit
@@ -168,7 +170,7 @@ final class NodeCacheTest extends PersistenceTestCase
 
             public function put(string $contentHash, string $nodeType, array $outputs, ?array $businessImpact, ?DateTimeInterface $expiresAt): void
             {
-                throw new RuntimeException('cache write down');
+                throw new RuntimeException('put must not be reached when the read already threw');
             }
         });
 
@@ -183,6 +185,57 @@ final class NodeCacheTest extends PersistenceTestCase
 
         // The failure is logged (not silent) so a broken cache is observable.
         Log::shouldHaveReceived('warning')->atLeast()->once();
+    }
+
+    public function test_cache_write_failure_does_not_abort_the_node(): void
+    {
+        // A backend that MISSES on read but throws on WRITE must not fail a node
+        // whose handler already succeeded: find() returns null (so the write
+        // path IS reached), put() throws, and the run still succeeds.
+        $this->app->bind(NodeCacheRepository::class, fn (): NodeCacheRepository => new class implements NodeCacheRepository
+        {
+            public function find(string $contentHash, DateTimeInterface $now): ?NodeCacheHit
+            {
+                return null;
+            }
+
+            public function put(string $contentHash, string $nodeType, array $outputs, ?array $businessImpact, ?DateTimeInterface $expiresAt): void
+            {
+                throw new RuntimeException('cache write down');
+            }
+        });
+
+        Log::spy();
+
+        $result = $this->runner()->run($this->echoGraph(5), []);
+
+        $this->assertSame(RunState::Succeeded, $result->state);
+        $this->assertSame(NodeState::Succeeded, $result->nodeStates['c']);
+        $this->assertSame(1, CacheableEchoNode::$invocations, 'handler ran and produced its output');
+        $this->assertSame(['echoed' => 5], $result->nodeOutputs['c']);
+
+        // The write failure is logged (not silent) so a broken cache is observable.
+        Log::shouldHaveReceived('warning')->atLeast()->once();
+    }
+
+    public function test_corrupted_cache_row_is_served_as_a_miss(): void
+    {
+        // A row whose `outputs` decoded to a NON-array is corrupted. find() must
+        // return null (a miss) rather than a hit with empty outputs, or the node
+        // would "succeed" with no output. The handler then recomputes.
+        $repository = $this->app->make(NodeCacheRepository::class);
+
+        DB::table('flow_node_cache')->insert([
+            'content_hash' => 'corrupt-hash',
+            'node_type' => 'test.cache.echo',
+            'outputs' => json_encode('not-an-array'),
+            'business_impact' => null,
+            'expires_at' => null,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $this->assertNull($repository->find('corrupt-hash', now()), 'a corrupted row is a miss');
     }
 
     public function test_cache_hit_clears_stale_error_fields_from_a_prior_failed_attempt(): void

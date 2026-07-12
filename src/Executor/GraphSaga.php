@@ -22,9 +22,14 @@ use Throwable;
 
 /**
  * Graph-level saga compensation: when a graph run fails, ONLY the nodes that
- * completed ({@see NodeState::Succeeded}) roll back, in reverse-topological
- * order — a downstream node undoes its side effects before anything it
- * depended on. Three compensation sources compose:
+ * completed ({@see NodeState::Succeeded}) roll back — under the default
+ * `reverse-order` strategy in guaranteed reverse-topological order (a
+ * downstream node undoes its side effects before anything it depended on);
+ * under the opt-in `parallel` strategy compensators run CONCURRENTLY, trading
+ * that ordering guarantee for throughput (candidates are still batched in
+ * reverse-topological order, but completion order is nondeterministic — same
+ * contract as v1's parallel step compensation). Three compensation sources
+ * compose:
  *
  *  - a handler implementing {@see CompensatableNode} (`compensate(NodeContext)`,
  *    the context's `inputs` carry the node's recorded outputs);
@@ -103,6 +108,29 @@ final class GraphSaga
         }
 
         return new GraphSagaReport($compensated, $errors, $aggregateCompensated);
+    }
+
+    /**
+     * True when a compensation pass over this run would have anything to do:
+     * at least one compensatable candidate, a succeeded node whose handler no
+     * longer resolves (recorded as a failure), or a declared graph-level
+     * aggregate compensator. Side-effect-free (no compensator is executed), so
+     * a caller may use it under a row lock to CLAIM compensation before
+     * running the actual rollback outside the lock.
+     *
+     * @param  array<string, NodeState>  $nodeStates
+     */
+    public function hasCompensationWork(GraphDefinition $graph, array $nodeStates): bool
+    {
+        $aggregate = $graph->metadata['aggregate_compensator'] ?? null;
+
+        if (is_string($aggregate) && $aggregate !== '') {
+            return true;
+        }
+
+        [$candidates, $resolutionErrors] = $this->candidates($graph, $nodeStates);
+
+        return $candidates !== [] || $resolutionErrors !== [];
     }
 
     /**

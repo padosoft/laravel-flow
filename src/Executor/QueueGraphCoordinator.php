@@ -131,9 +131,10 @@ final class QueueGraphCoordinator
         $allTerminal = false;
         $settled = false;
         $finalized = false;
+        $compensationClaimed = false;
         $sequenceOf = array_flip($graph->topologicalOrder());
 
-        $this->connection()->transaction(function () use ($runId, $graph, $sequenceOf, &$claimed, &$allTerminal, &$settled, &$finalized): void {
+        $this->connection()->transaction(function () use ($runId, $graph, $sequenceOf, &$claimed, &$allTerminal, &$settled, &$finalized, &$compensationClaimed): void {
             // Serialize advancement: two coordinators for the same run cannot
             // interleave readiness resolution + claiming.
             $this->connection()->table('flow_runs')->where('id', $runId)->lockForUpdate()->first();
@@ -200,21 +201,31 @@ final class QueueGraphCoordinator
             if ($allTerminal || $settled) {
                 $finalized = $this->finalizeRun($runId, $graph);
             }
+
+            // CLAIM compensation under the SAME row lock (claim-before-execute,
+            // like the node claim): checked on the finalizing pass AND on every
+            // allTerminal retry, so a worker that finalized the run but died
+            // before rolling back does not skip compensation forever — the next
+            // coordinator retry re-enters here and finds the claim unrecorded.
+            // The row lock serializes duplicate coordinators, so exactly one
+            // pass ever claims; user compensators are never re-run.
+            if ($finalized || $allTerminal) {
+                $compensationClaimed = $this->claimCompensation($runId, $graph);
+            }
         });
 
         // Graph saga runs OUTSIDE the row lock (compensators are user code that
-        // must never hold a `flow_runs` lock) and only on the pass that actually
-        // finalized the run — finalizeRun's terminal-state gate guarantees a
-        // duplicate coordinator can never double-compensate. Running it BEFORE
-        // resumeParentIfChild makes a compensated child report `compensated` to
-        // the join ledger in the common case — but this ordering is BEST-EFFORT:
-        // under at-least-once delivery a duplicate coordinator (finalized=false,
-        // allTerminal=true) can drive the join with the pre-compensation
-        // `failed` status while this pass is still compensating. That is
-        // acceptable: both are truthful terminal states for the join (the
-        // ledger's status is audit detail; the child run row itself still ends
-        // `compensated`), and the join fires exactly once either way.
-        if ($finalized) {
+        // must never hold a `flow_runs` lock), only on the pass that CLAIMED
+        // compensation above. Running it BEFORE resumeParentIfChild makes a
+        // compensated child report `compensated` to the join ledger in the
+        // common case — but this ordering is BEST-EFFORT: under at-least-once
+        // delivery a duplicate coordinator can drive the join with the
+        // pre-compensation `failed` status while this pass is still
+        // compensating. That is acceptable: both are truthful terminal states
+        // for the join (the ledger's status is audit detail; the child run row
+        // itself still ends `compensated`), and the join fires exactly once
+        // either way.
+        if ($compensationClaimed) {
             $this->compensateIfFailed($runId, $graph);
         }
 
@@ -359,12 +370,59 @@ final class QueueGraphCoordinator
     }
 
     /**
-     * Trigger the graph saga for a run that just finalized on a failure state.
-     * Reads node states/outputs back from persistence (the queued path's only
-     * shared channel — under enabled redaction, compensators therefore see the
-     * REDACTED outputs, same caveat as inter-node routing). The run is marked
-     * `compensated` only on a FULL rollback; a partial one records
-     * `compensation_status = 'failed'` and keeps the failure status.
+     * CLAIM compensation for a run in a failure state. MUST be called under the
+     * `flow_runs` row lock: the lock serializes duplicate coordinators, so the
+     * read-then-write below is race-free and exactly one pass ever claims. The
+     * claim is recorded as a provisional `compensation_status = 'failed'` —
+     * truthful if this worker dies mid-rollback (compensation did not complete)
+     * and flipped to `'succeeded'` by {@see compensateIfFailed()} on a full
+     * rollback. A run with nothing to compensate is never claimed, keeping its
+     * `compensation_status` null.
+     */
+    private function claimCompensation(string $runId, GraphDefinition $graph): bool
+    {
+        if ($this->saga === null) {
+            return false;
+        }
+
+        $run = $this->store->runs()->find($runId);
+
+        if ($run === null) {
+            return false;
+        }
+
+        $state = RunState::tryFrom((string) $run->status);
+
+        if (! in_array($state, [RunState::Failed, RunState::PartiallySucceeded], true)) {
+            return false;
+        }
+
+        // Already claimed (by this pass on an earlier retry, or by a concurrent
+        // coordinator that held the lock first): never re-run user compensators.
+        if ($run->compensation_status !== null) {
+            return false;
+        }
+
+        // hasCompensationWork() is side-effect-free (no compensator executes),
+        // so scanning under the lock is safe and keeps a no-compensator run's
+        // compensation_status null.
+        if (! $this->saga->hasCompensationWork($graph, $this->store->runNodes()->states($runId))) {
+            return false;
+        }
+
+        $this->store->runs()->update($runId, ['compensation_status' => 'failed']);
+
+        return true;
+    }
+
+    /**
+     * Run the graph saga for a run whose compensation THIS pass claimed via
+     * {@see claimCompensation()}. Reads node states/outputs back from
+     * persistence (the queued path's only shared channel — under enabled
+     * redaction, compensators therefore see the REDACTED outputs, same caveat
+     * as inter-node routing). The run is marked `compensated` only on a FULL
+     * rollback; a partial one keeps the provisional
+     * `compensation_status = 'failed'` and the failure status.
      */
     private function compensateIfFailed(string $runId, GraphDefinition $graph): void
     {
@@ -409,6 +467,10 @@ final class QueueGraphCoordinator
         );
 
         if (! $report->attempted()) {
+            // Defensive: the claim found work but the saga attempted nothing —
+            // clear the provisional claim so the record does not overstate.
+            $this->store->runs()->update($runId, ['compensation_status' => null]);
+
             return;
         }
 

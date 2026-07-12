@@ -13,6 +13,7 @@ use Padosoft\LaravelFlow\Exceptions\FlowInputException;
 use Padosoft\LaravelFlow\Executor\GraphRunner;
 use Padosoft\LaravelFlow\Executor\GraphSaga;
 use Padosoft\LaravelFlow\Executor\NodeResolver;
+use Padosoft\LaravelFlow\Executor\QueueGraphCoordinator;
 use Padosoft\LaravelFlow\Executor\State\NodeState;
 use Padosoft\LaravelFlow\Executor\State\RunState;
 use Padosoft\LaravelFlow\FlowDefinition;
@@ -411,6 +412,66 @@ final class GraphSagaTest extends PersistenceTestCase
         $this->expectExceptionMessage('Unsupported compensation strategy [bogus]');
 
         $this->app->make(GraphRunner::class);
+    }
+
+    public function test_coordinator_retry_compensates_a_finalized_but_uncompensated_run(): void
+    {
+        // Crash-window recovery: the finalizing worker died AFTER finalizeRun
+        // committed the failure state but BEFORE the saga ran (simulated by
+        // seeding the terminal rows directly, compensation_status null). An
+        // allTerminal coordinator retry must claim and run the rollback instead
+        // of skipping compensation forever.
+        $this->app['config']->set('queue.default', 'sync');
+
+        $graph = new GraphDefinition(
+            [
+                new GraphNode('a', 'test.saga.comp'),
+                new GraphNode('f', 'test.fail'),
+            ],
+            [new Connection('a', 'out', 'f', 'in')],
+        );
+
+        DB::table('flow_runs')->insert([
+            'id' => 'crashed-run', 'definition_name' => 'graph', 'status' => 'partially_succeeded',
+            'engine' => 'graph', 'compensation_status' => null,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        DB::table('flow_run_nodes')->insert([
+            ['run_id' => 'crashed-run', 'node_id' => 'a', 'node_type' => 'test.saga.comp', 'status' => 'succeeded', 'outputs' => json_encode(['out' => ['produced_by' => 'a']]), 'created_at' => now(), 'updated_at' => now()],
+            ['run_id' => 'crashed-run', 'node_id' => 'f', 'node_type' => 'test.fail', 'status' => 'failed', 'outputs' => null, 'created_at' => now(), 'updated_at' => now()],
+        ]);
+
+        $this->app->make(QueueGraphCoordinator::class)->advance('crashed-run', $graph);
+
+        $this->assertSame(['a'], CompensatableRecordingNode::$log, 'the retry claimed and ran the pending rollback');
+
+        $run = DB::table('flow_runs')->where('id', 'crashed-run')->first();
+        $this->assertSame('compensated', $run->status);
+        $this->assertSame('succeeded', $run->compensation_status);
+    }
+
+    public function test_duplicate_coordinator_pass_never_reruns_compensators(): void
+    {
+        $this->app['config']->set('queue.default', 'sync');
+
+        $graph = new GraphDefinition(
+            [
+                new GraphNode('a', 'test.saga.comp'),
+                new GraphNode('f', 'test.fail'),
+            ],
+            [new Connection('a', 'out', 'f', 'in')],
+        );
+
+        $runId = $this->app->make(FlowEngine::class)->dispatchGraph($graph, []);
+        $this->assertSame(['a'], CompensatableRecordingNode::$log, 'first pass compensated');
+
+        // Duplicate delivery: a second advance() over the fully-terminal run
+        // must not re-claim (status left the failure states) nor re-run any
+        // user compensator.
+        $this->app->make(QueueGraphCoordinator::class)->advance($runId, $graph);
+
+        $this->assertSame(['a'], CompensatableRecordingNode::$log, 'no compensator re-ran on the duplicate pass');
+        $this->assertSame('compensated', DB::table('flow_runs')->where('id', $runId)->value('status'));
     }
 
     public function test_queued_run_compensates_on_failure(): void

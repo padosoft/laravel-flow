@@ -1,5 +1,14 @@
 # Progress
 
+## 2026-07-12 - Macro C / C-PR9 (DAG dry-run plan + cost)
+
+- PR #63 (C-PR8) MERGED into `task/v2c-graph-executor` (merge commit `81aaebc`) after 13 Copilot review rounds (notable hardening along the way: claim-under-lock compensation with crash-window recovery, structural O(N) claim scan, terminal-state-before-compensation ordering in GraphRunner).
+- Branch `task/v2c-09-dag-dry-run` (from `81aaebc`): Task 17 implemented — `#[Cost(estimate: [...])]` attribute (@api, validated at construction, reflected onto `NodeDefinition` via `costFor()`, advertised in `toArray()['cost']`); `Executor\DryRun\` namespace with `ExecutionPlan` + `CostEstimate` VOs and `DryRunPlanner::plan()` (Kahn waves off `topologicalOrder()`, cost summed per dimension, zero writes by construction, optimistic plan — `skipped` stays empty because self-skips are runtime-known, documented on the VO).
+- Tests: `DryRunPlannerTest` 6 tests (diamond 3 waves, cost sums hints, zero rows across all 5 persistence tables, optimistic full set, unresolvable node contributes no cost but still plans, cost reflected on the definition) + `CostAttributeTest` 4 validation tests. Contract pins for the 4 new @api classes + planner surface. README bullet + comparison row (conservative claims checked 2026-07-12). UPGRADE.md bullet.
+- Local gate GREEN (Herd PHP 8.5, vendor aligned to CI): Pint pass, PHPStan no errors, 772 tests (674 Unit + 5 Contract + 93 Arch).
+- PR #64 opened toward `task/v2c-graph-executor`; Copilot review loop in progress (round-1 found the planner constructing handlers via `NodeResolver` — fixed by switching to `NodeRegistry`-only definition reads, pinned by a constructor-probe regression test; later rounds hardened `#[Cost]` to reject non-finite amounts and cleaned up docs).
+- **Next step**: converge the remaining Copilot round(s) on PR #64, merge into `task/v2c-graph-executor`; then C-PR10 (approval gate node, `task/v2c-10-approval-gate-node`) which closes Macro C.
+
 ## 2026-07-12 - Macro C / C-PR8 (graph saga compensation)
 
 - PR #62 (C-PR7) MERGED into `task/v2c-graph-executor` (merge commit `bf00615`) after round-11 Copilot convergence (0 findings, CI green).

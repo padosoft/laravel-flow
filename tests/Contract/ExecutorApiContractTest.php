@@ -6,7 +6,11 @@ namespace Padosoft\LaravelFlow\Tests\Contract;
 
 use Padosoft\LaravelFlow\Contracts\NodeCacheRepository;
 use Padosoft\LaravelFlow\Executor\Attributes\Cacheable;
+use Padosoft\LaravelFlow\Executor\Attributes\Cost;
 use Padosoft\LaravelFlow\Executor\Attributes\Retry;
+use Padosoft\LaravelFlow\Executor\DryRun\CostEstimate;
+use Padosoft\LaravelFlow\Executor\DryRun\DryRunPlanner;
+use Padosoft\LaravelFlow\Executor\DryRun\ExecutionPlan;
 use Padosoft\LaravelFlow\Executor\GraphRunner;
 use Padosoft\LaravelFlow\Executor\GraphRunResult;
 use Padosoft\LaravelFlow\Executor\GraphSaga;
@@ -92,6 +96,10 @@ final class ExecutorApiContractTest extends TestCase
             GraphSaga::class,
             GraphSagaReport::class,
             CompensatableNode::class,
+            Cost::class,
+            DryRunPlanner::class,
+            ExecutionPlan::class,
+            CostEstimate::class,
         ];
 
         foreach ($classes as $class) {
@@ -113,6 +121,21 @@ final class ExecutorApiContractTest extends TestCase
         foreach (['attempted', 'fullySucceeded'] as $method) {
             $this->assertTrue((new ReflectionClass(GraphSagaReport::class))->hasMethod($method), $method);
         }
+    }
+
+    public function test_dry_run_planner_surface_is_pinned(): void
+    {
+        $this->assertTrue((new ReflectionClass(DryRunPlanner::class))->hasMethod('plan'));
+
+        foreach (['waves', 'skipped'] as $property) {
+            $this->assertTrue((new ReflectionClass(ExecutionPlan::class))->hasProperty($property), $property);
+        }
+
+        foreach (['perNode', 'total'] as $property) {
+            $this->assertTrue((new ReflectionClass(CostEstimate::class))->hasProperty($property), $property);
+        }
+
+        $this->assertTrue((new ReflectionClass(Cost::class))->hasProperty('estimate'));
     }
 
     public function test_state_transition_guards_are_pinned(): void

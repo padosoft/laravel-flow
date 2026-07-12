@@ -6,6 +6,7 @@ namespace Padosoft\LaravelFlow\Node;
 
 use InvalidArgumentException;
 use Padosoft\LaravelFlow\Executor\Attributes\Cacheable;
+use Padosoft\LaravelFlow\Executor\Attributes\Cost;
 use Padosoft\LaravelFlow\Executor\Attributes\Retry;
 use Padosoft\LaravelFlow\Executor\RetryPolicy;
 use Padosoft\LaravelFlow\Node\Attributes\FlowNode;
@@ -70,6 +71,7 @@ final class NodeDefinitionFactory
             handlerClass: $class,
             retry: $this->retryFor($reflection),
             cacheable: $this->cacheableFor($reflection),
+            cost: $this->costFor($reflection),
         );
     }
 
@@ -98,6 +100,34 @@ final class NodeDefinitionFactory
             return $attributes[0]->newInstance();
         } catch (\Throwable $e) {
             throw new InvalidNodeDefinitionException("Invalid #[Cacheable] on [{$reflection->getName()}]: {$e->getMessage()}", previous: $e);
+        }
+    }
+
+    /**
+     * Read the node's cost hints from a `#[Cost]` on `execute()` (preferred)
+     * or on the handler class. Returns null when neither declares one (the
+     * node advertises no cost estimate).
+     *
+     * @param  ReflectionClass<object>  $reflection
+     */
+    private function costFor(ReflectionClass $reflection): ?Cost
+    {
+        $attributes = $reflection->hasMethod('execute')
+            ? $reflection->getMethod('execute')->getAttributes(Cost::class)
+            : [];
+
+        if ($attributes === []) {
+            $attributes = $reflection->getAttributes(Cost::class);
+        }
+
+        if ($attributes === []) {
+            return null;
+        }
+
+        try {
+            return $attributes[0]->newInstance();
+        } catch (\Throwable $e) {
+            throw new InvalidNodeDefinitionException("Invalid #[Cost] on [{$reflection->getName()}]: {$e->getMessage()}", previous: $e);
         }
     }
 

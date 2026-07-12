@@ -962,20 +962,82 @@ class FlowEngine
         [$approval, $consumedNow] = $this->consumeApprovalDecisionForPausedRun($token, $decision, $payload, $actor, $redactor);
 
         if (! $consumedNow) {
-            // Duplicate resume/reject: the token was already decided by an
-            // earlier call. Idempotent — return the CURRENT run state without
+            $currentRun = $this->approvalRunRecord($approval, $store);
+
+            // Crash-window recovery: the token is ALREADY decided (this branch
+            // only reaches here once consumeApprovalDecisionForPausedRun found
+            // it non-pending) but the run is STILL `paused` — a prior call
+            // consumed the one-time token and then died (process crash,
+            // transient queue/DB failure) before the coordinator ever mutated
+            // the node or dispatched CoordinatorJob. The token can never be
+            // resubmitted, so THIS call must re-drive the coordinator itself or
+            // the run hangs paused forever. Safe to retry: the coordinator's own
+            // node-row write and Paused->Running CAS are idempotent, and
+            // CoordinatorJob's claim/finalize (C-PR8/9) tolerate duplicate
+            // delivery by construction.
+            if ($currentRun->status === FlowRun::STATUS_PAUSED) {
+                return $this->flowRunFromRecord(
+                    $this->driveGraphApprovalCoordinator($currentRun, $approval),
+                    $store,
+                );
+            }
+
+            // Otherwise a genuine duplicate resume/reject on an already fully
+            // processed decision: idempotent, return current state without
             // re-advancing or re-compensating.
-            return $this->flowRunFromRecord($this->approvalRunRecord($approval, $store), $store);
+            return $this->flowRunFromRecord($currentRun, $store);
         }
 
+        $updatedRun = $this->driveGraphApprovalCoordinator($preDecisionRunRecord, $approval);
+        $flowRun = $this->flowRunFromRecord($updatedRun, $store);
+
+        // Chained approval gates: if resuming/rejecting this gate advanced the
+        // graph straight into ANOTHER flow.approval node, that downstream
+        // node's token was already issued (NodeExecutor, mid-advance) but the
+        // plain value has nowhere else to surface — mirrors v1's downstream-
+        // gate token propagation on FlowRun::$approvalTokens.
+        if ($updatedRun->status === FlowRun::STATUS_PAUSED) {
+            $this->attachDownstreamGraphApprovalToken($flowRun, $updatedRun->id, $store, $redactor);
+        }
+
+        return $flowRun;
+    }
+
+    private function driveGraphApprovalCoordinator(FlowRunRecord $run, FlowApprovalRecord $approval): FlowRunRecord
+    {
         $decisionPayload = $approval->payload ?? [];
         $coordinator = $this->graphApprovalCoordinator();
 
-        $updatedRun = $decision === FlowApprovalRecord::STATUS_APPROVED
-            ? $coordinator->resume($preDecisionRunRecord, $approval->step_name, $decisionPayload)
-            : $coordinator->reject($preDecisionRunRecord, $approval->step_name, $decisionPayload);
+        return $approval->status === FlowApprovalRecord::STATUS_APPROVED
+            ? $coordinator->resume($run, $approval->step_name, $decisionPayload)
+            : $coordinator->reject($run, $approval->step_name, $decisionPayload);
+    }
 
-        return $this->flowRunFromRecord($updatedRun, $store);
+    private function attachDownstreamGraphApprovalToken(FlowRun $flowRun, string $runId, FlowStore $store, PayloadRedactor $redactor): void
+    {
+        $pausedNodeId = null;
+
+        foreach ($this->stepRecordsForRun($store, $runId) as $nodeRecord) {
+            if ($nodeRecord->status === 'paused') {
+                $pausedNodeId = (string) $nodeRecord->node_id;
+
+                break;
+            }
+        }
+
+        if ($pausedNodeId === null) {
+            return;
+        }
+
+        try {
+            $reissued = $this->approvalTokenManager($redactor)->reissuePendingForStep($runId, $pausedNodeId);
+        } catch (QueryException $e) {
+            throw $this->approvalPersistenceUnavailableException($e);
+        }
+
+        if ($reissued instanceof IssuedApprovalToken) {
+            $flowRun->approvalTokens[$pausedNodeId] = $reissued;
+        }
     }
 
     private function graphApprovalCoordinator(): GraphApprovalCoordinator

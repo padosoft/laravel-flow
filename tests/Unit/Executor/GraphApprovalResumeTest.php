@@ -166,6 +166,82 @@ final class GraphApprovalResumeTest extends PersistenceTestCase
         $this->engine()->reject('not-a-real-token');
     }
 
+    public function test_resume_recovers_from_a_consumed_token_whose_coordinator_never_ran(): void
+    {
+        // Crash-window: the token was already consumed as approved (a prior
+        // call reached the token-consume step) but the run is STILL `paused`
+        // — the coordinator never mutated the node / dispatched CoordinatorJob
+        // (process died, transient failure). Simulate that exact state by
+        // consuming the token directly, bypassing the engine entirely, then
+        // asserting a normal resume() call recovers instead of returning the
+        // stuck-paused run forever.
+        $paused = $this->runner()->run($this->gateThenProbeGraph(), []);
+        $token = $paused->approvalTokens['gate']->plainTextToken;
+
+        $manager = $this->app->make(ApprovalTokenManager::class);
+        $manager->approveForRunStatus($token, 'paused', [], ['decision' => 'ship']);
+
+        $stillPaused = DB::table('flow_runs')->where('id', $paused->runId)->first();
+        $this->assertSame('paused', $stillPaused->status, 'the simulated crash window: token consumed, coordinator never ran');
+
+        $resumedRun = $this->engine()->resume($token, ['decision' => 'ignored-second-payload']);
+
+        $this->assertSame('succeeded', $resumedRun->status, 'the recovery call re-drove the coordinator');
+        $this->assertSame(1, QueueProbeNode::count('downstream'));
+    }
+
+    public function test_reject_recovers_from_a_consumed_token_whose_coordinator_never_ran(): void
+    {
+        $graph = new GraphDefinition(
+            [
+                new GraphNode('a', 'test.saga.comp'),
+                new GraphNode('gate', 'flow.approval'),
+            ],
+            [new Connection('a', 'out', 'gate', 'in')],
+        );
+
+        $paused = $this->runner()->run($graph, []);
+        $token = $paused->approvalTokens['gate']->plainTextToken;
+
+        $manager = $this->app->make(ApprovalTokenManager::class);
+        $manager->rejectForRunStatus($token, 'paused', [], ['reason' => 'no']);
+
+        $rejectedRun = $this->engine()->reject($token, ['reason' => 'ignored-second-payload']);
+
+        $this->assertSame(['a'], CompensatableRecordingNode::$log, 'the recovery call re-drove the coordinator and compensated');
+        $this->assertSame('compensated', $rejectedRun->status);
+    }
+
+    public function test_resume_into_a_chained_approval_gate_surfaces_the_downstream_token(): void
+    {
+        $graph = new GraphDefinition(
+            [
+                new GraphNode('gate1', 'flow.approval'),
+                new GraphNode('gate2', 'flow.approval'),
+                new GraphNode('downstream', 'test.probe'),
+            ],
+            [
+                new Connection('gate1', 'out', 'gate2', 'in'),
+                new Connection('gate2', 'out', 'downstream', 'in'),
+            ],
+        );
+
+        $paused = $this->runner()->run($graph, []);
+        $firstToken = $paused->approvalTokens['gate1']->plainTextToken;
+
+        $resumedIntoGate2 = $this->engine()->resume($firstToken, ['decision' => 'ship']);
+
+        $this->assertSame('paused', $resumedIntoGate2->status, 'the graph paused again on the second gate');
+        $this->assertArrayHasKey('gate2', $resumedIntoGate2->approvalTokens, 'the downstream gate token is surfaced, mirroring v1');
+        $this->assertSame(0, QueueProbeNode::count('downstream'), 'downstream of the second gate has not run yet');
+
+        $secondToken = $resumedIntoGate2->approvalTokens['gate2']->plainTextToken;
+        $finalRun = $this->engine()->resume($secondToken, ['decision' => 'ship']);
+
+        $this->assertSame('succeeded', $finalRun->status);
+        $this->assertSame(1, QueueProbeNode::count('downstream'));
+    }
+
     public function test_resume_works_for_a_run_that_started_queued(): void
     {
         // A run started via dispatchGraph() ALREADY pre-seeds every node

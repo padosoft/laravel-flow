@@ -238,7 +238,13 @@ final class MacroCAcceptanceTest extends PersistenceTestCase
 
         $this->app->make(FlowEngine::class)->dryRunGraph($this->nestedFanoutApprovalGraph(), []);
 
-        foreach (['flow_runs', 'flow_run_nodes', 'flow_node_cache', 'flow_node_children', 'flow_audit'] as $table) {
+        // This graph contains a flow.approval node, so flow_approvals is a
+        // relevant table too (a dry run must never issue a pending approval
+        // record); flow_webhook_outbox is included for the same "every
+        // persistence table" completeness this graph's node set could touch.
+        // flow_definitions is intentionally excluded — setUp() legitimately
+        // publishes the 'doubler' child definition there.
+        foreach (['flow_runs', 'flow_run_nodes', 'flow_node_cache', 'flow_node_children', 'flow_audit', 'flow_approvals', 'flow_webhook_outbox'] as $table) {
             $this->assertSame(0, DB::table($table)->count(), "a dry run writes no {$table} rows");
         }
     }

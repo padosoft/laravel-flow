@@ -25,6 +25,7 @@ use Padosoft\LaravelFlow\Contracts\ApprovalRepository;
 use Padosoft\LaravelFlow\Contracts\AuditRepository;
 use Padosoft\LaravelFlow\Contracts\DefinitionRepository;
 use Padosoft\LaravelFlow\Contracts\FlowStore;
+use Padosoft\LaravelFlow\Contracts\NodeCacheRepository;
 use Padosoft\LaravelFlow\Contracts\NodeChildRepository;
 use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
 use Padosoft\LaravelFlow\Contracts\RunNodeRepository;
@@ -36,6 +37,7 @@ use Padosoft\LaravelFlow\Executor\ChildFlowRunner;
 use Padosoft\LaravelFlow\Executor\GraphRunner;
 use Padosoft\LaravelFlow\Executor\InputRouter;
 use Padosoft\LaravelFlow\Executor\JoinCoordinator;
+use Padosoft\LaravelFlow\Executor\NodeCache;
 use Padosoft\LaravelFlow\Executor\NodeExecutor;
 use Padosoft\LaravelFlow\Executor\NodeResolver;
 use Padosoft\LaravelFlow\Executor\Nodes\ForEachNode;
@@ -54,6 +56,7 @@ use Padosoft\LaravelFlow\Node\NodeRegistry;
 use Padosoft\LaravelFlow\Persistence\EloquentApprovalRepository;
 use Padosoft\LaravelFlow\Persistence\EloquentDefinitionRepository;
 use Padosoft\LaravelFlow\Persistence\EloquentFlowStore;
+use Padosoft\LaravelFlow\Persistence\EloquentNodeCacheRepository;
 use Padosoft\LaravelFlow\Persistence\EloquentNodeChildRepository;
 use Padosoft\LaravelFlow\Persistence\EloquentWebhookOutboxRepository;
 use Padosoft\LaravelFlow\Persistence\ExecutionScopedPayloadRedactor;
@@ -137,6 +140,12 @@ final class LaravelFlowServiceProvider extends ServiceProvider
             $connection = $app['config']->get('laravel-flow.default_storage');
 
             return new EloquentNodeChildRepository($connection, $app->make(ExecutionScopedPayloadRedactor::class));
+        });
+        $this->app->bind(NodeCacheRepository::class, function (Container $app): NodeCacheRepository {
+            /** @var string|null $connection */
+            $connection = $app['config']->get('laravel-flow.default_storage');
+
+            return new EloquentNodeCacheRepository($connection);
         });
         $this->app->bind(AuditRepository::class, fn (Container $app): AuditRepository => $app->make(FlowStore::class)->audit());
         $this->app->singleton(EloquentWebhookOutboxRepository::class, function (Container $app): EloquentWebhookOutboxRepository {
@@ -228,11 +237,23 @@ final class LaravelFlowServiceProvider extends ServiceProvider
         $this->app->singleton(ReadinessResolver::class);
         $this->app->singleton(InputRouter::class);
         $this->app->singleton(NodeResolver::class, fn (Container $app): NodeResolver => new NodeResolver($app->make(NodeRegistry::class), $app));
-        $this->app->singleton(NodeExecutor::class, fn (Container $app): NodeExecutor => new NodeExecutor(
-            $app->make(NodeResolver::class),
-            $app->make(InputRouter::class),
+        $this->app->bind(NodeCache::class, fn (Container $app): NodeCache => new NodeCache(
+            $app->make(NodeCacheRepository::class),
+            $app->make(ExecutionScopedPayloadRedactor::class),
             static fn (): \DateTimeImmutable => Date::now()->toDateTimeImmutable(),
         ));
+        $this->app->singleton(NodeExecutor::class, function (Container $app): NodeExecutor {
+            /** @var array<string, mixed> $persistence */
+            $persistence = $app['config']->get('laravel-flow.persistence', []);
+            $cache = (bool) ($persistence['enabled'] ?? false) ? $app->make(NodeCache::class) : null;
+
+            return new NodeExecutor(
+                $app->make(NodeResolver::class),
+                $app->make(InputRouter::class),
+                static fn (): \DateTimeImmutable => Date::now()->toDateTimeImmutable(),
+                $cache,
+            );
+        });
         $this->app->bind(GraphRunner::class, function (Container $app): GraphRunner {
             /** @var array<string, mixed> $persistence */
             $persistence = $app['config']->get('laravel-flow.persistence', []);
@@ -316,6 +337,7 @@ final class LaravelFlowServiceProvider extends ServiceProvider
             __DIR__.'/../database/migrations/2026_07_09_000009_migrate_flow_steps_to_run_nodes.php' => $this->app->databasePath('migrations/2026_07_09_000009_migrate_flow_steps_to_run_nodes.php'),
             __DIR__.'/../database/migrations/2026_07_09_000010_create_flow_node_children_table.php' => $this->app->databasePath('migrations/2026_07_09_000010_create_flow_node_children_table.php'),
             __DIR__.'/../database/migrations/2026_07_09_000011_add_graph_to_laravel_flow_runs.php' => $this->app->databasePath('migrations/2026_07_09_000011_add_graph_to_laravel_flow_runs.php'),
+            __DIR__.'/../database/migrations/2026_07_09_000012_create_flow_node_cache_table.php' => $this->app->databasePath('migrations/2026_07_09_000012_create_flow_node_cache_table.php'),
         ], 'laravel-flow-migrations');
 
         $this->commands([

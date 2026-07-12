@@ -4,10 +4,14 @@ declare(strict_types=1);
 
 namespace Padosoft\LaravelFlow\Tests\Contract;
 
+use Padosoft\LaravelFlow\Contracts\NodeCacheRepository;
+use Padosoft\LaravelFlow\Executor\Attributes\Cacheable;
 use Padosoft\LaravelFlow\Executor\Attributes\Retry;
 use Padosoft\LaravelFlow\Executor\GraphRunner;
 use Padosoft\LaravelFlow\Executor\GraphRunResult;
 use Padosoft\LaravelFlow\Executor\InputRouter;
+use Padosoft\LaravelFlow\Executor\NodeCache;
+use Padosoft\LaravelFlow\Executor\NodeCacheHit;
 use Padosoft\LaravelFlow\Executor\NodeExecutor;
 use Padosoft\LaravelFlow\Executor\NodeResolver;
 use Padosoft\LaravelFlow\Executor\Nodes\MergeNode;
@@ -78,6 +82,10 @@ final class ExecutorApiContractTest extends TestCase
             GraphRunResult::class,
             Retry::class,
             RetryPolicy::class,
+            Cacheable::class,
+            NodeCache::class,
+            NodeCacheHit::class,
+            NodeCacheRepository::class,
         ];
 
         foreach ($classes as $class) {

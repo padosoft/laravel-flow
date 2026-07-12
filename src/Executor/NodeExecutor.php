@@ -6,6 +6,7 @@ namespace Padosoft\LaravelFlow\Executor;
 
 use Closure;
 use DateTimeImmutable;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Sleep;
 use Padosoft\LaravelFlow\Contracts\FlowStore;
 use Padosoft\LaravelFlow\Executor\State\NodeState;
@@ -36,6 +37,7 @@ final class NodeExecutor
         private readonly NodeResolver $resolver,
         private readonly InputRouter $router,
         private readonly Closure $clock,
+        private readonly ?NodeCache $cache = null,
     ) {}
 
     /**
@@ -90,6 +92,63 @@ final class NodeExecutor
             ]);
 
             return new NodeExecution($node->id, NodeState::InvalidInput, [], $routed->violation);
+        }
+
+        $definition = $resolved->definition;
+        $contentHash = null;
+
+        // Content-hash cache: only for a #[Cacheable] node on a real persisted
+        // run. $store is null on a dry run / when persistence is off, so the
+        // cache is inert there (never read, never written).
+        if ($this->cache !== null && $store !== null && ! $dryRun && $definition->cacheable !== null) {
+            // Caching is an optional optimization: a cache-infrastructure failure
+            // (missing table mid-upgrade, DB or JSON error) must never abort node
+            // execution. On any failure, skip the cache for THIS node execution
+            // ($contentHash stays null) and fall through to a normal handler run.
+            $hit = null;
+
+            try {
+                $contentHash = $this->cache->hash($node->type, $routed->inputs, $node->config);
+                $hit = $this->cache->get($contentHash);
+            } catch (Throwable $e) {
+                $contentHash = null;
+                // Fail-safe, but not silent: an operator needs a signal that
+                // caching stopped working (e.g. a missing table mid-upgrade),
+                // otherwise it degrades invisibly. Log only the exception CLASS
+                // and code — a QueryException message embeds the SQL + bound
+                // params (the node payload), which must never reach the logs.
+                Log::warning('laravel-flow: node cache read failed; running the node without cache.', [
+                    'node_type' => $node->type,
+                    'exception' => $e::class,
+                    'code' => $e->getCode(),
+                ]);
+            }
+
+            if ($hit !== null) {
+                $finishedAt = ($this->clock)();
+                $this->persist($store, $runId, $node, $sequence, [
+                    'handler' => $definition->handlerClass,
+                    'attempts' => 0,
+                    'inputs' => $routed->inputs,
+                    'outputs' => $hit->outputs,
+                    'business_impact' => $hit->businessImpact,
+                    // Clear any error/backoff fields a PRIOR failed attempt on
+                    // this same (run_id, node_id) row left behind — the upsert
+                    // only writes provided keys, so a cache hit on a retry would
+                    // otherwise persist a `succeeded` row with stale error data.
+                    'error_class' => null,
+                    'error_message' => null,
+                    'available_at' => null,
+                    'dry_run_skipped' => false,
+                    'status' => NodeState::Succeeded->value,
+                    'cache_hit' => $contentHash,
+                    'started_at' => $startedAt,
+                    'finished_at' => $finishedAt,
+                    'duration_ms' => $this->durationMs($startedAt, $finishedAt),
+                ]);
+
+                return new NodeExecution($node->id, NodeState::Succeeded, $hit->outputs, null);
+            }
         }
 
         $context = new NodeContext($runId, $definitionName, $node->id, $routed->inputs, $dryRun, $queued);
@@ -149,6 +208,29 @@ final class NodeExecutor
             'finished_at' => $finishedAt,
             'duration_ms' => $this->durationMs($startedAt, $finishedAt),
         ]);
+
+        // Populate the cache after a fresh success (redaction gate + skip-on-
+        // divergence enforced inside NodeCache::put()). Best-effort: a failed
+        // cache write must not fail a node whose handler already succeeded.
+        // A paused result carries `success === true` too (it awaits external
+        // input); its partial outputs must NEVER be cached, or a later hit would
+        // be served as a completed `succeeded`, silently skipping the pause.
+        if ($contentHash !== null && $this->cache !== null && $definition->cacheable !== null && $result->success && ! $result->paused) {
+            try {
+                $this->cache->put($contentHash, $node->type, $result->outputs, $result->businessImpact, $definition->cacheable->ttl);
+            } catch (Throwable $e) {
+                // Optional optimization: a write failure never fails a node whose
+                // handler already succeeded, but log it (exception CLASS + code
+                // only — never the message, which for a QueryException embeds the
+                // SQL + bound params, i.e. the node payload) so a broken cache
+                // does not degrade invisibly.
+                Log::warning('laravel-flow: node cache write failed; the node succeeded without caching its output.', [
+                    'node_type' => $node->type,
+                    'exception' => $e::class,
+                    'code' => $e->getCode(),
+                ]);
+            }
+        }
 
         return new NodeExecution($node->id, $state, $result->success ? $result->outputs : [], $result->error);
     }

@@ -1,5 +1,16 @@
 # Progress
 
+## 2026-07-12 - Macro C / C-PR7 (node cache, PR #62)
+
+- Branch `task/v2c-07-node-cache` → base `task/v2c-graph-executor`. PR #62 OPEN.
+- Resumed after a machine restart. Round-9 Copilot review had surfaced two real defects on the already-pushed cache work:
+  1. `NodeExecutor` cached PAUSED node output (paused carries `success===true`) → fixed in `83ba961` (guard `success && ! paused` + `CacheablePausingNode` fixture + test).
+  2. `ContentHasher` collided objects to one hash (json_encode does not throw on objects) → fixed in `6b48c45` (new `UnhashableInputException`, fail-fast in `canonicalize()`, 2 tests). NodeExecutor's existing try/catch skips caching on throw.
+- Local gate GREEN on Herd PHP 8.5: Pint pass, PHPStan no errors, PHPUnit 740 tests (644 Unit + 5 Contract + 91 Arch) / all assertions pass.
+- Pushed head `6b48c45`. All 4 prior unresolved Copilot threads resolved (2 from earlier commits 440ef87/ed75472, 2 from these). Copilot re-requested (round 10, request registered via `gh pr edit`).
+- Lessons folded into `docs/LESSON.md` (2026-07-12 section): paused-carries-success guard rule; json_encode-object-collision → fail-fast hasher.
+- **Next step**: wait for round-10 CI (PHP 8.3/8.4/8.5 + CF Pages) green on `6b48c45` AND Copilot round-10 comments; resolve any new findings; merge PR #62 into `task/v2c-graph-executor`; then drive C-PR8 (graph saga compensation, `task/v2c-08-graph-saga`), C-PR9 (DAG dry-run), C-PR10 (approval gate node).
+
 ## 2026-05-03 - Durable Handoff
 
 This file is a durable handoff summary, not a per-poll CI/Copilot log. Detailed PR iteration history belongs in the relevant GitHub PR.

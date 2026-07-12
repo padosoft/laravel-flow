@@ -37,6 +37,7 @@ use Padosoft\LaravelFlow\Executor\GraphRunner;
 use Padosoft\LaravelFlow\Executor\GraphRunResult;
 use Padosoft\LaravelFlow\Executor\Jobs\CoordinatorJob;
 use Padosoft\LaravelFlow\Executor\QueueGraphCoordinator;
+use Padosoft\LaravelFlow\Executor\State\NodeState;
 use Padosoft\LaravelFlow\Graph\Exceptions\DefinitionSignatureException;
 use Padosoft\LaravelFlow\Graph\Exceptions\InvalidGraphException;
 use Padosoft\LaravelFlow\Graph\GraphDefinition;
@@ -1024,7 +1025,7 @@ class FlowEngine
         $pausedNodeIds = [];
 
         foreach ($this->stepRecordsForRun($store, $runId) as $nodeRecord) {
-            if ($nodeRecord->status === 'paused') {
+            if ($nodeRecord->status === NodeState::Paused->value) {
                 $pausedNodeIds[] = (string) $nodeRecord->node_id;
             }
         }

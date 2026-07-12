@@ -12,10 +12,12 @@ use Throwable;
 /**
  * Outcome of executing a single node through {@see NodeExecutor}: its terminal
  * state, the output port map (for downstream routing) and any error.
- * `$issuedApprovalToken` is non-null exactly when this execution paused an
- * {@see ApprovalGateNode} — mirrors v1's
- * `FlowRun::$approvalTokens`, surfaced up to {@see GraphRunResult} by the
- * synchronous runner.
+ * `$issuedApprovalToken` is set when this execution paused an
+ * {@see ApprovalGateNode} AND a token was actually issued — issuance is
+ * best-effort (gated on persistence being enabled, and can itself fail; see
+ * NodeExecutor's approval-token try/catch), so a paused ApprovalGateNode does
+ * NOT guarantee a non-null value here. Mirrors v1's `FlowRun::$approvalTokens`,
+ * surfaced up to {@see GraphRunResult} by the synchronous runner.
  *
  * @internal
  */

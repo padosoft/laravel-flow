@@ -173,12 +173,20 @@ final class GraphSaga
         $candidates = [];
         $errors = [];
 
+        // Build the id => node map once: node($id) is a linear scan, which
+        // would make this loop O(N^2) on large graphs.
+        $nodesById = [];
+
+        foreach ($graph->nodes as $graphNode) {
+            $nodesById[$graphNode->id] = $graphNode;
+        }
+
         foreach (array_reverse($graph->topologicalOrder()) as $id) {
             if (($nodeStates[$id] ?? NodeState::Pending) !== NodeState::Succeeded) {
                 continue;
             }
 
-            $node = $graph->node($id);
+            $node = $nodesById[$id] ?? null;
 
             if ($node === null) {
                 continue;

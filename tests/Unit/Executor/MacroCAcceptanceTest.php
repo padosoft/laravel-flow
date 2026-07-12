@@ -36,14 +36,16 @@ use Padosoft\LaravelFlow\Tests\Unit\Persistence\PersistenceTestCase;
  * Each clause reuses the SAME "fan-out with nested children, then an
  * approval-gate-shaped downstream" graph, run through the queued coordinator
  * (`QueueGraphCoordinator` — the same seam `Flow::dispatchGraph()` uses), on a
- * REAL database queue (`ControlNodeQueuedTest`'s proven pattern: a `jobs` table
- * drained via `queue:work --once` in a loop, each invocation a separate,
- * non-recursive process step) — NOT the `sync` driver. See
- * `docs/LESSON.md` (2026-07-13): fan-out (`maxConcurrency` spawning more than
- * one child) on the fully synchronous/recursive `sync` driver can self-deadlock
- * in `JoinCoordinator::childCompleted()` (confirmed while writing this test),
- * which the real-queue pattern here avoids structurally — every `Bus::dispatch()`
- * the system performs becomes a queue-table row, not a nested call.
+ * REAL database queue (`ControlNodeQueuedTest`'s proven pattern: a `jobs`
+ * table drained via `queue:work --once` in a loop — each `Artisan::call()`
+ * invocation runs in THIS same PHP process, but pulls its job from the DB
+ * queue table rather than executing it inline/recursively) — NOT the `sync`
+ * driver. See `docs/LESSON.md` (2026-07-13): fan-out (`maxConcurrency`
+ * spawning more than one child) on the fully synchronous/recursive `sync`
+ * driver can self-deadlock in `JoinCoordinator::childCompleted()` (confirmed
+ * while writing this test), which the real-queue pattern here avoids
+ * structurally — every `Bus::dispatch()` the system performs becomes a
+ * queue-table row, not a nested call.
  */
 final class MacroCAcceptanceTest extends PersistenceTestCase
 {
@@ -176,8 +178,14 @@ final class MacroCAcceptanceTest extends PersistenceTestCase
         $this->assertSame(1, QueueProbeNode::count('downstream'));
 
         // A second, duplicate resume of the same (now-consumed) token must not
-        // re-advance the run — a real-world redelivered approval callback.
+        // re-advance the run — a real-world redelivered approval callback. On
+        // the real DB queue, resume() can return after enqueueing follow-up
+        // jobs but before they execute — drain (asserting the queue ends
+        // empty) BEFORE checking the invocation count, or a regression that
+        // re-dispatches on an already-consumed token would pass here while
+        // leaving duplicate work sitting undetected in `jobs`.
         $duplicateResume = $this->app->make(FlowEngine::class)->resume($token, ['decision' => 'ignored']);
+        $this->drainQueue();
         $this->assertSame(RunState::Succeeded->value, $duplicateResume->status);
         $this->assertSame(1, QueueProbeNode::count('downstream'), 'the duplicate resume did not re-run downstream');
     }
@@ -255,12 +263,15 @@ final class MacroCAcceptanceTest extends PersistenceTestCase
             ],
         );
 
-        $this->app->make(FlowEngine::class)->dispatchGraph($graph, []);
+        $runId = $this->app->make(FlowEngine::class)->dispatchGraph($graph, []);
         $this->drainQueue();
 
         $this->assertSame(['comp2', 'comp1'], CompensatableRecordingNode::$log, 'compensation ran in reverse-topological order');
 
-        $run = DB::table('flow_runs')->first();
+        // The fan-out spawns its own child runs in flow_runs — query the
+        // PARENT run explicitly by id, not first(), which is order-dependent
+        // and could pick a succeeded child instead of the compensated parent.
+        $run = DB::table('flow_runs')->where('id', $runId)->first();
         $this->assertSame('compensated', $run->status);
         $this->assertTrue((bool) $run->compensated);
     }

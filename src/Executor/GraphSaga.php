@@ -131,14 +131,11 @@ final class GraphSaga
             return true;
         }
 
-        foreach ($graph->nodeIds() as $id) {
-            if (($nodeStates[$id] ?? NodeState::Pending) !== NodeState::Succeeded) {
-                continue;
-            }
-
-            $node = $graph->node($id);
-
-            if ($node === null) {
+        // Iterate the node list directly (node($id) is a linear scan, which
+        // would make this O(N^2) under the caller's row lock); order is
+        // irrelevant for a boolean check.
+        foreach ($graph->nodes as $node) {
+            if (($nodeStates[$node->id] ?? NodeState::Pending) !== NodeState::Succeeded) {
                 continue;
             }
 

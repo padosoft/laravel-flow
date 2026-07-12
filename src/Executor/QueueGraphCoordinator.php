@@ -376,8 +376,12 @@ final class QueueGraphCoordinator
      * claim is recorded as a provisional `compensation_status = 'failed'` —
      * truthful if this worker dies mid-rollback (compensation did not complete)
      * and flipped to `'succeeded'` by {@see compensateIfFailed()} on a full
-     * rollback. A run with nothing to compensate is never claimed, keeping its
-     * `compensation_status` null.
+     * rollback. The claim is CONSERVATIVE: a run whose succeeded regular nodes
+     * turn out not to be compensatable is claimed and then CLEARED by
+     * {@see compensateIfFailed()} when the saga attempts nothing, so it still
+     * ends with `compensation_status` null; only a run with no structural
+     * compensation work at all (no aggregate, no legacy compensator, no
+     * succeeded regular node) skips the claim outright.
      */
     private function claimCompensation(string $runId, GraphDefinition $graph): bool
     {

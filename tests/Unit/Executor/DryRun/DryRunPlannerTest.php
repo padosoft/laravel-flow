@@ -10,6 +10,7 @@ use Padosoft\LaravelFlow\Graph\Connection;
 use Padosoft\LaravelFlow\Graph\GraphDefinition;
 use Padosoft\LaravelFlow\Graph\GraphNode;
 use Padosoft\LaravelFlow\Node\NodeRegistry;
+use Padosoft\LaravelFlow\Tests\Fixtures\GraphNodes\ConstructorProbeNode;
 use Padosoft\LaravelFlow\Tests\Fixtures\GraphNodes\CostedNode;
 use Padosoft\LaravelFlow\Tests\Fixtures\GraphNodes\QueueProbeNode;
 use Padosoft\LaravelFlow\Tests\Unit\Persistence\PersistenceTestCase;
@@ -21,6 +22,7 @@ final class DryRunPlannerTest extends PersistenceTestCase
         parent::defineEnvironment($app);
         $app['config']->set('laravel-flow.persistence.enabled', true);
         $app['config']->set('laravel-flow.nodes.handlers', [
+            ConstructorProbeNode::class,
             CostedNode::class,
             QueueProbeNode::class,
         ]);
@@ -131,6 +133,22 @@ final class DryRunPlannerTest extends PersistenceTestCase
         $this->assertSame([['a'], ['x']], $plan->waves);
         $this->assertArrayNotHasKey('x', $cost->perNode);
         $this->assertSame(['tokens' => 100, 'cents' => 2], $cost->total);
+    }
+
+    public function test_planning_never_constructs_a_handler(): void
+    {
+        // The planner reads definitions from the registry only; constructing a
+        // handler could run side-effectful constructors, breaking the
+        // zero-work contract. The cost hint must still be read (from the
+        // reflected definition, not an instance).
+        ConstructorProbeNode::$constructions = 0;
+
+        $graph = new GraphDefinition([new GraphNode('n', 'test.ctorprobe')], []);
+
+        ['cost' => $cost] = $this->planner()->plan($graph, []);
+
+        $this->assertSame(0, ConstructorProbeNode::$constructions, 'no handler was constructed during planning');
+        $this->assertSame(['tokens' => 5], $cost->perNode['n'], 'the hint still comes from the reflected definition');
     }
 
     public function test_cost_hint_is_reflected_onto_the_node_definition(): void

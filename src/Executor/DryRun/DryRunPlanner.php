@@ -4,10 +4,11 @@ declare(strict_types=1);
 
 namespace Padosoft\LaravelFlow\Executor\DryRun;
 
-use Padosoft\LaravelFlow\Executor\NodeResolver;
+use Padosoft\LaravelFlow\FlowDefinition;
 use Padosoft\LaravelFlow\Graph\GraphDefinition;
 use Padosoft\LaravelFlow\Graph\GraphNode;
 use Padosoft\LaravelFlow\Node\NodeDefinition;
+use Padosoft\LaravelFlow\Node\NodeRegistry;
 use Throwable;
 
 /**
@@ -18,16 +19,19 @@ use Throwable;
  *
  * The plan is OPTIMISTIC: a node's dry-run self-skip is only knowable at run
  * time, so every node lands in a wave (see {@see ExecutionPlan::$skipped}).
- * Cost hints come from each resolved handler's `#[Cost]` attribute (reflected
- * onto {@see NodeDefinition}); a node whose handler
- * cannot be resolved or declares no hint simply contributes no cost.
+ * Cost hints are read from the already-reflected {@see NodeDefinition}s in the
+ * {@see NodeRegistry} — no handler is EVER constructed by the planner (a
+ * container-built handler could run side-effectful constructors, breaking the
+ * zero-work contract). A node whose type is unregistered, a compiled v1 step
+ * (whose definition carries no `#[Cost]`), or a node without a hint simply
+ * contributes no cost.
  *
  * @api
  */
 final class DryRunPlanner
 {
     public function __construct(
-        private readonly NodeResolver $resolver,
+        private readonly NodeRegistry $registry,
     ) {}
 
     /**
@@ -107,12 +111,17 @@ final class DryRunPlanner
      */
     private function estimateFor(GraphNode $node): ?array
     {
-        // A node that fails to resolve (unknown type, unbound handler) simply
-        // advertises no cost — the planner is advisory and must never abort a
-        // plan over a hint. Execution-time resolution failures keep their own
-        // failed-node handling in the executor.
+        // Definitions only, straight from the registry: constructing a handler
+        // here (as NodeResolver would) could run side-effectful constructors,
+        // breaking the planner's zero-work contract. A compiled v1 step's
+        // definition carries no #[Cost], and an unknown type simply advertises
+        // no cost — the planner is advisory and must never abort over a hint.
+        if ($node->type === FlowDefinition::LEGACY_NODE_TYPE) {
+            return null;
+        }
+
         try {
-            return $this->resolver->resolve($node)->definition->cost?->estimate;
+            return $this->registry->get($node->type)->cost?->estimate;
         } catch (Throwable) {
             return null;
         }

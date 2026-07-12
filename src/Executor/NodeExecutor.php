@@ -212,7 +212,10 @@ final class NodeExecutor
         // Populate the cache after a fresh success (redaction gate + skip-on-
         // divergence enforced inside NodeCache::put()). Best-effort: a failed
         // cache write must not fail a node whose handler already succeeded.
-        if ($contentHash !== null && $this->cache !== null && $definition->cacheable !== null && $result->success) {
+        // A paused result carries `success === true` too (it awaits external
+        // input); its partial outputs must NEVER be cached, or a later hit would
+        // be served as a completed `succeeded`, silently skipping the pause.
+        if ($contentHash !== null && $this->cache !== null && $definition->cacheable !== null && $result->success && ! $result->paused) {
             try {
                 $this->cache->put($contentHash, $node->type, $result->outputs, $result->businessImpact, $definition->cacheable->ttl);
             } catch (Throwable $e) {

@@ -20,6 +20,7 @@ use Padosoft\LaravelFlow\FlowEngine;
 use Padosoft\LaravelFlow\Graph\GraphDefinition;
 use Padosoft\LaravelFlow\Graph\GraphNode;
 use Padosoft\LaravelFlow\Tests\Fixtures\GraphNodes\CacheableEchoNode;
+use Padosoft\LaravelFlow\Tests\Fixtures\GraphNodes\CacheablePausingNode;
 use Padosoft\LaravelFlow\Tests\Fixtures\GraphNodes\CacheableSecretNode;
 use Padosoft\LaravelFlow\Tests\Fixtures\GraphNodes\CacheableTtlNode;
 use Padosoft\LaravelFlow\Tests\Unit\Persistence\PersistenceTestCase;
@@ -33,6 +34,7 @@ final class NodeCacheTest extends PersistenceTestCase
         $app['config']->set('laravel-flow.persistence.enabled', true);
         $app['config']->set('laravel-flow.nodes.handlers', [
             CacheableEchoNode::class,
+            CacheablePausingNode::class,
             CacheableSecretNode::class,
             CacheableTtlNode::class,
         ]);
@@ -43,6 +45,7 @@ final class NodeCacheTest extends PersistenceTestCase
         parent::setUp();
         $this->migrateFlowTables();
         CacheableEchoNode::$invocations = 0;
+        CacheablePausingNode::$invocations = 0;
         CacheableSecretNode::$invocations = 0;
         CacheableTtlNode::$invocations = 0;
     }
@@ -227,6 +230,23 @@ final class NodeCacheTest extends PersistenceTestCase
         $this->assertNull($row->error_class, 'stale error class cleared');
         $this->assertNull($row->error_message, 'stale error message cleared');
         $this->assertNull($row->available_at, 'stale backoff gate cleared');
+    }
+
+    public function test_paused_result_is_never_cached(): void
+    {
+        // A paused NodeResult carries `success === true` but its output is
+        // partial (the node awaits external input). Caching it would let a later
+        // run be served as a completed `succeeded`, silently skipping the pause.
+        $graph = new GraphDefinition([new GraphNode('p', 'test.cache.pausing', ['value' => 5])], []);
+
+        $this->runner()->run($graph, []);
+        $this->assertSame(0, DB::table('flow_node_cache')->count(), 'a paused output is never cached');
+
+        // A second run is therefore still a miss: the handler pauses again rather
+        // than being resolved from a bogus cache entry.
+        $this->runner()->run($graph, []);
+        $this->assertSame(2, CacheablePausingNode::$invocations, 'no cache hit for a paused node');
+        $this->assertSame(0, DB::table('flow_node_cache')->count());
     }
 
     public function test_ttl_expiry(): void

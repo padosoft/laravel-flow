@@ -200,7 +200,7 @@ final class GraphSaga
         }
 
         try {
-            /** @var array<int, array{success: bool, error_message?: string}> $results */
+            /** @var array<int, mixed> $results */
             $results = $this->concurrencyDriver->run($tasks);
         } catch (Throwable) {
             // The driver could not run the batch (e.g. no process runtime):
@@ -216,15 +216,20 @@ final class GraphSaga
             $id = $candidate['node']->id;
             $result = $results[$index] ?? null;
 
-            if (is_array($result) && ($result['success'] ?? false) === true) {
+            if (! is_array($result)) {
+                $errors[$id] = 'Parallel compensation task did not return a result.';
+
+                continue;
+            }
+
+            if (($result['success'] ?? false) === true) {
                 $compensated[] = $id;
 
                 continue;
             }
 
-            $errors[$id] = is_array($result)
-                ? (string) ($result['error_message'] ?? 'Parallel compensation task failed.')
-                : 'Parallel compensation task did not return a result.';
+            $message = $result['error_message'] ?? null;
+            $errors[$id] = is_string($message) && $message !== '' ? $message : 'Parallel compensation task failed.';
         }
 
         return [$compensated, $errors];

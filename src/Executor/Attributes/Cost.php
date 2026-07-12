@@ -39,6 +39,14 @@ final class Cost
                 throw new InvalidArgumentException("#[Cost] estimate [{$dimension}] must be an int or float.");
             }
 
+            // A non-finite float (NAN/INF) would poison the planner's summed
+            // totals and break JSON serialization when the definition is
+            // projected via toArray() — reject it here, same as a negative
+            // amount.
+            if (is_float($amount) && ! is_finite($amount)) {
+                throw new InvalidArgumentException("#[Cost] estimate [{$dimension}] must be a finite number.");
+            }
+
             if ($amount < 0) {
                 throw new InvalidArgumentException("#[Cost] estimate [{$dimension}] must not be negative.");
             }

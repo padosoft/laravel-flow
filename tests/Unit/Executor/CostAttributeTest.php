@@ -42,4 +42,18 @@ final class CostAttributeTest extends TestCase
 
         new Cost(estimate: ['cents' => -1]);
     }
+
+    public function test_nan_amount_is_rejected(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+
+        new Cost(estimate: ['tokens' => NAN]);
+    }
+
+    public function test_infinite_amount_is_rejected(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+
+        new Cost(estimate: ['tokens' => INF]);
+    }
 }

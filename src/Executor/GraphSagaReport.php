@@ -19,7 +19,7 @@ namespace Padosoft\LaravelFlow\Executor;
 final readonly class GraphSagaReport
 {
     /**
-     * @param  list<string>  $compensatedNodeIds  in the order they compensated
+     * @param  list<string>  $compensatedNodeIds  in deterministic reverse-topological candidate order — under the sequential strategy this IS the execution order; under `parallel` the tasks complete in nondeterministic order and this list reflects the batching order, not completion order
      * @param  array<string, string>  $errors  node id (or aggregate key) => error message
      */
     public function __construct(

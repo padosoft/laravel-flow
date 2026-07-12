@@ -205,9 +205,15 @@ final class QueueGraphCoordinator
         // Graph saga runs OUTSIDE the row lock (compensators are user code that
         // must never hold a `flow_runs` lock) and only on the pass that actually
         // finalized the run — finalizeRun's terminal-state gate guarantees a
-        // duplicate coordinator can never double-compensate. It runs BEFORE the
-        // parent join is driven so a child that compensates reports its final
-        // status (`compensated`) to the join ledger, not a transient `failed`.
+        // duplicate coordinator can never double-compensate. Running it BEFORE
+        // resumeParentIfChild makes a compensated child report `compensated` to
+        // the join ledger in the common case — but this ordering is BEST-EFFORT:
+        // under at-least-once delivery a duplicate coordinator (finalized=false,
+        // allTerminal=true) can drive the join with the pre-compensation
+        // `failed` status while this pass is still compensating. That is
+        // acceptable: both are truthful terminal states for the join (the
+        // ledger's status is audit detail; the child run row itself still ends
+        // `compensated`), and the join fires exactly once either way.
         if ($finalized) {
             $this->compensateIfFailed($runId, $graph);
         }

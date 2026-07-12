@@ -8,6 +8,7 @@ use Closure;
 use Illuminate\Contracts\Concurrency\Driver as ConcurrencyDriver;
 use Illuminate\Support\Defer\DeferredCallback;
 use Illuminate\Support\Facades\DB;
+use Padosoft\LaravelFlow\Exceptions\FlowInputException;
 use Padosoft\LaravelFlow\Executor\GraphRunner;
 use Padosoft\LaravelFlow\Executor\GraphSaga;
 use Padosoft\LaravelFlow\Executor\NodeResolver;
@@ -123,10 +124,10 @@ final class GraphSagaTest extends PersistenceTestCase
         $this->assertEqualsCanonicalizing(['a', 'b', 'c', 'd'], $log);
 
         $position = array_flip($log);
-        $this->assertLessThan($position['b'], $position['d'], 'd compensates before b');
-        $this->assertLessThan($position['c'], $position['d'], 'd compensates before c');
-        $this->assertLessThan($position['a'], $position['b'], 'b compensates before a');
-        $this->assertLessThan($position['a'], $position['c'], 'c compensates before a');
+        $this->assertTrue($position['d'] < $position['b'], 'd compensates before b');
+        $this->assertTrue($position['d'] < $position['c'], 'd compensates before c');
+        $this->assertTrue($position['b'] < $position['a'], 'b compensates before a');
+        $this->assertTrue($position['c'] < $position['a'], 'c compensates before a');
 
         $this->assertSame(RunState::Compensated, $result->state);
     }
@@ -295,6 +296,19 @@ final class GraphSagaTest extends PersistenceTestCase
         $this->app->make(FlowEngine::class)->dryRunGraph($graph, []);
 
         $this->assertSame([], CompensatableRecordingNode::$log, 'compensation is a real side effect: never on a dry run');
+    }
+
+    public function test_unsupported_compensation_strategy_fails_fast_at_resolution(): void
+    {
+        // A bad config must surface on the FIRST graph run (container
+        // resolution), not mid-failure after nodes already ran — mirroring
+        // v1's early rejection of an unsupported compensation_strategy.
+        $this->app['config']->set('laravel-flow.compensation_strategy', 'bogus');
+
+        $this->expectException(FlowInputException::class);
+        $this->expectExceptionMessage('Unsupported compensation strategy [bogus]');
+
+        $this->app->make(GraphRunner::class);
     }
 
     public function test_queued_run_compensates_on_failure(): void

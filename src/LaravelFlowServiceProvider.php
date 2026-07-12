@@ -33,6 +33,7 @@ use Padosoft\LaravelFlow\Contracts\RunRepository;
 use Padosoft\LaravelFlow\Dashboard\Authorization\DashboardActionAuthorizer;
 use Padosoft\LaravelFlow\Dashboard\Authorization\DenyAllAuthorizer;
 use Padosoft\LaravelFlow\Dashboard\FlowDashboardReadModel;
+use Padosoft\LaravelFlow\Exceptions\FlowInputException;
 use Padosoft\LaravelFlow\Executor\ChildFlowRunner;
 use Padosoft\LaravelFlow\Executor\GraphRunner;
 use Padosoft\LaravelFlow\Executor\GraphSaga;
@@ -333,8 +334,10 @@ final class LaravelFlowServiceProvider extends ServiceProvider
     /**
      * The graph saga reuses v1's `compensation_strategy` config key so both
      * engines follow one deployment-wide compensation policy. A non-string or
-     * blank value falls back to reverse-order; an unsupported literal is left
-     * for {@see GraphSaga} to reject with the same error as v1.
+     * blank value falls back to reverse-order; an unsupported literal FAILS
+     * FAST here (at container resolution, mirroring v1's early rejection) so a
+     * bad deploy surfaces on the first graph run rather than mid-failure —
+     * after nodes already ran and exactly when rollback was needed.
      */
     private function graphCompensationStrategy(Container $app): string
     {
@@ -344,7 +347,18 @@ final class LaravelFlowServiceProvider extends ServiceProvider
             return GraphSaga::STRATEGY_REVERSE_ORDER;
         }
 
-        return trim($strategy);
+        $strategy = trim($strategy);
+
+        if (! in_array($strategy, [GraphSaga::STRATEGY_REVERSE_ORDER, GraphSaga::STRATEGY_PARALLEL], true)) {
+            throw new FlowInputException(sprintf(
+                'Unsupported compensation strategy [%s]. Supported strategies: %s, %s.',
+                $strategy,
+                GraphSaga::STRATEGY_REVERSE_ORDER,
+                GraphSaga::STRATEGY_PARALLEL,
+            ));
+        }
+
+        return $strategy;
     }
 
     public function boot(): void

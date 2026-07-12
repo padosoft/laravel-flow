@@ -276,9 +276,12 @@ final class GraphSaga
         $outputs = $nodeOutputs[$node->id] ?? [];
 
         if ($candidate['legacyCompensator'] !== null) {
-            // v1 semantics preserved 1:1: the compensator receives the original
-            // run input via FlowContext and the step's result rebuilt from the
-            // adapted node's single `output` port.
+            // The compensator receives the original run input via FlowContext
+            // and the step's result rebuilt from the adapted node's single
+            // `output` port. `stepOutputs` is deliberately empty — matching how
+            // LegacyStepNodeAdapter EXECUTES adapted steps in a graph (upstream
+            // data travels through input ports, never the v1 stepOutputs map),
+            // so a compensator sees the same context shape its handler did.
             $stepOutput = $outputs['output'] ?? [];
             $this->makeV1Compensator($candidate['legacyCompensator'], $node->id)->compensate(
                 new FlowContext(

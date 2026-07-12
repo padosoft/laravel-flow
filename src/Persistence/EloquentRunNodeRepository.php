@@ -44,8 +44,14 @@ final class EloquentRunNodeRepository implements RunNodeRepository
 
     public function forRun(string $runId): Collection
     {
+        // A bare `orderBy('sequence')` relies on the DB driver's default NULL
+        // ordering, which is NOT portable: MySQL/SQLite sort NULL first in
+        // ASC, PostgreSQL sorts NULL LAST by default. The explicit CASE WHEN
+        // guarantees the documented "null sorts before sequenced rows"
+        // contract identically across every driver Laravel supports.
         return $this->newModel()->newQuery()
             ->where('run_id', $runId)
+            ->orderByRaw('CASE WHEN sequence IS NULL THEN 0 ELSE 1 END')
             ->orderBy('sequence')
             ->orderBy('id')
             ->get();

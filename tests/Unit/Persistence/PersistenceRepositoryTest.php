@@ -1206,6 +1206,33 @@ final class PersistenceRepositoryTest extends PersistenceTestCase
             ->delete();
     }
 
+    public function test_for_run_sorts_null_sequence_rows_before_sequenced_rows(): void
+    {
+        // Explicit CASE WHEN in the query, not the DB driver's default NULL
+        // ordering (MySQL/SQLite sort NULL first in ASC, PostgreSQL sorts
+        // NULL LAST by default) — the contract must hold on every driver.
+        $this->migrateFlowTables();
+        $this->createAuditRun('00000000-0000-4000-8000-000000000200');
+
+        $steps = $this->app->make(RunNodeRepository::class);
+
+        // Insert sequenced rows FIRST, then a null-sequence row, so the test
+        // cannot pass by accident of insertion/id order.
+        $steps->createOrUpdate('00000000-0000-4000-8000-000000000200', 'b', [
+            'node_type' => 'test.node', 'sequence' => 1, 'status' => 'succeeded',
+        ]);
+        $steps->createOrUpdate('00000000-0000-4000-8000-000000000200', 'c', [
+            'node_type' => 'test.node', 'sequence' => 2, 'status' => 'succeeded',
+        ]);
+        $steps->createOrUpdate('00000000-0000-4000-8000-000000000200', 'a', [
+            'node_type' => 'test.node', 'sequence' => null, 'status' => 'blocked',
+        ]);
+
+        $ordered = $steps->forRun('00000000-0000-4000-8000-000000000200')->pluck('node_id')->all();
+
+        $this->assertSame(['a', 'b', 'c'], $ordered, 'the null-sequence row sorts before sequenced rows on every driver');
+    }
+
     private function createAuditRun(string $runId): void
     {
         DB::table('flow_runs')->insert([

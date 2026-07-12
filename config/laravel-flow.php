@@ -239,16 +239,19 @@ return [
     | Graph executor (v2 graph engine)
     |--------------------------------------------------------------------------
     |
-    | Runtime knobs for the event-driven graph executor. These are inert for
-    | the v1 linear engine, which keeps its own execution and step-timeout
-    | settings above; they take effect only for graph runs, reached through
-    | the graph executor's dedicated entry points that arrive later in the
-    | Flow 2.0 Macro C program (this slice ships the persistence model and
-    | state machines only). `lock_store` / `cache.store` default to null (fall
-    | back to the app's default cache store at execution time); `tries` /
-    | `backoff` stay uncast so a normalizer can tell null (defer) from 0
-    | (unlimited), matching the `queue` block above; `cache.ttl_seconds` null
-    | means cache forever.
+    | Runtime knobs for the event-driven graph executor (`Flow::runGraph()` /
+    | `Flow::dispatchGraph()`, Macro C). These are inert for the v1 linear
+    | engine, which keeps its own execution and step-timeout settings above;
+    | they take effect only for graph runs. `lock_store` / `cache.store`
+    | default to null (fall back to the app's default cache store at
+    | execution time); `cache.ttl_seconds` null means cache forever.
+    |
+    | `default_tries` / `default_backoff_seconds` are reserved for a future
+    | graph-wide retry default and are not yet read anywhere — today per-node
+    | retry is configured only via `#[Retry]` or a node's `config['retry']`
+    | override (see RetryPolicy). Real per-node retry semantics: `tries`
+    | clamps to a MINIMUM of 1 (a graph node never retries "unlimited" times,
+    | unlike a Laravel job's `0 = unlimited`).
     |
     */
     'executor' => [
@@ -260,8 +263,8 @@ return [
         'lock_store' => env('LARAVEL_FLOW_EXECUTOR_LOCK_STORE', null),
         'lock_seconds' => ($executorLockSeconds = env('LARAVEL_FLOW_EXECUTOR_LOCK_SECONDS')) !== null ? (int) $executorLockSeconds : null,
         'lock_retry_seconds' => ($executorLockRetrySeconds = env('LARAVEL_FLOW_EXECUTOR_LOCK_RETRY_SECONDS')) !== null ? (int) $executorLockRetrySeconds : null,
-        'default_tries' => env('LARAVEL_FLOW_EXECUTOR_DEFAULT_TRIES', 1),
-        'default_backoff_seconds' => env('LARAVEL_FLOW_EXECUTOR_DEFAULT_BACKOFF', 0),
+        'default_tries' => (int) env('LARAVEL_FLOW_EXECUTOR_DEFAULT_TRIES', 1),
+        'default_backoff_seconds' => (int) env('LARAVEL_FLOW_EXECUTOR_DEFAULT_BACKOFF', 0),
         'queue' => env('LARAVEL_FLOW_EXECUTOR_QUEUE', null),
         'cache' => [
             'store' => env('LARAVEL_FLOW_EXECUTOR_CACHE_STORE', null),

@@ -21,7 +21,14 @@ final class NodeRouting
      * Incoming wires for a node, ordered by the source node's topological index
      * (NOT the graph's raw connection-array order) so a `multiple` (fan-in)
      * port coalesces deterministically regardless of how the graph JSON/Studio
-     * serialized its connections.
+     * serialized its connections. Two wires sharing the same source index (two
+     * output ports of the SAME source node both wired into this node) break
+     * the tie on {@see Connection::identity()} — a canonical string derived
+     * from the connection's own endpoints, not the incidental position it
+     * happened to occupy in the serialized connections array — so re-importing
+     * or re-saving a semantically-identical graph can never silently reorder a
+     * fan-in list (which would change both the node's actual input AND, for a
+     * `#[Cacheable]` node, its content hash).
      *
      * @param  array<string, int>  $sequenceOf  node id => topological index
      * @return list<Connection>
@@ -33,7 +40,11 @@ final class NodeRouting
             static fn (Connection $c): bool => $c->targetNodeId === $nodeId,
         ));
 
-        usort($wires, static fn (Connection $a, Connection $b): int => ($sequenceOf[$a->sourceNodeId] ?? 0) <=> ($sequenceOf[$b->sourceNodeId] ?? 0));
+        usort($wires, static function (Connection $a, Connection $b) use ($sequenceOf): int {
+            $bySourceIndex = ($sequenceOf[$a->sourceNodeId] ?? 0) <=> ($sequenceOf[$b->sourceNodeId] ?? 0);
+
+            return $bySourceIndex !== 0 ? $bySourceIndex : $a->identity() <=> $b->identity();
+        });
 
         return $wires;
     }

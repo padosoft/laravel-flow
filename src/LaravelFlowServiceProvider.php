@@ -34,6 +34,7 @@ use Padosoft\LaravelFlow\Dashboard\Authorization\DashboardActionAuthorizer;
 use Padosoft\LaravelFlow\Dashboard\Authorization\DenyAllAuthorizer;
 use Padosoft\LaravelFlow\Dashboard\FlowDashboardReadModel;
 use Padosoft\LaravelFlow\Exceptions\FlowInputException;
+use Padosoft\LaravelFlow\Executor\Attributes\Retry;
 use Padosoft\LaravelFlow\Executor\ChildFlowRunner;
 use Padosoft\LaravelFlow\Executor\GraphApprovalCoordinator;
 use Padosoft\LaravelFlow\Executor\GraphRunner;
@@ -63,6 +64,7 @@ use Padosoft\LaravelFlow\Persistence\EloquentFlowStore;
 use Padosoft\LaravelFlow\Persistence\EloquentNodeCacheRepository;
 use Padosoft\LaravelFlow\Persistence\EloquentNodeChildRepository;
 use Padosoft\LaravelFlow\Persistence\EloquentWebhookOutboxRepository;
+use Padosoft\LaravelFlow\Persistence\ErrorMessageRedactor;
 use Padosoft\LaravelFlow\Persistence\ExecutionScopedPayloadRedactor;
 use Padosoft\LaravelFlow\Persistence\KeyBasedPayloadRedactor;
 use Throwable;
@@ -254,12 +256,28 @@ final class LaravelFlowServiceProvider extends ServiceProvider
             $cache = $persistenceEnabled ? $app->make(NodeCache::class) : null;
             $approvalTokens = $persistenceEnabled ? $app->make(ApprovalTokenManager::class) : null;
 
+            // Same gate as $cache/$approvalTokens: with persistence off, persist()
+            // writes nothing (dry-run parity), so there is no error_message write
+            // to protect. When on, redact exactly like v1's safeErrorMessage().
+            $errorMessageRedactor = null;
+            $payloadRedactor = null;
+
+            if ($persistenceEnabled) {
+                /** @var array<string, mixed> $redaction */
+                $redaction = is_array($persistence['redaction'] ?? null) ? $persistence['redaction'] : [];
+                $errorMessageRedactor = new ErrorMessageRedactor($redaction);
+                $payloadRedactor = $app->make(ExecutionScopedPayloadRedactor::class);
+            }
+
             return new NodeExecutor(
                 $app->make(NodeResolver::class),
                 $app->make(InputRouter::class),
                 static fn (): \DateTimeImmutable => Date::now()->toDateTimeImmutable(),
                 $cache,
                 $approvalTokens,
+                $errorMessageRedactor,
+                $payloadRedactor,
+                $this->executorDefaultRetry($app),
             );
         });
         $this->app->bind(GraphSaga::class, function (Container $app): GraphSaga {
@@ -383,6 +401,29 @@ final class LaravelFlowServiceProvider extends ServiceProvider
         }
 
         return $strategy;
+    }
+
+    /**
+     * The fallback #[Retry] a graph node with no attribute of its own gets,
+     * built from laravel-flow.executor.default_tries/default_backoff_seconds/
+     * node_timeout_seconds — so a deployment can protect every node by config
+     * alone without every handler repeating #[Retry]. A node's own
+     * config['retry'] still overrides whichever base applies.
+     */
+    private function executorDefaultRetry(Container $app): Retry
+    {
+        /** @var array<string, mixed> $executor */
+        $executor = $app['config']->get('laravel-flow.executor', []);
+
+        $tries = $executor['default_tries'] ?? 1;
+        $backoff = $executor['default_backoff_seconds'] ?? 0;
+        $timeout = $executor['node_timeout_seconds'] ?? 0;
+
+        return new Retry(
+            tries: is_int($tries) ? $tries : 1,
+            backoff: is_int($backoff) ? $backoff : 0,
+            timeout: is_int($timeout) ? $timeout : 0,
+        );
     }
 
     public function boot(): void

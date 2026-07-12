@@ -48,6 +48,7 @@ use Padosoft\LaravelFlow\Models\FlowApprovalRecord;
 use Padosoft\LaravelFlow\Models\FlowRunNodeRecord;
 use Padosoft\LaravelFlow\Models\FlowRunRecord;
 use Padosoft\LaravelFlow\Persistence\EloquentWebhookOutboxRepository;
+use Padosoft\LaravelFlow\Persistence\ErrorMessageRedactor;
 use Padosoft\LaravelFlow\Persistence\PayloadRedactorResolution;
 use Padosoft\LaravelFlow\Queue\QueueRetryPolicy;
 use Throwable;
@@ -3168,125 +3169,15 @@ class FlowEngine
             return null;
         }
 
-        return $this->redactText($error->getMessage(), $redactor);
+        return $this->errorMessageRedactor()->redact($error->getMessage(), $redactor ?? $this->redactorForExecution());
     }
 
-    private function redactText(string $message, ?PayloadRedactor $redactor = null): string
+    private function errorMessageRedactor(): ErrorMessageRedactor
     {
-        $message = $this->redactTextWithPayloadRedactor($message, $redactor);
         $persistence = $this->config['persistence'] ?? [];
         $redaction = is_array($persistence) ? ($persistence['redaction'] ?? []) : [];
 
-        if (! is_array($redaction) || (bool) ($redaction['enabled'] ?? true) === false) {
-            return $message;
-        }
-
-        $replacement = (string) ($redaction['replacement'] ?? '[redacted]');
-        $keys = array_values(array_filter((array) ($redaction['keys'] ?? []), 'is_string'));
-        $message = $this->redactBearerTokens($message, $replacement);
-        $message = $this->redactConfiguredKeyValues($message, $keys, $replacement);
-
-        foreach ($keys as $key) {
-            $keyPattern = $this->redactionKeyPattern($key);
-            $message = preg_replace_callback(
-                '/\b('.$keyPattern.')\b(\s*[:=]\s*)(?:Bearer\s+)?([^\s,;]+)/i',
-                static fn (array $matches): string => $matches[1].$matches[2].$replacement,
-                $message,
-            ) ?? $message;
-            $message = preg_replace_callback(
-                '/(["\']'.$keyPattern.'["\']\s*:\s*["\'])([^"\']+)(["\'])/i',
-                static fn (array $matches): string => $matches[1].$replacement.$matches[3],
-                $message,
-            ) ?? $message;
-        }
-
-        return $this->redactBearerTokens($message, $replacement);
-    }
-
-    /**
-     * @param  list<string>  $keys
-     */
-    private function redactConfiguredKeyValues(string $message, array $keys, string $replacement): string
-    {
-        $normalizedKeys = [];
-
-        foreach ($keys as $key) {
-            $normalizedKeys[$this->normalizeRedactionKey($key)] = true;
-        }
-
-        if ($normalizedKeys === []) {
-            return $message;
-        }
-
-        return preg_replace_callback(
-            '/\b([A-Za-z][A-Za-z0-9_-]*)\b(\s*[:=]\s*)(?:Bearer\s+)?([^\s,;]+)/i',
-            function (array $matches) use ($normalizedKeys, $replacement): string {
-                if (! isset($normalizedKeys[$this->normalizeRedactionKey((string) $matches[1])])) {
-                    return (string) $matches[0];
-                }
-
-                return $matches[1].$matches[2].$replacement;
-            },
-            $message,
-        ) ?? $message;
-    }
-
-    private function redactTextWithPayloadRedactor(string $message, ?PayloadRedactor $redactor = null): string
-    {
-        $redactor ??= $this->redactorForExecution();
-
-        $redactor = PayloadRedactorResolution::current($redactor);
-
-        $redacted = $redactor->redact([
-            'error_message' => $message,
-            'message' => $message,
-        ]);
-
-        foreach (['error_message', 'message'] as $key) {
-            if (isset($redacted[$key]) && is_string($redacted[$key]) && $redacted[$key] !== $message) {
-                return $redacted[$key];
-            }
-        }
-
-        return $message;
-    }
-
-    private function redactBearerTokens(string $message, string $replacement): string
-    {
-        return preg_replace_callback(
-            '/\bBearer\s+([A-Za-z0-9._~+\/=-]+)/i',
-            static fn (): string => 'Bearer '.$replacement,
-            $message,
-        ) ?? $message;
-    }
-
-    private function redactionKeyPattern(string $key): string
-    {
-        $normalized = preg_replace('/(?<!^)[A-Z]/', '_$0', $key) ?? $key;
-        $parts = preg_split('/[^A-Za-z0-9]+/', $normalized, -1, PREG_SPLIT_NO_EMPTY);
-
-        if ($parts === false || count($parts) <= 1) {
-            $characters = preg_split('//', $key, -1, PREG_SPLIT_NO_EMPTY);
-
-            if ($characters === false || $characters === []) {
-                return '(?!)';
-            }
-
-            return implode('[_\-\s]*', array_map(
-                static fn (string $character): string => preg_quote($character, '/'),
-                $characters,
-            ));
-        }
-
-        return implode('[_\-\s]*', array_map(
-            static fn (string $part): string => preg_quote($part, '/'),
-            $parts,
-        ));
-    }
-
-    private function normalizeRedactionKey(string $key): string
-    {
-        return strtolower((string) preg_replace('/[^a-zA-Z0-9]/', '', $key));
+        return new ErrorMessageRedactor(is_array($redaction) ? $redaction : []);
     }
 
     /**

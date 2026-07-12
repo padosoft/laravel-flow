@@ -12,6 +12,7 @@ use Padosoft\LaravelFlow\Contracts\NodeChildRepository;
 use Padosoft\LaravelFlow\Contracts\RunNodeRepository;
 use Padosoft\LaravelFlow\Executor\State\NodeState;
 use Padosoft\LaravelFlow\Models\FlowNodeChildRecord;
+use Padosoft\LaravelFlow\Models\FlowRunNodeRecord;
 use RuntimeException;
 
 /**
@@ -77,7 +78,18 @@ final class JoinCoordinator
             $finishedAt = ($this->clock)();
 
             if (! $this->children->completeChild($childRunId, $childStatus, $childOutputs, $finishedAt)) {
-                return null; // a duplicate completion; the original drives the join
+                // A duplicate completion of an ALREADY-driven join. If the
+                // ORIGINAL call's resumeParent() succeeded (flipped the
+                // parent's fan-out/sub-flow node terminal) but the caller
+                // then crashed BEFORE dispatching a coordinator job for the
+                // now-resumable parent run, nothing else ever re-triggers
+                // that dispatch — the parent run is stuck non-terminal
+                // forever. Recover by re-deriving the JoinResult from the
+                // parent NODE's durable persisted state (not this call's
+                // one-shot CAS outcome) so the caller retries the dispatch;
+                // safe to return redundantly because a coordinator
+                // dispatch/advance is itself idempotent.
+                return $this->parentIfAlreadyResumed($parentRunId, $parentNodeId);
             }
 
             // Windowing: release the next pending item now that a running slot
@@ -125,12 +137,47 @@ final class JoinCoordinator
 
     private function parentNodeType(string $parentRunId, string $parentNodeId): string
     {
+        $node = $this->parentNode($parentRunId, $parentNodeId);
+
+        return $node === null ? 'flow.subflow' : $node->node_type;
+    }
+
+    /**
+     * @return JoinResult|null a reconstructed result if the parent node is
+     *                         ALREADY terminal (a prior resumeParent() ran),
+     *                         null if it is still pending/running (a genuine
+     *                         concurrent duplicate — the in-flight original
+     *                         call drives the join)
+     */
+    private function parentIfAlreadyResumed(string $parentRunId, string $parentNodeId): ?JoinResult
+    {
+        $parentNode = $this->parentNode($parentRunId, $parentNodeId);
+
+        if ($parentNode === null) {
+            return null;
+        }
+
+        $state = NodeState::tryFrom((string) $parentNode->status);
+
+        if ($state !== NodeState::Succeeded && $state !== NodeState::Failed) {
+            return null;
+        }
+
+        $outputs = $parentNode->outputs;
+        /** @var list<mixed> $results */
+        $results = is_array($outputs) && is_array($outputs['results'] ?? null) ? $outputs['results'] : [];
+
+        return new JoinResult($parentRunId, $parentNodeId, $state, $results);
+    }
+
+    private function parentNode(string $parentRunId, string $parentNodeId): ?FlowRunNodeRecord
+    {
         foreach ($this->nodes->forRun($parentRunId) as $node) {
             if ($node->node_id === $parentNodeId) {
-                return $node->node_type;
+                return $node;
             }
         }
 
-        return 'flow.subflow';
+        return null;
     }
 }

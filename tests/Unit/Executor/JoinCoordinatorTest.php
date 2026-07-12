@@ -88,11 +88,60 @@ final class JoinCoordinatorTest extends PersistenceTestCase
         $this->joinCoordinator()->childCompleted('child-1', 'succeeded', ['out' => 'b']);
 
         $first = $this->joinCoordinator()->childCompleted('child-2', 'succeeded', ['out' => 'c']);
-        // A redelivered completion of the SAME final child must not resume again.
+        // A redelivered completion of the SAME final child must not RESUME
+        // again (no second resumeParent() call, no re-mutated node row) — but
+        // it MAY still return a reconstructed JoinResult (read-only, from the
+        // already-flipped node's persisted state), so a caller that crashed
+        // before dispatching its coordinator job on the first call can retry
+        // the dispatch on redelivery. See test_recovers_a_dispatch_that_never_
+        // happened_after_the_parent_node_already_resolved below.
+        $secondFinishedAt = DB::table('flow_run_nodes')->where('run_id', 'parent-run')->where('node_id', 'fanout')->value('finished_at');
         $second = $this->joinCoordinator()->childCompleted('child-2', 'succeeded', ['out' => 'c']);
+        $thirdFinishedAt = DB::table('flow_run_nodes')->where('run_id', 'parent-run')->where('node_id', 'fanout')->value('finished_at');
 
         $this->assertInstanceOf(JoinResult::class, $first);
-        $this->assertNull($second, 'the parent must resume exactly once');
+        $this->assertInstanceOf(JoinResult::class, $second, 'a duplicate reconstructs the already-resolved result, it does not signal "nothing happened"');
+        $this->assertSame($first->parentState, $second->parentState);
+        $this->assertSame($first->outputs, $second->outputs);
+        $this->assertSame($secondFinishedAt, $thirdFinishedAt, 'the node row was never re-mutated by the duplicate — resumeParent() ran exactly once');
+    }
+
+    public function test_recovers_a_dispatch_that_never_happened_after_the_parent_node_already_resolved(): void
+    {
+        // Crash-window recovery (the P1 gap): the FIRST call's resumeParent()
+        // already flipped the parent node terminal, but the caller then
+        // crashed BEFORE dispatching a coordinator job for the resumable
+        // parent run — nothing else would ever re-trigger that dispatch. A
+        // redelivery of the SAME final child completion must reconstruct the
+        // JoinResult from the parent node's durable state (not the one-shot
+        // CAS outcome), so QueueGraphCoordinator::resumeParentIfChild() can
+        // retry the dispatch.
+        $this->joinCoordinator()->childCompleted('child-0', 'succeeded', ['out' => 'a']);
+        $this->joinCoordinator()->childCompleted('child-1', 'succeeded', ['out' => 'b']);
+        $this->joinCoordinator()->childCompleted('child-2', 'succeeded', ['out' => 'c']);
+
+        // Parent run is stuck exactly as a crashed dispatch would leave it:
+        // the node is terminal, the run itself never advanced past `running`.
+        $this->assertSame('succeeded', DB::table('flow_run_nodes')->where('run_id', 'parent-run')->where('node_id', 'fanout')->value('status'));
+        $this->assertSame('running', DB::table('flow_runs')->where('id', 'parent-run')->value('status'));
+
+        $recovered = $this->joinCoordinator()->childCompleted('child-2', 'succeeded', ['out' => 'c']);
+
+        $this->assertInstanceOf(JoinResult::class, $recovered, 'the retry recovers a dispatchable JoinResult instead of a silent null');
+        $this->assertSame('parent-run', $recovered->parentRunId);
+        $this->assertSame(NodeState::Succeeded, $recovered->parentState);
+        $this->assertSame([['out' => 'a'], ['out' => 'b'], ['out' => 'c']], $recovered->outputs);
+    }
+
+    public function test_duplicate_of_a_still_pending_join_returns_null(): void
+    {
+        // The genuine "concurrent duplicate, original in-flight call drives
+        // it" case must stay null: with siblings still outstanding, the
+        // parent node was never flipped, so there is nothing to reconstruct.
+        $this->joinCoordinator()->childCompleted('child-0', 'succeeded', ['out' => 'a']);
+        $duplicate = $this->joinCoordinator()->childCompleted('child-0', 'succeeded', ['out' => 'a']);
+
+        $this->assertNull($duplicate);
     }
 
     public function test_child_failure_aggregates_into_parent(): void

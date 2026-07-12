@@ -14,6 +14,7 @@ use Padosoft\LaravelFlow\Executor\State\RunState;
 use Padosoft\LaravelFlow\FlowEngine;
 use Padosoft\LaravelFlow\Graph\GraphDefinition;
 use Padosoft\LaravelFlow\Graph\GraphNode;
+use Padosoft\LaravelFlow\Tests\Fixtures\GraphNodes\FailingGraphNode;
 use Padosoft\LaravelFlow\Tests\Fixtures\GraphNodes\RetryAlwaysFailNode;
 use Padosoft\LaravelFlow\Tests\Fixtures\GraphNodes\RetryFlakyNode;
 use Padosoft\LaravelFlow\Tests\Unit\Persistence\PersistenceTestCase;
@@ -24,7 +25,7 @@ final class RetryExecutionTest extends PersistenceTestCase
     {
         parent::defineEnvironment($app);
         $app['config']->set('laravel-flow.persistence.enabled', true);
-        $app['config']->set('laravel-flow.nodes.handlers', [RetryFlakyNode::class, RetryAlwaysFailNode::class]);
+        $app['config']->set('laravel-flow.nodes.handlers', [RetryFlakyNode::class, RetryAlwaysFailNode::class, FailingGraphNode::class]);
     }
 
     protected function setUp(): void
@@ -99,5 +100,46 @@ final class RetryExecutionTest extends PersistenceTestCase
 
         $this->assertSame(NodeState::Failed, $result->nodeStates['f']);
         $this->assertSame(1, RetryFlakyNode::$calls);
+    }
+
+    public function test_executor_default_tries_applies_to_a_node_with_no_retry_attribute(): void
+    {
+        // FailingGraphNode declares no #[Retry] at all: with the historical
+        // hard-coded fallback (tries=1) it would fail on the first attempt. With
+        // laravel-flow.executor.default_tries configured, the graph-wide default
+        // gives it a real retry budget instead.
+        $this->app['config']->set('laravel-flow.executor.default_tries', 3);
+        $this->app['config']->set('laravel-flow.executor.default_backoff_seconds', 0);
+
+        $result = $this->runner()->run(new GraphDefinition([new GraphNode('f', 'test.fail')], []), []);
+
+        $this->assertSame(NodeState::DeadLetter, $result->nodeStates['f'], 'a real retry budget (tries>1) that exhausts dead-letters');
+
+        $row = DB::table('flow_run_nodes')->where('run_id', $result->runId)->where('node_id', 'f')->first();
+        $this->assertSame(3, (int) $row->attempts);
+    }
+
+    public function test_a_nodes_own_retry_config_still_overrides_the_executor_default(): void
+    {
+        $this->app['config']->set('laravel-flow.executor.default_tries', 5);
+
+        $graph = new GraphDefinition([new GraphNode('f', 'test.fail', ['retry' => ['tries' => 2]])], []);
+        $result = $this->runner()->run($graph, []);
+
+        $row = DB::table('flow_run_nodes')->where('run_id', $result->runId)->where('node_id', 'f')->first();
+        $this->assertSame(2, (int) $row->attempts, "the node's own config override wins over the executor-wide default");
+    }
+
+    public function test_stock_executor_defaults_preserve_the_historical_single_attempt_behavior(): void
+    {
+        // With NO executor.* env overrides (the package's shipped defaults:
+        // default_tries=1, default_backoff_seconds=0), a #[Retry]-less node's
+        // observable behavior is unchanged: one attempt, plain Failed.
+        $result = $this->runner()->run(new GraphDefinition([new GraphNode('f', 'test.fail')], []), []);
+
+        $this->assertSame(NodeState::Failed, $result->nodeStates['f']);
+
+        $row = DB::table('flow_run_nodes')->where('run_id', $result->runId)->where('node_id', 'f')->first();
+        $this->assertSame(1, (int) $row->attempts);
     }
 }

@@ -10,6 +10,8 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Sleep;
 use Padosoft\LaravelFlow\ApprovalTokenManager;
 use Padosoft\LaravelFlow\Contracts\FlowStore;
+use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
+use Padosoft\LaravelFlow\Executor\Attributes\Retry;
 use Padosoft\LaravelFlow\Executor\Nodes\ApprovalGateNode;
 use Padosoft\LaravelFlow\Executor\State\NodeState;
 use Padosoft\LaravelFlow\Graph\Connection;
@@ -17,12 +19,13 @@ use Padosoft\LaravelFlow\Graph\GraphNode;
 use Padosoft\LaravelFlow\Node\FlowNodeHandler;
 use Padosoft\LaravelFlow\Node\NodeContext;
 use Padosoft\LaravelFlow\Node\NodeResult;
+use Padosoft\LaravelFlow\Persistence\ErrorMessageRedactor;
 use Throwable;
 
 /**
  * The single place a graph node is routed → validated → executed → persisted.
- * Both the synchronous {@see GraphRunner} and the future queued coordinator go
- * through here, so the two paths can never diverge. A routing/validation
+ * Both the synchronous {@see GraphRunner} and the queued {@see QueueGraphCoordinator}
+ * go through here, so the two paths can never diverge. A routing/validation
  * failure short-circuits to `invalid_input` WITHOUT calling the handler; a
  * throwing handler is caught and mapped to `failed`. Persistence writes are
  * skipped entirely when `$store` is null (dry-run / persistence disabled), so
@@ -41,7 +44,33 @@ final class NodeExecutor
         private readonly Closure $clock,
         private readonly ?NodeCache $cache = null,
         private readonly ?ApprovalTokenManager $approvalTokens = null,
+        private readonly ?ErrorMessageRedactor $errorMessageRedactor = null,
+        private readonly ?PayloadRedactor $payloadRedactor = null,
+        // Executor-wide retry fallback for a node with no #[Retry] attribute
+        // (laravel-flow.executor.default_tries/default_backoff_seconds/
+        // node_timeout_seconds). Null keeps the historical single-attempt,
+        // no-timeout default (e.g. a bare unit-test executor).
+        private readonly ?Retry $executorDefaultRetry = null,
     ) {}
+
+    /**
+     * Sanitize an exception/violation message the SAME way v1 does
+     * (`FlowEngine::safeErrorMessage()`) before it is ever persisted — an
+     * error message is free-form prose that can embed a secret a handler's
+     * structured `inputs`/`outputs` redaction would never see. Both redactor
+     * dependencies are wired together (only when persistence is enabled, same
+     * gate as `$cache`/`$approvalTokens` — there is nothing to protect when
+     * `$store` is null and `persist()` writes nothing); a bare unit-test
+     * executor built without them leaves the message as-is.
+     */
+    private function redactErrorMessage(?string $message): ?string
+    {
+        if ($message === null || $this->errorMessageRedactor === null || $this->payloadRedactor === null) {
+            return $message;
+        }
+
+        return $this->errorMessageRedactor->redact($message, $this->payloadRedactor);
+    }
 
     /**
      * @param  list<Connection>  $connectionsIntoNode
@@ -70,7 +99,7 @@ final class NodeExecutor
             $this->persist($store, $runId, $node, $sequence, [
                 'status' => NodeState::Failed->value,
                 'error_class' => $e::class,
-                'error_message' => $e->getMessage(),
+                'error_message' => $this->redactErrorMessage($e->getMessage()),
                 'dry_run_skipped' => false,
                 'started_at' => $startedAt,
                 'finished_at' => $finishedAt,
@@ -87,7 +116,7 @@ final class NodeExecutor
                 'handler' => $resolved->definition->handlerClass,
                 'status' => NodeState::InvalidInput->value,
                 'error_class' => $routed->violation !== null ? $routed->violation::class : null,
-                'error_message' => $routed->violation?->getMessage(),
+                'error_message' => $this->redactErrorMessage($routed->violation?->getMessage()),
                 'dry_run_skipped' => false,
                 'started_at' => $startedAt,
                 'finished_at' => $startedAt,
@@ -155,7 +184,13 @@ final class NodeExecutor
         }
 
         $context = new NodeContext($runId, $definitionName, $node->id, $routed->inputs, $dryRun, $queued);
-        $policy = ($resolved->definition->retry ?? RetryPolicy::fromAttribute(null))->withConfig($this->configRetry($node));
+        // A node with no #[Retry] falls back to the executor-wide default
+        // (laravel-flow.executor.default_tries/default_backoff_seconds/
+        // node_timeout_seconds), not a hard-coded single-attempt/no-timeout
+        // policy — so a deployment can protect every node by config alone
+        // without every handler repeating #[Retry]. A node's own config['retry']
+        // still overrides whichever base (attribute or executor default) applies.
+        $policy = ($resolved->definition->retry ?? RetryPolicy::fromAttribute($this->executorDefaultRetry))->withConfig($this->configRetry($node));
 
         $attempts = 0;
         $availableAt = null;
@@ -203,7 +238,7 @@ final class NodeExecutor
             'outputs' => $result->success ? $result->outputs : null,
             'business_impact' => $result->businessImpact,
             'error_class' => $result->error instanceof Throwable ? $result->error::class : null,
-            'error_message' => $result->error?->getMessage(),
+            'error_message' => $this->redactErrorMessage($result->error?->getMessage()),
             'dry_run_skipped' => $result->dryRunSkipped,
             'status' => $state->value,
             'available_at' => $availableAt,

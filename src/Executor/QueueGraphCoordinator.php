@@ -293,6 +293,18 @@ final class QueueGraphCoordinator
             return;
         }
 
+        // Bounds the crash-window recovery in JoinCoordinator::childCompleted():
+        // once the parent run has genuinely finished through some other path,
+        // stop re-dispatching for every future duplicate delivery of this same
+        // child completion — a $joinResult reconstructed from an already-
+        // terminal parent NODE stays available forever, but there is nothing
+        // left to advance once the parent RUN itself is terminal.
+        $parentRunState = RunState::tryFrom((string) $parent->status);
+
+        if ($parentRunState !== null && $parentRunState->isTerminal()) {
+            return;
+        }
+
         $this->bus->dispatch(new CoordinatorJob(
             runId: $joinResult->parentRunId,
             graph: (new GraphSerializer)->fromArray($parent->graph),

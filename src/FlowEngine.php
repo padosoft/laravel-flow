@@ -1015,28 +1015,32 @@ class FlowEngine
 
     private function attachDownstreamGraphApprovalToken(FlowRun $flowRun, string $runId, FlowStore $store, PayloadRedactor $redactor): void
     {
-        $pausedNodeId = null;
+        // A graph can legitimately settle on MULTIPLE simultaneously-paused
+        // approval gates — e.g. two independent branches both advancing into
+        // their own gate in the same coordinator pass, or a branch that was
+        // already paused before this resume alongside a newly-paused one.
+        // Surface every one of them, not only the first found, or the others
+        // become unrecoverable to callers who only have the public API.
+        $pausedNodeIds = [];
 
         foreach ($this->stepRecordsForRun($store, $runId) as $nodeRecord) {
             if ($nodeRecord->status === 'paused') {
-                $pausedNodeId = (string) $nodeRecord->node_id;
-
-                break;
+                $pausedNodeIds[] = (string) $nodeRecord->node_id;
             }
         }
 
-        if ($pausedNodeId === null) {
-            return;
-        }
+        $manager = $this->approvalTokenManager($redactor);
 
-        try {
-            $reissued = $this->approvalTokenManager($redactor)->reissuePendingForStep($runId, $pausedNodeId);
-        } catch (QueryException $e) {
-            throw $this->approvalPersistenceUnavailableException($e);
-        }
+        foreach ($pausedNodeIds as $pausedNodeId) {
+            try {
+                $reissued = $manager->reissuePendingForStep($runId, $pausedNodeId);
+            } catch (QueryException $e) {
+                throw $this->approvalPersistenceUnavailableException($e);
+            }
 
-        if ($reissued instanceof IssuedApprovalToken) {
-            $flowRun->approvalTokens[$pausedNodeId] = $reissued;
+            if ($reissued instanceof IssuedApprovalToken) {
+                $flowRun->approvalTokens[$pausedNodeId] = $reissued;
+            }
         }
     }
 

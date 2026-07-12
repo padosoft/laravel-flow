@@ -224,10 +224,24 @@ final class NodeExecutor
             && $store !== null
             && $resolved->definition->handlerClass === ApprovalGateNode::class
         ) {
-            $issuedApprovalToken = $this->approvalTokens->issue($runId, $node->id, [
-                'definition_name' => $definitionName,
-                'node_id' => $node->id,
-            ]);
+            try {
+                $issuedApprovalToken = $this->approvalTokens->issue($runId, $node->id, [
+                    'definition_name' => $definitionName,
+                    'node_id' => $node->id,
+                ]);
+            } catch (Throwable $e) {
+                // The node itself already paused successfully and persisted —
+                // an approval-infrastructure failure must not fail it. Log
+                // only the exception CLASS and code — never the message, which
+                // for a QueryException embeds the SQL + bound params (the
+                // approval payload) — so a broken approval backend does not
+                // degrade invisibly, same discipline as the cache write below.
+                Log::warning('laravel-flow: approval token issuance failed; the node paused without an issuable token.', [
+                    'node_type' => $node->type,
+                    'exception' => $e::class,
+                    'code' => $e->getCode(),
+                ]);
+            }
         }
 
         // Populate the cache after a fresh success (redaction gate + skip-on-

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Padosoft\LaravelFlow\Tests\Unit\Executor;
 
 use Padosoft\LaravelFlow\Executor\ContentHasher;
+use Padosoft\LaravelFlow\Executor\UnhashableInputException;
 use PHPUnit\Framework\TestCase;
 
 final class ContentHasherTest extends TestCase
@@ -68,5 +69,24 @@ final class ContentHasherTest extends TestCase
         $b = $this->hasher()->hash('test.node', ['outer' => ['a' => 1, 'b' => 2]], []);
 
         $this->assertSame($a, $b);
+    }
+
+    public function test_object_input_fails_fast_instead_of_colliding(): void
+    {
+        // A plain object serializes to `{}` under json_encode WITHOUT throwing,
+        // so two distinct objects would collide to the same hash. The hasher
+        // must fail fast so NodeExecutor can skip caching for the node.
+        $this->expectException(UnhashableInputException::class);
+
+        $this->hasher()->hash('test.node', ['payload' => (object) ['a' => 1]], []);
+    }
+
+    public function test_object_nested_in_list_fails_fast(): void
+    {
+        // The guard must reach objects nested anywhere in the input tree, not
+        // just at the top level.
+        $this->expectException(UnhashableInputException::class);
+
+        $this->hasher()->hash('test.node', ['items' => [1, (object) ['a' => 1]]], []);
     }
 }

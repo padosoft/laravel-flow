@@ -37,6 +37,17 @@ final class ContentHasher
 
     private function canonicalize(mixed $value): mixed
     {
+        // Objects/resources (reachable via a PortType::Any input/config) have no
+        // stable canonical form: a plain object serializes to `{}` under
+        // json_encode WITHOUT throwing, so two distinct objects would collide to
+        // the same hash and return a wrong cached result. Fail fast instead —
+        // NodeExecutor catches this and skips caching for the node execution.
+        if (is_object($value) || is_resource($value)) {
+            throw new UnhashableInputException(
+                'Node inputs/config contain an object or resource, which cannot be content-hashed safely; caching is skipped for this node.'
+            );
+        }
+
         if (! is_array($value)) {
             return $value;
         }

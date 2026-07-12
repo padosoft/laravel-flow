@@ -32,10 +32,12 @@ use Padosoft\LaravelFlow\Exceptions\FlowCompensationException;
 use Padosoft\LaravelFlow\Exceptions\FlowExecutionException;
 use Padosoft\LaravelFlow\Exceptions\FlowInputException;
 use Padosoft\LaravelFlow\Exceptions\FlowNotRegisteredException;
+use Padosoft\LaravelFlow\Executor\GraphApprovalCoordinator;
 use Padosoft\LaravelFlow\Executor\GraphRunner;
 use Padosoft\LaravelFlow\Executor\GraphRunResult;
 use Padosoft\LaravelFlow\Executor\Jobs\CoordinatorJob;
 use Padosoft\LaravelFlow\Executor\QueueGraphCoordinator;
+use Padosoft\LaravelFlow\Executor\State\NodeState;
 use Padosoft\LaravelFlow\Graph\Exceptions\DefinitionSignatureException;
 use Padosoft\LaravelFlow\Graph\Exceptions\InvalidGraphException;
 use Padosoft\LaravelFlow\Graph\GraphDefinition;
@@ -894,12 +896,21 @@ class FlowEngine
         PayloadRedactor $redactor,
     ): FlowRun {
         $preDecisionApproval = $this->approvalDecisionRecord($token);
+        $preDecisionRunRecord = $this->approvalRunRecord($preDecisionApproval, $store);
+
+        // Graph runs (engine === 'graph') never went through v1's step
+        // compilation, so none of the v1-specific machinery below (step-order
+        // drift checks, FlowContext/step-chain replay) applies to them —
+        // dispatch to the engine-agnostic graph path instead. The lock (this
+        // method's caller already holds it, run-id-keyed) and the token
+        // consume step below are shared by both engines unchanged.
+        if ($preDecisionRunRecord->engine === 'graph') {
+            return $this->decideGraphApproval($decision, $payload, $actor, $store, $redactor, $token, $preDecisionApproval, $preDecisionRunRecord);
+        }
 
         $preDecisionState = null;
 
         if ($preDecisionApproval->status === FlowApprovalRecord::STATUS_PENDING) {
-            $preDecisionRunRecord = $this->approvalRunRecord($preDecisionApproval, $store);
-
             if ($preDecisionRunRecord->status !== FlowRun::STATUS_PAUSED) {
                 return $this->flowRunFromRecord($preDecisionRunRecord, $store);
             }
@@ -917,6 +928,129 @@ class FlowEngine
         }
 
         return $this->rejectApprovalDecision($approval, $decisionPayload, $decisionActor, $store, $redactor, $preDecisionState);
+    }
+
+    /**
+     * Engine-agnostic approval decision for a graph run. Reuses the SAME
+     * token-consume step as v1 ({@see consumeApprovalDecisionForPausedRun}) —
+     * it only touches `flow_approvals`, never the run/node tables — then
+     * delegates the actual resume/reject to {@see GraphApprovalCoordinator},
+     * which mutates the paused node directly and re-drives the coordinator.
+     *
+     * @param  array<string, mixed>  $payload
+     * @param  array<string, mixed>  $actor
+     */
+    private function decideGraphApproval(
+        string $decision,
+        array $payload,
+        array $actor,
+        FlowStore $store,
+        PayloadRedactor $redactor,
+        string $token,
+        FlowApprovalRecord $preDecisionApproval,
+        FlowRunRecord $preDecisionRunRecord,
+    ): FlowRun {
+        // Mirrors the v1 pre-lock check: a PENDING token whose run already
+        // left `paused` belongs to a gate this run moved past (or a run that
+        // never reaches THIS token's gate under a different branch) — return
+        // the current state without attempting to re-decide.
+        if ($preDecisionApproval->status === FlowApprovalRecord::STATUS_PENDING
+            && $preDecisionRunRecord->status !== FlowRun::STATUS_PAUSED
+        ) {
+            return $this->flowRunFromRecord($preDecisionRunRecord, $store);
+        }
+
+        [$approval, $consumedNow] = $this->consumeApprovalDecisionForPausedRun($token, $decision, $payload, $actor, $redactor);
+
+        if (! $consumedNow) {
+            $currentRun = $this->approvalRunRecord($approval, $store);
+
+            // Crash-window recovery: the token is ALREADY decided (this branch
+            // only reaches here once consumeApprovalDecisionForPausedRun found
+            // it non-pending) but the run is STILL `paused` — a prior call
+            // consumed the one-time token and then died (process crash,
+            // transient queue/DB failure) before the coordinator ever mutated
+            // the node or dispatched CoordinatorJob. The token can never be
+            // resubmitted, so THIS call must re-drive the coordinator itself or
+            // the run hangs paused forever. Safe to retry: the coordinator's own
+            // node-row write and Paused->Running CAS are idempotent, and
+            // CoordinatorJob's claim/finalize (C-PR8/9) tolerate duplicate
+            // delivery by construction.
+            if ($currentRun->status === FlowRun::STATUS_PAUSED) {
+                return $this->flowRunFromRecord(
+                    $this->driveGraphApprovalCoordinator($currentRun, $approval),
+                    $store,
+                );
+            }
+
+            // Otherwise a genuine duplicate resume/reject on an already fully
+            // processed decision: idempotent, return current state without
+            // re-advancing or re-compensating.
+            return $this->flowRunFromRecord($currentRun, $store);
+        }
+
+        $updatedRun = $this->driveGraphApprovalCoordinator($preDecisionRunRecord, $approval);
+        $flowRun = $this->flowRunFromRecord($updatedRun, $store);
+
+        // Chained approval gates: if resuming/rejecting this gate advanced the
+        // graph straight into ANOTHER flow.approval node, that downstream
+        // node's token was already issued (NodeExecutor, mid-advance) but the
+        // plain value has nowhere else to surface — mirrors v1's downstream-
+        // gate token propagation on FlowRun::$approvalTokens.
+        if ($updatedRun->status === FlowRun::STATUS_PAUSED) {
+            $this->attachDownstreamGraphApprovalToken($flowRun, $updatedRun->id, $store, $redactor);
+        }
+
+        return $flowRun;
+    }
+
+    private function driveGraphApprovalCoordinator(FlowRunRecord $run, FlowApprovalRecord $approval): FlowRunRecord
+    {
+        $decisionPayload = $approval->payload ?? [];
+        $coordinator = $this->graphApprovalCoordinator();
+
+        return $approval->status === FlowApprovalRecord::STATUS_APPROVED
+            ? $coordinator->resume($run, $approval->step_name, $decisionPayload)
+            : $coordinator->reject($run, $approval->step_name, $decisionPayload);
+    }
+
+    private function attachDownstreamGraphApprovalToken(FlowRun $flowRun, string $runId, FlowStore $store, PayloadRedactor $redactor): void
+    {
+        // A graph can legitimately settle on MULTIPLE simultaneously-paused
+        // approval gates — e.g. two independent branches both advancing into
+        // their own gate in the same coordinator pass, or a branch that was
+        // already paused before this resume alongside a newly-paused one.
+        // Surface every one of them, not only the first found, or the others
+        // become unrecoverable to callers who only have the public API.
+        $pausedNodeIds = [];
+
+        foreach ($this->stepRecordsForRun($store, $runId) as $nodeRecord) {
+            if ($nodeRecord->status === NodeState::Paused->value) {
+                $pausedNodeIds[] = (string) $nodeRecord->node_id;
+            }
+        }
+
+        $manager = $this->approvalTokenManager($redactor);
+
+        foreach ($pausedNodeIds as $pausedNodeId) {
+            try {
+                $reissued = $manager->reissuePendingForStep($runId, $pausedNodeId);
+            } catch (QueryException $e) {
+                throw $this->approvalPersistenceUnavailableException($e);
+            }
+
+            if ($reissued instanceof IssuedApprovalToken) {
+                $flowRun->approvalTokens[$pausedNodeId] = $reissued;
+            }
+        }
+    }
+
+    private function graphApprovalCoordinator(): GraphApprovalCoordinator
+    {
+        /** @var GraphApprovalCoordinator $coordinator */
+        $coordinator = $this->container->make(GraphApprovalCoordinator::class);
+
+        return $coordinator;
     }
 
     /**

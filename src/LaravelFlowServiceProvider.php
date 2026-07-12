@@ -35,6 +35,7 @@ use Padosoft\LaravelFlow\Dashboard\Authorization\DenyAllAuthorizer;
 use Padosoft\LaravelFlow\Dashboard\FlowDashboardReadModel;
 use Padosoft\LaravelFlow\Exceptions\FlowInputException;
 use Padosoft\LaravelFlow\Executor\ChildFlowRunner;
+use Padosoft\LaravelFlow\Executor\GraphApprovalCoordinator;
 use Padosoft\LaravelFlow\Executor\GraphRunner;
 use Padosoft\LaravelFlow\Executor\GraphSaga;
 use Padosoft\LaravelFlow\Executor\InputRouter;
@@ -42,6 +43,7 @@ use Padosoft\LaravelFlow\Executor\JoinCoordinator;
 use Padosoft\LaravelFlow\Executor\NodeCache;
 use Padosoft\LaravelFlow\Executor\NodeExecutor;
 use Padosoft\LaravelFlow\Executor\NodeResolver;
+use Padosoft\LaravelFlow\Executor\Nodes\ApprovalGateNode;
 use Padosoft\LaravelFlow\Executor\Nodes\ForEachNode;
 use Padosoft\LaravelFlow\Executor\Nodes\MapNode;
 use Padosoft\LaravelFlow\Executor\Nodes\MergeNode;
@@ -88,6 +90,7 @@ final class LaravelFlowServiceProvider extends ServiceProvider
         SubFlowNode::class,
         ForEachNode::class,
         MapNode::class,
+        ApprovalGateNode::class,
     ];
 
     public function register(): void
@@ -247,13 +250,16 @@ final class LaravelFlowServiceProvider extends ServiceProvider
         $this->app->singleton(NodeExecutor::class, function (Container $app): NodeExecutor {
             /** @var array<string, mixed> $persistence */
             $persistence = $app['config']->get('laravel-flow.persistence', []);
-            $cache = (bool) ($persistence['enabled'] ?? false) ? $app->make(NodeCache::class) : null;
+            $persistenceEnabled = (bool) ($persistence['enabled'] ?? false);
+            $cache = $persistenceEnabled ? $app->make(NodeCache::class) : null;
+            $approvalTokens = $persistenceEnabled ? $app->make(ApprovalTokenManager::class) : null;
 
             return new NodeExecutor(
                 $app->make(NodeResolver::class),
                 $app->make(InputRouter::class),
                 static fn (): \DateTimeImmutable => Date::now()->toDateTimeImmutable(),
                 $cache,
+                $approvalTokens,
             );
         });
         $this->app->bind(GraphSaga::class, function (Container $app): GraphSaga {
@@ -327,6 +333,24 @@ final class LaravelFlowServiceProvider extends ServiceProvider
                 is_numeric($lockRetrySeconds) && (int) $lockRetrySeconds >= 1 ? (int) $lockRetrySeconds : 30,
                 $app->make(GraphSaga::class),
                 $this->graphCompensationStrategy($app),
+            );
+        });
+        $this->app->bind(GraphApprovalCoordinator::class, function (Container $app): GraphApprovalCoordinator {
+            $config = $app['config'];
+
+            $lockStore = $config->get('laravel-flow.executor.lock_store') ?? $config->get('laravel-flow.queue.lock_store');
+            $lockSeconds = $config->get('laravel-flow.executor.lock_seconds') ?? $config->get('laravel-flow.queue.lock_seconds');
+            $lockRetrySeconds = $config->get('laravel-flow.executor.lock_retry_seconds') ?? $config->get('laravel-flow.queue.lock_retry_seconds');
+            $queue = $config->get('laravel-flow.executor.queue');
+
+            return new GraphApprovalCoordinator(
+                $app->make(FlowStore::class),
+                static fn (): \DateTimeImmutable => Date::now()->toDateTimeImmutable(),
+                $app->make(BusDispatcher::class),
+                is_string($queue) && $queue !== '' ? $queue : null,
+                is_string($lockStore) && $lockStore !== '' ? $lockStore : null,
+                is_numeric($lockSeconds) && (int) $lockSeconds >= 1 ? (int) $lockSeconds : 3600,
+                is_numeric($lockRetrySeconds) && (int) $lockRetrySeconds >= 1 ? (int) $lockRetrySeconds : 30,
             );
         });
     }

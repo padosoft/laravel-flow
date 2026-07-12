@@ -11,6 +11,8 @@ use Padosoft\LaravelFlow\Executor\State\NodeState;
 use Padosoft\LaravelFlow\Executor\State\RunState;
 use Padosoft\LaravelFlow\FlowExecutionOptions;
 use Padosoft\LaravelFlow\Graph\GraphDefinition;
+use Padosoft\LaravelFlow\Graph\GraphSerializer;
+use Padosoft\LaravelFlow\IssuedApprovalToken;
 
 /**
  * Synchronous graph executor: the correctness reference for the queued
@@ -58,7 +60,7 @@ final class GraphRunner
         // port (the router only reads config for ports the node actually has).
         $hasIncoming = NodeRouting::nodesWithIncoming($graph);
 
-        $this->persistRunStarted($store, $runId, $definitionName, $input, $dryRun, count($graph->nodeIds()), $startedAt, $options);
+        $this->persistRunStarted($store, $graph, $runId, $definitionName, $input, $dryRun, count($graph->nodeIds()), $startedAt, $options);
 
         /** @var array<string, NodeState> $states */
         $states = [];
@@ -66,6 +68,8 @@ final class GraphRunner
         $outputs = [];
         /** @var array<string, string> $errors */
         $errors = [];
+        /** @var array<string, IssuedApprovalToken> $approvalTokens */
+        $approvalTokens = [];
 
         while (true) {
             $decision = $this->readiness->resolve($graph, $states);
@@ -112,6 +116,10 @@ final class GraphRunner
                     $errors[$id] = $execution->error->getMessage();
                 }
 
+                if ($execution->issuedApprovalToken !== null) {
+                    $approvalTokens[$id] = $execution->issuedApprovalToken;
+                }
+
                 $progressed = true;
             }
 
@@ -147,7 +155,7 @@ final class GraphRunner
             }
         }
 
-        return new GraphRunResult($runId, $runState, $states, $outputs, $errors);
+        return new GraphRunResult($runId, $runState, $states, $outputs, $errors, $approvalTokens);
     }
 
     /**
@@ -155,6 +163,7 @@ final class GraphRunner
      */
     private function persistRunStarted(
         ?FlowStore $store,
+        GraphDefinition $graph,
         string $runId,
         string $definitionName,
         array $input,
@@ -179,6 +188,15 @@ final class GraphRunner
             'started_at' => $startedAt,
             'status' => RunState::Running->value,
         ];
+
+        // Store the canonical graph (unredacted structure) on EVERY graph run,
+        // not only queued ones: a synchronously-started run can still pause on
+        // an approval gate, and resuming it later needs to reload the graph by
+        // run id — same rationale as QueueGraphCoordinator::start()'s write of
+        // this column (and flow_definitions.graph before it).
+        if (! $dryRun) {
+            $attributes['graph'] = (new GraphSerializer)->toArray($graph);
+        }
 
         if ($options->replayedFromRunId !== null) {
             $attributes['replayed_from_run_id'] = $options->replayedFromRunId;

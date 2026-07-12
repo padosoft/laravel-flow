@@ -8,7 +8,9 @@ use Closure;
 use DateTimeImmutable;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Sleep;
+use Padosoft\LaravelFlow\ApprovalTokenManager;
 use Padosoft\LaravelFlow\Contracts\FlowStore;
+use Padosoft\LaravelFlow\Executor\Nodes\ApprovalGateNode;
 use Padosoft\LaravelFlow\Executor\State\NodeState;
 use Padosoft\LaravelFlow\Graph\Connection;
 use Padosoft\LaravelFlow\Graph\GraphNode;
@@ -38,6 +40,7 @@ final class NodeExecutor
         private readonly InputRouter $router,
         private readonly Closure $clock,
         private readonly ?NodeCache $cache = null,
+        private readonly ?ApprovalTokenManager $approvalTokens = null,
     ) {}
 
     /**
@@ -209,6 +212,38 @@ final class NodeExecutor
             'duration_ms' => $this->durationMs($startedAt, $finishedAt),
         ]);
 
+        // Approval token issuance is owned by the EXECUTOR, not the node —
+        // mirrors v1, where FlowEngine (not the ApprovalGate step) detects a
+        // paused ApprovalGate::class result and issues the token. Hash-only
+        // storage: the plain token returned here is never persisted, only
+        // available to this call's caller for the duration of this request.
+        $issuedApprovalToken = null;
+
+        if ($state === NodeState::Paused
+            && $this->approvalTokens !== null
+            && $store !== null
+            && $resolved->definition->handlerClass === ApprovalGateNode::class
+        ) {
+            try {
+                $issuedApprovalToken = $this->approvalTokens->issue($runId, $node->id, [
+                    'definition_name' => $definitionName,
+                    'node_id' => $node->id,
+                ]);
+            } catch (Throwable $e) {
+                // The node itself already paused successfully and persisted —
+                // an approval-infrastructure failure must not fail it. Log
+                // only the exception CLASS and code — never the message, which
+                // for a QueryException embeds the SQL + bound params (the
+                // approval payload) — so a broken approval backend does not
+                // degrade invisibly, same discipline as the cache write below.
+                Log::warning('laravel-flow: approval token issuance failed; the node paused without an issuable token.', [
+                    'node_type' => $node->type,
+                    'exception' => $e::class,
+                    'code' => $e->getCode(),
+                ]);
+            }
+        }
+
         // Populate the cache after a fresh success (redaction gate + skip-on-
         // divergence enforced inside NodeCache::put()). Best-effort: a failed
         // cache write must not fail a node whose handler already succeeded.
@@ -232,7 +267,7 @@ final class NodeExecutor
             }
         }
 
-        return new NodeExecution($node->id, $state, $result->success ? $result->outputs : [], $result->error);
+        return new NodeExecution($node->id, $state, $result->success ? $result->outputs : [], $result->error, $issuedApprovalToken);
     }
 
     /**

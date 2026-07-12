@@ -35,6 +35,7 @@ use Padosoft\LaravelFlow\Dashboard\Authorization\DenyAllAuthorizer;
 use Padosoft\LaravelFlow\Dashboard\FlowDashboardReadModel;
 use Padosoft\LaravelFlow\Executor\ChildFlowRunner;
 use Padosoft\LaravelFlow\Executor\GraphRunner;
+use Padosoft\LaravelFlow\Executor\GraphSaga;
 use Padosoft\LaravelFlow\Executor\InputRouter;
 use Padosoft\LaravelFlow\Executor\JoinCoordinator;
 use Padosoft\LaravelFlow\Executor\NodeCache;
@@ -254,6 +255,16 @@ final class LaravelFlowServiceProvider extends ServiceProvider
                 $cache,
             );
         });
+        $this->app->bind(GraphSaga::class, function (Container $app): GraphSaga {
+            /** @var array<string, mixed> $config */
+            $config = $app['config']->get('laravel-flow', []);
+
+            return new GraphSaga(
+                $app->make(NodeResolver::class),
+                $app,
+                $this->compensationConcurrencyDriver($app, $config),
+            );
+        });
         $this->app->bind(GraphRunner::class, function (Container $app): GraphRunner {
             /** @var array<string, mixed> $persistence */
             $persistence = $app['config']->get('laravel-flow.persistence', []);
@@ -264,6 +275,8 @@ final class LaravelFlowServiceProvider extends ServiceProvider
                 $app->make(ReadinessResolver::class),
                 static fn (): \DateTimeImmutable => Date::now()->toDateTimeImmutable(),
                 $store,
+                $app->make(GraphSaga::class),
+                $this->graphCompensationStrategy($app),
             );
         });
         $this->app->bind(ChildFlowRunner::class, fn (Container $app): ChildFlowRunner => new ChildFlowRunner(
@@ -311,8 +324,27 @@ final class LaravelFlowServiceProvider extends ServiceProvider
                 is_string($lockStore) && $lockStore !== '' ? $lockStore : null,
                 is_numeric($lockSeconds) && (int) $lockSeconds >= 1 ? (int) $lockSeconds : 3600,
                 is_numeric($lockRetrySeconds) && (int) $lockRetrySeconds >= 1 ? (int) $lockRetrySeconds : 30,
+                $app->make(GraphSaga::class),
+                $this->graphCompensationStrategy($app),
             );
         });
+    }
+
+    /**
+     * The graph saga reuses v1's `compensation_strategy` config key so both
+     * engines follow one deployment-wide compensation policy. A non-string or
+     * blank value falls back to reverse-order; an unsupported literal is left
+     * for {@see GraphSaga} to reject with the same error as v1.
+     */
+    private function graphCompensationStrategy(Container $app): string
+    {
+        $strategy = $app['config']->get('laravel-flow.compensation_strategy');
+
+        if (! is_string($strategy) || trim($strategy) === '') {
+            return GraphSaga::STRATEGY_REVERSE_ORDER;
+        }
+
+        return trim($strategy);
     }
 
     public function boot(): void

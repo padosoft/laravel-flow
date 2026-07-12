@@ -51,6 +51,8 @@ final class QueueGraphCoordinator
         private readonly ?string $lockStore = null,
         private readonly int $lockSeconds = 3600,
         private readonly int $lockRetrySeconds = 30,
+        private readonly ?GraphSaga $saga = null,
+        private readonly string $compensationStrategy = GraphSaga::STRATEGY_REVERSE_ORDER,
     ) {}
 
     /**
@@ -200,6 +202,16 @@ final class QueueGraphCoordinator
             }
         });
 
+        // Graph saga runs OUTSIDE the row lock (compensators are user code that
+        // must never hold a `flow_runs` lock) and only on the pass that actually
+        // finalized the run — finalizeRun's terminal-state gate guarantees a
+        // duplicate coordinator can never double-compensate. It runs BEFORE the
+        // parent join is driven so a child that compensates reports its final
+        // status (`compensated`) to the join ledger, not a transient `failed`.
+        if ($finalized) {
+            $this->compensateIfFailed($runId, $graph);
+        }
+
         // Drive the parent join AFTER the lock is released (so the child's
         // terminal state is committed first) whenever the run is terminal — not
         // only on the finalizing pass. This makes the join re-drivable: if a join
@@ -338,6 +350,71 @@ final class QueueGraphCoordinator
         $this->store->runs()->update($runId, $attributes);
 
         return true;
+    }
+
+    /**
+     * Trigger the graph saga for a run that just finalized on a failure state.
+     * Reads node states/outputs back from persistence (the queued path's only
+     * shared channel — under enabled redaction, compensators therefore see the
+     * REDACTED outputs, same caveat as inter-node routing). The run is marked
+     * `compensated` only on a FULL rollback; a partial one records
+     * `compensation_status = 'failed'` and keeps the failure status.
+     */
+    private function compensateIfFailed(string $runId, GraphDefinition $graph): void
+    {
+        if ($this->saga === null) {
+            return;
+        }
+
+        $run = $this->store->runs()->find($runId);
+
+        if ($run === null) {
+            return;
+        }
+
+        $state = RunState::tryFrom((string) $run->status);
+
+        if (! in_array($state, [RunState::Failed, RunState::PartiallySucceeded], true)) {
+            return;
+        }
+
+        /** @var array<string, NodeState> $states */
+        $states = [];
+        /** @var array<string, array<string, mixed>> $outputs */
+        $outputs = [];
+
+        foreach ($this->store->runNodes()->forRun($runId) as $row) {
+            $states[(string) $row->node_id] = NodeState::from((string) $row->status);
+
+            if ($row->status === NodeState::Succeeded->value && is_array($row->outputs)) {
+                $outputs[(string) $row->node_id] = $row->outputs;
+            }
+        }
+
+        $report = $this->saga->compensate(
+            $runId,
+            (string) $run->definition_name,
+            $graph,
+            $states,
+            $outputs,
+            $this->compensationStrategy,
+            is_array($run->input) ? $run->input : [],
+        );
+
+        if (! $report->attempted()) {
+            return;
+        }
+
+        $attributes = [
+            'compensated' => $report->fullySucceeded(),
+            'compensation_status' => $report->fullySucceeded() ? 'succeeded' : 'failed',
+        ];
+
+        if ($report->fullySucceeded()) {
+            $attributes['status'] = RunState::Compensated->value;
+        }
+
+        $this->store->runs()->update($runId, $attributes);
     }
 
     private function durationMs(mixed $startedAt, DateTimeImmutable $finishedAt): ?int

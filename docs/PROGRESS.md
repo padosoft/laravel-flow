@@ -1,5 +1,13 @@
 # Progress
 
+## 2026-07-12 - Macro C / C-PR8 (graph saga compensation)
+
+- PR #62 (C-PR7) MERGED into `task/v2c-graph-executor` (merge commit `bf00615`) after round-11 Copilot convergence (0 findings, CI green).
+- Branch `task/v2c-08-graph-saga` (from `bf00615`): Task 16 implemented — `GraphSaga` (@api) + `GraphSagaReport` (@api) + `Node\CompensatableNode` (@api, additive capability interface). Reverse-topological compensation of ONLY Succeeded nodes; legacy `config['compensator']` v1 path preserved 1:1; `metadata['aggregate_compensator']` runs last (closes reserved v0.2 `withAggregateCompensator` for graphs); `parallel` strategy batches through the Concurrency driver with local fallback. Wired into `GraphRunner` (before persistRunFinished, single update) and `QueueGraphCoordinator` (post-lock, only on the finalizing pass, before the parent join is driven). Run marked `compensated` + `compensation_status='succeeded'` ONLY on full rollback; partial keeps failure state + `compensation_status='failed'`.
+- Tests: `GraphSagaTest` 10 tests (only-completed, context-carries-outputs, diamond reverse-topo order, parallel batching via stub driver, aggregate-last, legacy v1 compensator, partial-failure keeps state, no-compensators untouched, dry-run never compensates, queued path). Contract pins for the 3 new @api classes + saga surface. README bullet + comparison row (conservative competitor claims, checked 2026-07-12). UPGRADE.md bullet.
+- Local gate GREEN (Herd PHP 8.5): Pint pass, PHPStan no errors, 753 tests (656 Unit + 5 Contract + 92 Arch).
+- **Next step**: commit, push, open PR toward `task/v2c-graph-executor`, request Copilot, converge, merge; then C-PR9 (DAG dry-run plan + cost, branch `task/v2c-09-dag-dry-run`).
+
 ## 2026-07-12 - Macro C / C-PR7 (node cache, PR #62)
 
 - Branch `task/v2c-07-node-cache` → base `task/v2c-graph-executor`. PR #62 OPEN.

@@ -9,6 +9,8 @@ use Padosoft\LaravelFlow\Executor\Attributes\Cacheable;
 use Padosoft\LaravelFlow\Executor\Attributes\Retry;
 use Padosoft\LaravelFlow\Executor\GraphRunner;
 use Padosoft\LaravelFlow\Executor\GraphRunResult;
+use Padosoft\LaravelFlow\Executor\GraphSaga;
+use Padosoft\LaravelFlow\Executor\GraphSagaReport;
 use Padosoft\LaravelFlow\Executor\InputRouter;
 use Padosoft\LaravelFlow\Executor\NodeCache;
 use Padosoft\LaravelFlow\Executor\NodeCacheHit;
@@ -23,6 +25,7 @@ use Padosoft\LaravelFlow\Executor\RoutedInputs;
 use Padosoft\LaravelFlow\Executor\State\IllegalStateTransitionException;
 use Padosoft\LaravelFlow\Executor\State\NodeState;
 use Padosoft\LaravelFlow\Executor\State\RunState;
+use Padosoft\LaravelFlow\Node\CompensatableNode;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
 
@@ -86,12 +89,29 @@ final class ExecutorApiContractTest extends TestCase
             NodeCache::class,
             NodeCacheHit::class,
             NodeCacheRepository::class,
+            GraphSaga::class,
+            GraphSagaReport::class,
+            CompensatableNode::class,
         ];
 
         foreach ($classes as $class) {
             $doc = (string) (new ReflectionClass($class))->getDocComment();
             $this->assertStringContainsString('@api', $doc, $class);
             $this->assertStringNotContainsString('@internal', $doc, $class);
+        }
+    }
+
+    public function test_graph_saga_surface_is_pinned(): void
+    {
+        $this->assertSame('reverse-order', GraphSaga::STRATEGY_REVERSE_ORDER);
+        $this->assertSame('parallel', GraphSaga::STRATEGY_PARALLEL);
+        $this->assertSame('@aggregate', GraphSaga::AGGREGATE_KEY);
+        $this->assertTrue((new ReflectionClass(GraphSaga::class))->hasMethod('compensate'));
+
+        $this->assertTrue((new ReflectionClass(CompensatableNode::class))->hasMethod('compensate'));
+
+        foreach (['attempted', 'fullySucceeded'] as $method) {
+            $this->assertTrue((new ReflectionClass(GraphSagaReport::class))->hasMethod($method), $method);
         }
     }
 

@@ -171,6 +171,31 @@ final class GraphApprovalResumeTest extends PersistenceTestCase
         $this->engine()->reject('not-a-real-token');
     }
 
+    public function test_resume_on_a_run_with_no_persisted_graph_gives_a_diagnosable_error(): void
+    {
+        // Simulates an older run that predates C-PR10's unconditional
+        // flow_runs.graph write (or a custom backend that doesn't store/cast
+        // the column): the coordinator must name the ACTUAL problem (missing
+        // graph data) rather than a misleading "node not found".
+        $manager = $this->app->make(ApprovalTokenManager::class);
+
+        DB::table('flow_runs')->insert([
+            'id' => 'graphless-run', 'definition_name' => 'graph', 'status' => 'paused',
+            'engine' => 'graph', 'graph' => null,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        DB::table('flow_run_nodes')->insert([
+            'run_id' => 'graphless-run', 'node_id' => 'gate', 'node_type' => 'flow.approval',
+            'status' => 'paused', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $issued = $manager->issue('graphless-run', 'gate');
+
+        $this->expectException(FlowExecutionException::class);
+        $this->expectExceptionMessageMatches('/no persisted graph/i');
+
+        $this->engine()->resume($issued->plainTextToken, ['decision' => 'ship']);
+    }
+
     public function test_resume_recovers_from_a_consumed_token_whose_coordinator_never_ran(): void
     {
         // Crash-window: the token was already consumed as approved (a prior

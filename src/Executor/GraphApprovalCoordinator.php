@@ -83,7 +83,20 @@ final class GraphApprovalCoordinator
         ?string $errorMessage,
     ): FlowRunRecord {
         $now = ($this->clock)();
-        $graph = (new GraphSerializer)->fromArray(is_array($run->graph) ? $run->graph : []);
+
+        // A missing/unreadable graph column (an older run predating the
+        // C-PR10 unconditional write, or a custom backend that doesn't
+        // store/cast it) must surface as ITS OWN diagnosable error — falling
+        // through to "node not found" would blame the wrong thing and hide
+        // the actual problem (no graph data to resolve the node against).
+        if (! is_array($run->graph) || $run->graph === []) {
+            throw new FlowExecutionException(sprintf(
+                'Run [%s] has no persisted graph to resume/reject against (flow_runs.graph is missing or empty).',
+                $run->id,
+            ));
+        }
+
+        $graph = (new GraphSerializer)->fromArray($run->graph);
         $node = $graph->node($nodeId);
 
         if ($node === null) {

@@ -111,12 +111,15 @@ final class GraphSaga
     }
 
     /**
-     * True when a compensation pass over this run would have anything to do:
-     * at least one compensatable candidate, a succeeded node whose handler no
-     * longer resolves (recorded as a failure), or a declared graph-level
-     * aggregate compensator. Side-effect-free (no compensator is executed), so
-     * a caller may use it under a row lock to CLAIM compensation before
-     * running the actual rollback outside the lock.
+     * PURELY STRUCTURAL check — no container resolution, no user code — so a
+     * caller may run it under a `flow_runs` row lock to CLAIM compensation
+     * before executing the actual rollback outside the lock. True for a
+     * declared aggregate compensator, for any succeeded legacy node with a
+     * `config['compensator']`, and CONSERVATIVELY for any other succeeded node
+     * (whether its handler implements CompensatableNode can only be discovered
+     * by resolving it — user code that must not run under the lock). A
+     * conservative claim that the compensate() pass then finds empty is
+     * cleared by the caller, so it never overstates the recorded outcome.
      *
      * @param  array<string, NodeState>  $nodeStates
      */
@@ -128,9 +131,31 @@ final class GraphSaga
             return true;
         }
 
-        [$candidates, $resolutionErrors] = $this->candidates($graph, $nodeStates);
+        foreach ($graph->nodeIds() as $id) {
+            if (($nodeStates[$id] ?? NodeState::Pending) !== NodeState::Succeeded) {
+                continue;
+            }
 
-        return $candidates !== [] || $resolutionErrors !== [];
+            $node = $graph->node($id);
+
+            if ($node === null) {
+                continue;
+            }
+
+            if ($node->type === FlowDefinition::LEGACY_NODE_TYPE) {
+                $compensator = $node->config['compensator'] ?? null;
+
+                if (is_string($compensator) && $compensator !== '') {
+                    return true;
+                }
+
+                continue; // a legacy node without a compensator is definitively no work
+            }
+
+            return true; // a regular succeeded node MIGHT be compensatable
+        }
+
+        return false;
     }
 
     /**
@@ -248,7 +273,12 @@ final class GraphSaga
         $tasks = [];
 
         foreach ($candidates as $index => $candidate) {
-            $tasks[$index] = $this->parallelTask($candidate, $runId, $definitionName, $nodeOutputs, $runInput, $queued);
+            // Each task closure captures only ITS node's output slice (still
+            // keyed by node id, so compensateOne() works unchanged) — capturing
+            // the full map would copy/serialize every node's outputs once per
+            // task on large graphs.
+            $slice = array_intersect_key($nodeOutputs, [$candidate['node']->id => true]);
+            $tasks[$index] = $this->parallelTask($candidate, $runId, $definitionName, $slice, $runInput, $queued);
         }
 
         try {

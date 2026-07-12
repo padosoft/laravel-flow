@@ -24,6 +24,7 @@ use Padosoft\LaravelFlow\Graph\GraphNode;
 use Padosoft\LaravelFlow\Tests\Fixtures\GraphNodes\CompensatableRecordingNode;
 use Padosoft\LaravelFlow\Tests\Fixtures\GraphNodes\CompensationThrowingNode;
 use Padosoft\LaravelFlow\Tests\Fixtures\GraphNodes\FailingGraphNode;
+use Padosoft\LaravelFlow\Tests\Fixtures\GraphNodes\QueueProbeNode;
 use Padosoft\LaravelFlow\Tests\Fixtures\GraphNodes\RecordingAggregateCompensator;
 use Padosoft\LaravelFlow\Tests\Unit\Persistence\PersistenceTestCase;
 use Padosoft\LaravelFlow\Tests\Unit\Stubs\AlwaysSucceedsHandler;
@@ -39,6 +40,7 @@ final class GraphSagaTest extends PersistenceTestCase
             CompensatableRecordingNode::class,
             CompensationThrowingNode::class,
             FailingGraphNode::class,
+            QueueProbeNode::class,
         ]);
     }
 
@@ -412,6 +414,30 @@ final class GraphSagaTest extends PersistenceTestCase
         $this->expectExceptionMessage('Unsupported compensation strategy [bogus]');
 
         $this->app->make(GraphRunner::class);
+    }
+
+    public function test_queued_run_without_compensators_ends_with_null_compensation_status(): void
+    {
+        // The structural claim is conservative (a regular succeeded node MIGHT
+        // be compensatable), so a queued failure with only non-compensatable
+        // nodes gets claimed and then CLEARED — its final compensation_status
+        // must be null, same as the sync path.
+        $this->app['config']->set('queue.default', 'sync');
+
+        $graph = new GraphDefinition(
+            [
+                new GraphNode('p', 'test.probe'),
+                new GraphNode('f', 'test.fail'),
+            ],
+            [new Connection('p', 'out', 'f', 'in')],
+        );
+
+        $runId = $this->app->make(FlowEngine::class)->dispatchGraph($graph, []);
+
+        $run = DB::table('flow_runs')->where('id', $runId)->first();
+        $this->assertSame('partially_succeeded', $run->status, 'the failure state is untouched');
+        $this->assertNull($run->compensation_status, 'the conservative claim was cleared, not recorded');
+        $this->assertSame([], CompensatableRecordingNode::$log);
     }
 
     public function test_coordinator_retry_compensates_a_finalized_but_uncompensated_run(): void

@@ -403,9 +403,11 @@ final class QueueGraphCoordinator
             return false;
         }
 
-        // hasCompensationWork() is side-effect-free (no compensator executes),
-        // so scanning under the lock is safe and keeps a no-compensator run's
-        // compensation_status null.
+        // hasCompensationWork() is purely structural (no container resolution,
+        // no user code), so scanning under the lock is safe. It is deliberately
+        // CONSERVATIVE for regular succeeded nodes — compensateIfFailed() clears
+        // the provisional claim when the pass finds nothing to attempt, so a
+        // no-compensator run still ends with compensation_status null.
         if (! $this->saga->hasCompensationWork($graph, $this->store->runNodes()->states($runId))) {
             return false;
         }
@@ -467,8 +469,11 @@ final class QueueGraphCoordinator
         );
 
         if (! $report->attempted()) {
-            // Defensive: the claim found work but the saga attempted nothing —
-            // clear the provisional claim so the record does not overstate.
+            // Load-bearing, not just defensive: the structural claim is
+            // conservative (it cannot know whether a regular node's handler is
+            // compensatable without resolving user code), so a claimed run with
+            // nothing to actually roll back lands here — clear the provisional
+            // claim so its compensation_status ends null, same as the sync path.
             $this->store->runs()->update($runId, ['compensation_status' => null]);
 
             return;

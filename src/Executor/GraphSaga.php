@@ -64,6 +64,7 @@ final class GraphSaga
      * @param  array<string, NodeState>  $nodeStates
      * @param  array<string, array<string, mixed>>  $nodeOutputs  succeeded node id => output port map
      * @param  array<string, mixed>  $runInput  the original run input (forwarded to v1 compensators' FlowContext)
+     * @param  bool  $queued  true when triggered by the queued coordinator — forwarded to each CompensatableNode's NodeContext so environment-aware handlers see the engine they actually ran on
      */
     public function compensate(
         string $runId,
@@ -73,14 +74,21 @@ final class GraphSaga
         array $nodeOutputs,
         string $strategy = self::STRATEGY_REVERSE_ORDER,
         array $runInput = [],
+        bool $queued = false,
     ): GraphSagaReport {
         $this->assertSupportedStrategy($strategy);
 
-        $candidates = $this->candidates($graph, $nodeStates);
+        [$candidates, $resolutionErrors] = $this->candidates($graph, $nodeStates);
 
         [$compensated, $errors] = $strategy === self::STRATEGY_PARALLEL
-            ? $this->runParallel($candidates, $runId, $definitionName, $nodeOutputs, $runInput)
-            : $this->runSequential($candidates, $runId, $definitionName, $nodeOutputs, $runInput);
+            ? $this->runParallel($candidates, $runId, $definitionName, $nodeOutputs, $runInput, $queued)
+            : $this->runSequential($candidates, $runId, $definitionName, $nodeOutputs, $runInput, $queued);
+
+        // A succeeded node whose handler no longer RESOLVES (removed/unbound
+        // mid-deploy) counts as a compensation FAILURE, not a silent skip: we
+        // cannot know whether it needed rollback, so the run must never be
+        // marked fully compensated over it.
+        $errors = [...$resolutionErrors, ...$errors];
 
         // The aggregate compensator is the FINAL graph-level rollback: it runs
         // last (after every per-node compensator, in both strategies), in the
@@ -99,14 +107,20 @@ final class GraphSaga
     /**
      * Collect the compensation candidates in reverse-topological order: ONLY
      * nodes that actually completed — a failed, blocked, skipped, paused, or
-     * never-run node has no committed side effects to undo.
+     * never-run node has no committed side effects to undo. A succeeded node
+     * whose handler no longer resolves (the node DID resolve once to run, so
+     * this means the handler class/binding changed mid-deploy) is returned as
+     * a resolution ERROR rather than silently dropped: we cannot know whether
+     * it was compensatable, and a silent skip could let the run be marked
+     * fully compensated over an unattempted rollback.
      *
      * @param  array<string, NodeState>  $nodeStates
-     * @return list<array{node: GraphNode, legacyCompensator: string|null}>
+     * @return array{0: list<array{node: GraphNode, legacyCompensator: string|null}>, 1: array<string, string>}
      */
     private function candidates(GraphDefinition $graph, array $nodeStates): array
     {
         $candidates = [];
+        $errors = [];
 
         foreach (array_reverse($graph->topologicalOrder()) as $id) {
             if (($nodeStates[$id] ?? NodeState::Pending) !== NodeState::Succeeded) {
@@ -122,24 +136,26 @@ final class GraphSaga
             $legacyCompensator = $node->config['compensator'] ?? null;
             $legacyCompensator = is_string($legacyCompensator) && $legacyCompensator !== '' ? $legacyCompensator : null;
 
-            if ($legacyCompensator !== null || $this->handlerIsCompensatable($node)) {
+            if ($legacyCompensator !== null) {
                 $candidates[] = ['node' => $node, 'legacyCompensator' => $legacyCompensator];
+
+                continue;
+            }
+
+            try {
+                $compensatable = $this->resolver->resolve($node)->handler instanceof CompensatableNode;
+            } catch (Throwable $e) {
+                $errors[$id] = $e->getMessage();
+
+                continue;
+            }
+
+            if ($compensatable) {
+                $candidates[] = ['node' => $node, 'legacyCompensator' => null];
             }
         }
 
-        return $candidates;
-    }
-
-    private function handlerIsCompensatable(GraphNode $node): bool
-    {
-        // The node already resolved once to RUN, so a resolution failure here is
-        // an infrastructure change mid-run; treat it as "not compensatable"
-        // rather than aborting the remaining rollback.
-        try {
-            return $this->resolver->resolve($node)->handler instanceof CompensatableNode;
-        } catch (Throwable) {
-            return false;
-        }
+        return [$candidates, $errors];
     }
 
     /**
@@ -148,7 +164,7 @@ final class GraphSaga
      * @param  array<string, mixed>  $runInput
      * @return array{0: list<string>, 1: array<string, string>}
      */
-    private function runSequential(array $candidates, string $runId, string $definitionName, array $nodeOutputs, array $runInput): array
+    private function runSequential(array $candidates, string $runId, string $definitionName, array $nodeOutputs, array $runInput, bool $queued): array
     {
         $compensated = [];
         $errors = [];
@@ -157,7 +173,7 @@ final class GraphSaga
             $id = $candidate['node']->id;
 
             try {
-                $this->compensateOne($candidate, $runId, $definitionName, $nodeOutputs, $runInput);
+                $this->compensateOne($candidate, $runId, $definitionName, $nodeOutputs, $runInput, $queued);
                 $compensated[] = $id;
             } catch (Throwable $e) {
                 // Record and KEEP GOING: the whole point of saga compensation is
@@ -183,20 +199,20 @@ final class GraphSaga
      * @param  array<string, mixed>  $runInput
      * @return array{0: list<string>, 1: array<string, string>}
      */
-    private function runParallel(array $candidates, string $runId, string $definitionName, array $nodeOutputs, array $runInput): array
+    private function runParallel(array $candidates, string $runId, string $definitionName, array $nodeOutputs, array $runInput, bool $queued): array
     {
         if ($candidates === []) {
             return [[], []];
         }
 
         if (! $this->concurrencyDriver instanceof ConcurrencyDriver || ! $this->containerIsGlobalInstance()) {
-            return $this->runSequential($candidates, $runId, $definitionName, $nodeOutputs, $runInput);
+            return $this->runSequential($candidates, $runId, $definitionName, $nodeOutputs, $runInput, $queued);
         }
 
         $tasks = [];
 
         foreach ($candidates as $index => $candidate) {
-            $tasks[$index] = $this->parallelTask($candidate, $runId, $definitionName, $nodeOutputs, $runInput);
+            $tasks[$index] = $this->parallelTask($candidate, $runId, $definitionName, $nodeOutputs, $runInput, $queued);
         }
 
         try {
@@ -206,7 +222,7 @@ final class GraphSaga
             // The driver could not run the batch (e.g. no process runtime):
             // fall back to local rollback rather than leaving side effects
             // unapplied (v1 invariant).
-            return $this->runSequential($candidates, $runId, $definitionName, $nodeOutputs, $runInput);
+            return $this->runSequential($candidates, $runId, $definitionName, $nodeOutputs, $runInput, $queued);
         }
 
         $compensated = [];
@@ -244,9 +260,9 @@ final class GraphSaga
      * @param  array<string, mixed>  $runInput
      * @return Closure(): array{success: bool, error_message?: string}
      */
-    private function parallelTask(array $candidate, string $runId, string $definitionName, array $nodeOutputs, array $runInput): Closure
+    private function parallelTask(array $candidate, string $runId, string $definitionName, array $nodeOutputs, array $runInput, bool $queued): Closure
     {
-        return static function () use ($candidate, $runId, $definitionName, $nodeOutputs, $runInput): array {
+        return static function () use ($candidate, $runId, $definitionName, $nodeOutputs, $runInput, $queued): array {
             $container = \Illuminate\Container\Container::getInstance();
 
             try {
@@ -254,7 +270,7 @@ final class GraphSaga
                     $container->make(NodeResolver::class),
                     $container,
                 );
-                $saga->compensateOne($candidate, $runId, $definitionName, $nodeOutputs, $runInput);
+                $saga->compensateOne($candidate, $runId, $definitionName, $nodeOutputs, $runInput, $queued);
             } catch (Throwable $e) {
                 return ['success' => false, 'error_message' => $e->getMessage()];
             }
@@ -270,7 +286,7 @@ final class GraphSaga
      * @param  array<string, array<string, mixed>>  $nodeOutputs
      * @param  array<string, mixed>  $runInput
      */
-    private function compensateOne(array $candidate, string $runId, string $definitionName, array $nodeOutputs, array $runInput): void
+    private function compensateOne(array $candidate, string $runId, string $definitionName, array $nodeOutputs, array $runInput, bool $queued): void
     {
         $node = $candidate['node'];
         $outputs = $nodeOutputs[$node->id] ?? [];
@@ -309,7 +325,7 @@ final class GraphSaga
 
         // The context's `inputs` deliberately carry the node's recorded OUTPUTS:
         // compensation undoes what the node produced (see CompensatableNode).
-        $handler->compensate(new NodeContext($runId, $definitionName, $node->id, $outputs));
+        $handler->compensate(new NodeContext($runId, $definitionName, $node->id, $outputs, false, $queued));
     }
 
     /**

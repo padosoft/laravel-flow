@@ -28,10 +28,14 @@ final class CompensatableRecordingNode implements CompensatableNode, FlowNodeHan
     /** @var array<string, array<string, mixed>> node id => inputs seen by compensate() */
     public static array $contexts = [];
 
+    /** @var array<string, bool> node id => the queued flag compensate() saw */
+    public static array $queuedFlags = [];
+
     public static function reset(): void
     {
         self::$log = [];
         self::$contexts = [];
+        self::$queuedFlags = [];
     }
 
     #[Input(type: PortType::Json, required: false, multiple: true)]
@@ -49,5 +53,6 @@ final class CompensatableRecordingNode implements CompensatableNode, FlowNodeHan
     {
         self::$log[] = $context->nodeId;
         self::$contexts[$context->nodeId] = $context->inputs;
+        self::$queuedFlags[$context->nodeId] = $context->queued;
     }
 }

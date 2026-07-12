@@ -405,6 +405,7 @@ final class QueueGraphCoordinator
             $outputs,
             $this->compensationStrategy,
             is_array($run->input) ? $run->input : [],
+            queued: true,
         );
 
         if (! $report->attempted()) {

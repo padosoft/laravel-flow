@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Padosoft\LaravelFlow\Tests\Unit\Executor;
 
+use Carbon\CarbonInterval;
 use Closure;
 use Illuminate\Contracts\Concurrency\Driver as ConcurrencyDriver;
 use Illuminate\Support\Defer\DeferredCallback;
@@ -139,7 +140,7 @@ final class GraphSagaTest extends PersistenceTestCase
             /** @var list<int> */
             public array $batchSizes = [];
 
-            public function run(Closure|array $tasks): array
+            public function run(Closure|array $tasks, CarbonInterval|int|null $timeout = null): array
             {
                 $tasks = is_array($tasks) ? $tasks : [$tasks];
                 $this->batchSizes[] = count($tasks);
@@ -298,6 +299,54 @@ final class GraphSagaTest extends PersistenceTestCase
         $this->assertSame([], CompensatableRecordingNode::$log, 'compensation is a real side effect: never on a dry run');
     }
 
+    public function test_unresolvable_succeeded_node_is_a_compensation_failure_not_a_silent_skip(): void
+    {
+        // The node RAN (state Succeeded) but its handler no longer resolves
+        // (removed/unbound mid-deploy). The saga cannot know whether it needed
+        // rollback, so it must record a failure — never report fullySucceeded
+        // over an unattempted compensation.
+        $saga = $this->app->make(GraphSaga::class);
+
+        $graph = new GraphDefinition(
+            [
+                new GraphNode('gone', 'test.saga.unregistered-type'),
+                new GraphNode('a', 'test.saga.comp'),
+                new GraphNode('f', 'test.fail'),
+            ],
+            [
+                new Connection('gone', 'out', 'a', 'in'),
+                new Connection('a', 'out', 'f', 'in'),
+            ],
+        );
+
+        $report = $saga->compensate(
+            'run-x',
+            'graph',
+            $graph,
+            ['gone' => NodeState::Succeeded, 'a' => NodeState::Succeeded, 'f' => NodeState::Failed],
+            ['gone' => ['out' => []], 'a' => ['out' => []]],
+        );
+
+        $this->assertSame(['a'], $report->compensatedNodeIds, 'resolvable compensators still run');
+        $this->assertArrayHasKey('gone', $report->errors, 'the unresolvable node is recorded as a failure');
+        $this->assertFalse($report->fullySucceeded(), 'a silently-skipped rollback can never mark the run compensated');
+    }
+
+    public function test_sync_compensation_context_reports_queued_false(): void
+    {
+        $graph = new GraphDefinition(
+            [
+                new GraphNode('a', 'test.saga.comp'),
+                new GraphNode('f', 'test.fail'),
+            ],
+            [new Connection('a', 'out', 'f', 'in')],
+        );
+
+        $this->runner()->run($graph, []);
+
+        $this->assertFalse(CompensatableRecordingNode::$queuedFlags['a']);
+    }
+
     public function test_unsupported_compensation_strategy_fails_fast_at_resolution(): void
     {
         // A bad config must surface on the FIRST graph run (container
@@ -330,6 +379,7 @@ final class GraphSagaTest extends PersistenceTestCase
         $runId = $this->app->make(FlowEngine::class)->dispatchGraph($graph, []);
 
         $this->assertSame(['b', 'a'], CompensatableRecordingNode::$log, 'queued finalize triggers the same reverse-order saga');
+        $this->assertTrue(CompensatableRecordingNode::$queuedFlags['a'], 'queued-path compensation reports queued=true in its context');
 
         $run = DB::table('flow_runs')->where('id', $runId)->first();
         $this->assertSame('compensated', $run->status);

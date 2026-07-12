@@ -32,6 +32,7 @@ use Padosoft\LaravelFlow\Exceptions\FlowCompensationException;
 use Padosoft\LaravelFlow\Exceptions\FlowExecutionException;
 use Padosoft\LaravelFlow\Exceptions\FlowInputException;
 use Padosoft\LaravelFlow\Exceptions\FlowNotRegisteredException;
+use Padosoft\LaravelFlow\Executor\GraphApprovalCoordinator;
 use Padosoft\LaravelFlow\Executor\GraphRunner;
 use Padosoft\LaravelFlow\Executor\GraphRunResult;
 use Padosoft\LaravelFlow\Executor\Jobs\CoordinatorJob;
@@ -894,12 +895,21 @@ class FlowEngine
         PayloadRedactor $redactor,
     ): FlowRun {
         $preDecisionApproval = $this->approvalDecisionRecord($token);
+        $preDecisionRunRecord = $this->approvalRunRecord($preDecisionApproval, $store);
+
+        // Graph runs (engine === 'graph') never went through v1's step
+        // compilation, so none of the v1-specific machinery below (step-order
+        // drift checks, FlowContext/step-chain replay) applies to them —
+        // dispatch to the engine-agnostic graph path instead. The lock (this
+        // method's caller already holds it, run-id-keyed) and the token
+        // consume step below are shared by both engines unchanged.
+        if ($preDecisionRunRecord->engine === 'graph') {
+            return $this->decideGraphApproval($decision, $payload, $actor, $store, $redactor, $token, $preDecisionApproval, $preDecisionRunRecord);
+        }
 
         $preDecisionState = null;
 
         if ($preDecisionApproval->status === FlowApprovalRecord::STATUS_PENDING) {
-            $preDecisionRunRecord = $this->approvalRunRecord($preDecisionApproval, $store);
-
             if ($preDecisionRunRecord->status !== FlowRun::STATUS_PAUSED) {
                 return $this->flowRunFromRecord($preDecisionRunRecord, $store);
             }
@@ -917,6 +927,63 @@ class FlowEngine
         }
 
         return $this->rejectApprovalDecision($approval, $decisionPayload, $decisionActor, $store, $redactor, $preDecisionState);
+    }
+
+    /**
+     * Engine-agnostic approval decision for a graph run. Reuses the SAME
+     * token-consume step as v1 ({@see consumeApprovalDecisionForPausedRun}) —
+     * it only touches `flow_approvals`, never the run/node tables — then
+     * delegates the actual resume/reject to {@see GraphApprovalCoordinator},
+     * which mutates the paused node directly and re-drives the coordinator.
+     *
+     * @param  array<string, mixed>  $payload
+     * @param  array<string, mixed>  $actor
+     */
+    private function decideGraphApproval(
+        string $decision,
+        array $payload,
+        array $actor,
+        FlowStore $store,
+        PayloadRedactor $redactor,
+        string $token,
+        FlowApprovalRecord $preDecisionApproval,
+        FlowRunRecord $preDecisionRunRecord,
+    ): FlowRun {
+        // Mirrors the v1 pre-lock check: a PENDING token whose run already
+        // left `paused` belongs to a gate this run moved past (or a run that
+        // never reaches THIS token's gate under a different branch) — return
+        // the current state without attempting to re-decide.
+        if ($preDecisionApproval->status === FlowApprovalRecord::STATUS_PENDING
+            && $preDecisionRunRecord->status !== FlowRun::STATUS_PAUSED
+        ) {
+            return $this->flowRunFromRecord($preDecisionRunRecord, $store);
+        }
+
+        [$approval, $consumedNow] = $this->consumeApprovalDecisionForPausedRun($token, $decision, $payload, $actor, $redactor);
+
+        if (! $consumedNow) {
+            // Duplicate resume/reject: the token was already decided by an
+            // earlier call. Idempotent — return the CURRENT run state without
+            // re-advancing or re-compensating.
+            return $this->flowRunFromRecord($this->approvalRunRecord($approval, $store), $store);
+        }
+
+        $decisionPayload = $approval->payload ?? [];
+        $coordinator = $this->graphApprovalCoordinator();
+
+        $updatedRun = $decision === FlowApprovalRecord::STATUS_APPROVED
+            ? $coordinator->resume($preDecisionRunRecord, $approval->step_name, $decisionPayload)
+            : $coordinator->reject($preDecisionRunRecord, $approval->step_name, $decisionPayload);
+
+        return $this->flowRunFromRecord($updatedRun, $store);
+    }
+
+    private function graphApprovalCoordinator(): GraphApprovalCoordinator
+    {
+        /** @var GraphApprovalCoordinator $coordinator */
+        $coordinator = $this->container->make(GraphApprovalCoordinator::class);
+
+        return $coordinator;
     }
 
     /**

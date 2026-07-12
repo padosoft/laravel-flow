@@ -20,6 +20,7 @@ use Padosoft\LaravelFlow\Executor\NodeCache;
 use Padosoft\LaravelFlow\Executor\NodeCacheHit;
 use Padosoft\LaravelFlow\Executor\NodeExecutor;
 use Padosoft\LaravelFlow\Executor\NodeResolver;
+use Padosoft\LaravelFlow\Executor\Nodes\ApprovalGateNode;
 use Padosoft\LaravelFlow\Executor\Nodes\MergeNode;
 use Padosoft\LaravelFlow\Executor\ReadinessDecision;
 use Padosoft\LaravelFlow\Executor\ReadinessResolver;
@@ -100,6 +101,7 @@ final class ExecutorApiContractTest extends TestCase
             DryRunPlanner::class,
             ExecutionPlan::class,
             CostEstimate::class,
+            ApprovalGateNode::class,
         ];
 
         foreach ($classes as $class) {

@@ -8,7 +8,9 @@ use Closure;
 use DateTimeImmutable;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Sleep;
+use Padosoft\LaravelFlow\ApprovalTokenManager;
 use Padosoft\LaravelFlow\Contracts\FlowStore;
+use Padosoft\LaravelFlow\Executor\Nodes\ApprovalGateNode;
 use Padosoft\LaravelFlow\Executor\State\NodeState;
 use Padosoft\LaravelFlow\Graph\Connection;
 use Padosoft\LaravelFlow\Graph\GraphNode;
@@ -38,6 +40,7 @@ final class NodeExecutor
         private readonly InputRouter $router,
         private readonly Closure $clock,
         private readonly ?NodeCache $cache = null,
+        private readonly ?ApprovalTokenManager $approvalTokens = null,
     ) {}
 
     /**
@@ -209,6 +212,24 @@ final class NodeExecutor
             'duration_ms' => $this->durationMs($startedAt, $finishedAt),
         ]);
 
+        // Approval token issuance is owned by the EXECUTOR, not the node —
+        // mirrors v1, where FlowEngine (not the ApprovalGate step) detects a
+        // paused ApprovalGate::class result and issues the token. Hash-only
+        // storage: the plain token returned here is never persisted, only
+        // available to this call's caller for the duration of this request.
+        $issuedApprovalToken = null;
+
+        if ($state === NodeState::Paused
+            && $this->approvalTokens !== null
+            && $store !== null
+            && $resolved->definition->handlerClass === ApprovalGateNode::class
+        ) {
+            $issuedApprovalToken = $this->approvalTokens->issue($runId, $node->id, [
+                'definition_name' => $definitionName,
+                'node_id' => $node->id,
+            ]);
+        }
+
         // Populate the cache after a fresh success (redaction gate + skip-on-
         // divergence enforced inside NodeCache::put()). Best-effort: a failed
         // cache write must not fail a node whose handler already succeeded.
@@ -232,7 +253,7 @@ final class NodeExecutor
             }
         }
 
-        return new NodeExecution($node->id, $state, $result->success ? $result->outputs : [], $result->error);
+        return new NodeExecution($node->id, $state, $result->success ? $result->outputs : [], $result->error, $issuedApprovalToken);
     }
 
     /**

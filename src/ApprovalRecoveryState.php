@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace Padosoft\LaravelFlow;
 
+use Padosoft\LaravelFlow\Models\FlowRunNodeRecord;
 use Padosoft\LaravelFlow\Models\FlowRunRecord;
-use Padosoft\LaravelFlow\Models\FlowStepRecord;
 
 /**
  * @internal
@@ -19,7 +19,7 @@ final readonly class ApprovalRecoveryState
     public function __construct(
         public int $approvalIndex,
         public FlowStep $approvalStep,
-        public FlowStepRecord $approvalStepRecord,
+        public FlowRunNodeRecord $approvalStepRecord,
         public array $completedSteps,
         public FlowContext $context,
         public FlowDefinition $definition,

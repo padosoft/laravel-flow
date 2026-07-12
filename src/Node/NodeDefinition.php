@@ -4,6 +4,10 @@ declare(strict_types=1);
 
 namespace Padosoft\LaravelFlow\Node;
 
+use Padosoft\LaravelFlow\Executor\Attributes\Cacheable;
+use Padosoft\LaravelFlow\Executor\Attributes\Cost;
+use Padosoft\LaravelFlow\Executor\RetryPolicy;
+
 /**
  * Immutable, catalog-ready description of one node type.
  *
@@ -27,6 +31,9 @@ final class NodeDefinition
         public readonly array $inputs,
         public readonly array $outputs,
         public readonly string $handlerClass,
+        public readonly ?RetryPolicy $retry = null,
+        public readonly ?Cacheable $cacheable = null,
+        public readonly ?Cost $cost = null,
     ) {}
 
     public function input(string $key): ?PortDefinition
@@ -47,7 +54,7 @@ final class NodeDefinition
      */
     public function toArray(): array
     {
-        return [
+        $array = [
             'type' => $this->type,
             'name' => $this->name,
             'category' => $this->category,
@@ -56,6 +63,20 @@ final class NodeDefinition
             'inputs' => array_map(static fn (PortDefinition $port): array => $port->toArray(), $this->inputs),
             'outputs' => array_map(static fn (PortDefinition $port): array => $port->toArray(), $this->outputs),
         ];
+
+        if ($this->retry !== null) {
+            $array['retry'] = $this->retry->toArray();
+        }
+
+        if ($this->cacheable !== null) {
+            $array['cacheable'] = ['ttl' => $this->cacheable->ttl];
+        }
+
+        if ($this->cost !== null) {
+            $array['cost'] = ['estimate' => $this->cost->estimate];
+        }
+
+        return $array;
     }
 
     /**

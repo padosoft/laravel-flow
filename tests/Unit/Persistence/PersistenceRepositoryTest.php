@@ -18,8 +18,8 @@ use Padosoft\LaravelFlow\Contracts\ConditionalRunRepository;
 use Padosoft\LaravelFlow\Contracts\CurrentPayloadRedactorProvider;
 use Padosoft\LaravelFlow\Contracts\FlowStore;
 use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
+use Padosoft\LaravelFlow\Contracts\RunNodeRepository;
 use Padosoft\LaravelFlow\Contracts\RunRepository;
-use Padosoft\LaravelFlow\Contracts\StepRunRepository;
 use Padosoft\LaravelFlow\FlowRun;
 use Padosoft\LaravelFlow\IssuedApprovalToken;
 use Padosoft\LaravelFlow\Models\FlowApprovalRecord;
@@ -419,7 +419,7 @@ final class PersistenceRepositoryTest extends PersistenceTestCase
         $this->migrateFlowTables();
 
         $runs = $this->app->make(RunRepository::class);
-        $steps = $this->app->make(StepRunRepository::class);
+        $steps = $this->app->make(RunNodeRepository::class);
         $audit = $this->app->make(AuditRepository::class);
 
         $run = $runs->create([
@@ -453,12 +453,13 @@ final class PersistenceRepositoryTest extends PersistenceTestCase
         $step = $steps->createOrUpdate($run->id, 'simulate', [
             'business_impact' => ['projected_revenue_eur' => 18900],
             'handler' => 'Tests\\SimulatePromotionImpact',
-            'output' => ['authorization' => 'Bearer abc'],
+            'node_type' => 'legacy.step',
+            'outputs' => ['authorization' => 'Bearer abc'],
             'sequence' => 1,
             'status' => 'succeeded',
         ]);
 
-        $this->assertSame('[redacted]', $step->output['authorization']);
+        $this->assertSame('[redacted]', $step->outputs['authorization']);
         $this->assertSame(18900, $step->business_impact['projected_revenue_eur']);
         $this->assertCount(1, $steps->forRun($run->id));
 
@@ -653,7 +654,7 @@ final class PersistenceRepositoryTest extends PersistenceTestCase
         $this->migrateFlowTables();
         $counter = $this->bindCountingStringRedactor();
         $runs = $this->app->make(RunRepository::class);
-        $steps = $this->app->make(StepRunRepository::class);
+        $steps = $this->app->make(RunNodeRepository::class);
 
         $run = $runs->create([
             'definition_name' => 'flow.redactor.step',
@@ -668,16 +669,17 @@ final class PersistenceRepositoryTest extends PersistenceTestCase
         $step = $steps->createOrUpdate($run->id, 'charge', [
             'business_impact' => ['secret' => 'impact-secret'],
             'handler' => 'Tests\\Charge',
-            'input' => ['token' => 'input-secret'],
-            'output' => ['authorization' => 'output-secret'],
+            'inputs' => ['token' => 'input-secret'],
+            'node_type' => 'legacy.step',
+            'outputs' => ['authorization' => 'output-secret'],
             'sequence' => 1,
             'status' => 'succeeded',
         ]);
 
         $this->assertSame(1, $counter->value);
         $this->assertSame('redactor-1', $step->business_impact['secret']);
-        $this->assertSame('redactor-1', $step->input['token']);
-        $this->assertSame('redactor-1', $step->output['authorization']);
+        $this->assertSame('redactor-1', $step->inputs['token']);
+        $this->assertSame('redactor-1', $step->outputs['authorization']);
     }
 
     public function test_public_repository_redaction_preserves_each_json_payload_shape_for_custom_redactors(): void
@@ -686,7 +688,7 @@ final class PersistenceRepositoryTest extends PersistenceTestCase
         $this->app->bind(PayloadRedactor::class, fn (): PayloadRedactor => $this->topLevelSecretRedactor());
 
         $runs = $this->app->make(RunRepository::class);
-        $steps = $this->app->make(StepRunRepository::class);
+        $steps = $this->app->make(RunNodeRepository::class);
         $audit = $this->app->make(AuditRepository::class);
 
         $run = $runs->create([
@@ -706,8 +708,9 @@ final class PersistenceRepositoryTest extends PersistenceTestCase
         $step = $steps->createOrUpdate($run->id, 'charge', [
             'business_impact' => ['secret' => 'step-impact-secret'],
             'handler' => 'Tests\\Charge',
-            'input' => ['token' => 'step-input-secret'],
-            'output' => ['authorization' => 'step-output-secret'],
+            'inputs' => ['token' => 'step-input-secret'],
+            'node_type' => 'legacy.step',
+            'outputs' => ['authorization' => 'step-output-secret'],
             'sequence' => 1,
             'status' => 'succeeded',
         ]);
@@ -722,8 +725,8 @@ final class PersistenceRepositoryTest extends PersistenceTestCase
         $this->assertSame('[top-level-redacted]', $updated->business_impact['secret']);
         $this->assertSame('[top-level-redacted]', $updated->output['authorization']);
         $this->assertSame('[top-level-redacted]', $step->business_impact['secret']);
-        $this->assertSame('[top-level-redacted]', $step->input['token']);
-        $this->assertSame('[top-level-redacted]', $step->output['authorization']);
+        $this->assertSame('[top-level-redacted]', $step->inputs['token']);
+        $this->assertSame('[top-level-redacted]', $step->outputs['authorization']);
         $this->assertSame('[top-level-redacted]', $auditRecord->payload['authorization']);
         $this->assertSame('[top-level-redacted]', $auditRecord->business_impact['secret']);
     }
@@ -1012,7 +1015,7 @@ final class PersistenceRepositoryTest extends PersistenceTestCase
         $this->migrateFlowTables();
 
         $runs = $this->app->make(RunRepository::class);
-        $steps = $this->app->make(StepRunRepository::class);
+        $steps = $this->app->make(RunNodeRepository::class);
         $startedAt = new DateTimeImmutable('2026-05-02 08:00:00');
 
         $run = $runs->create([
@@ -1049,14 +1052,15 @@ final class PersistenceRepositoryTest extends PersistenceTestCase
         $this->assertNull($runs->findByIdempotencyKey('identity-mutated'));
 
         $step = $steps->createOrUpdate($run->id, 'charge', [
+            'node_id' => 'ship',
+            'node_type' => 'legacy.step',
             'run_id' => '00000000-0000-4000-8000-000000009999',
             'sequence' => 1,
             'status' => 'running',
-            'step_name' => 'ship',
         ]);
 
         $this->assertSame($run->id, $step->run_id);
-        $this->assertSame('charge', $step->step_name);
+        $this->assertSame('charge', $step->node_id);
         $this->assertCount(1, $steps->forRun($run->id));
     }
 
@@ -1065,7 +1069,7 @@ final class PersistenceRepositoryTest extends PersistenceTestCase
         $this->migrateFlowTables();
 
         $runs = $this->app->make(RunRepository::class);
-        $steps = $this->app->make(StepRunRepository::class);
+        $steps = $this->app->make(RunNodeRepository::class);
 
         $run = $runs->create([
             'definition_name' => 'atomic.steps',
@@ -1081,7 +1085,8 @@ final class PersistenceRepositoryTest extends PersistenceTestCase
             DB::connection()->enableQueryLog();
 
             $step = $steps->createOrUpdate($run->id, 'reserve-stock', [
-                'output' => ['token' => 'runtime-token'],
+                'node_type' => 'legacy.step',
+                'outputs' => ['token' => 'runtime-token'],
                 'sequence' => 1,
                 'status' => 'running',
             ]);
@@ -1099,7 +1104,8 @@ final class PersistenceRepositoryTest extends PersistenceTestCase
             Date::setTestNow(Carbon::parse('2026-05-02 10:00:05'));
 
             $updatedStep = $steps->createOrUpdate($run->id, 'reserve-stock', [
-                'output' => ['token' => 'new-runtime-token'],
+                'node_type' => 'legacy.step',
+                'outputs' => ['token' => 'new-runtime-token'],
                 'sequence' => 1,
                 'status' => 'succeeded',
             ]);
@@ -1111,7 +1117,7 @@ final class PersistenceRepositoryTest extends PersistenceTestCase
 
         $this->assertSame($step->id, $updatedStep->id);
         $this->assertSame('succeeded', $updatedStep->status);
-        $this->assertSame('[redacted]', $updatedStep->output['token']);
+        $this->assertSame('[redacted]', $updatedStep->outputs['token']);
         $this->assertNotNull($step->created_at);
         $this->assertNotNull($step->updated_at);
         $this->assertSame($step->created_at->getTimestamp(), $updatedStep->created_at->getTimestamp());
@@ -1198,6 +1204,33 @@ final class PersistenceRepositoryTest extends PersistenceTestCase
         FlowAuditRecord::query()
             ->whereKey($record->id)
             ->delete();
+    }
+
+    public function test_for_run_sorts_null_sequence_rows_before_sequenced_rows(): void
+    {
+        // Explicit CASE WHEN in the query, not the DB driver's default NULL
+        // ordering (MySQL/SQLite sort NULL first in ASC, PostgreSQL sorts
+        // NULL LAST by default) — the contract must hold on every driver.
+        $this->migrateFlowTables();
+        $this->createAuditRun('00000000-0000-4000-8000-000000000200');
+
+        $steps = $this->app->make(RunNodeRepository::class);
+
+        // Insert sequenced rows FIRST, then a null-sequence row, so the test
+        // cannot pass by accident of insertion/id order.
+        $steps->createOrUpdate('00000000-0000-4000-8000-000000000200', 'b', [
+            'node_type' => 'test.node', 'sequence' => 1, 'status' => 'succeeded',
+        ]);
+        $steps->createOrUpdate('00000000-0000-4000-8000-000000000200', 'c', [
+            'node_type' => 'test.node', 'sequence' => 2, 'status' => 'succeeded',
+        ]);
+        $steps->createOrUpdate('00000000-0000-4000-8000-000000000200', 'a', [
+            'node_type' => 'test.node', 'sequence' => null, 'status' => 'blocked',
+        ]);
+
+        $ordered = $steps->forRun('00000000-0000-4000-8000-000000000200')->pluck('node_id')->all();
+
+        $this->assertSame(['a', 'b', 'c'], $ordered, 'the null-sequence row sorts before sequenced rows on every driver');
     }
 
     private function createAuditRun(string $runId): void

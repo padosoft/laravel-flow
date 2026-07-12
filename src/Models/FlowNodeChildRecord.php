@@ -10,17 +10,14 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 /**
  * @property int $id
  * @property string $run_id
- * @property int $sequence
- * @property string $step_name
- * @property string|null $handler
+ * @property string $parent_node_id
+ * @property string|null $child_run_id
+ * @property int $child_index
  * @property string $status
+ * @property string $child_flow
+ * @property int|null $child_version
  * @property array<string, mixed>|null $input
- * @property array<string, mixed>|null $output
- * @property array<string, mixed>|null $business_impact
- * @property string|null $error_class
- * @property string|null $error_message
- * @property bool $dry_run_skipped
- * @property int|null $duration_ms
+ * @property array<string, mixed>|null $outputs
  * @property \DateTimeInterface|null $started_at
  * @property \DateTimeInterface|null $finished_at
  * @property \DateTimeInterface|null $created_at
@@ -28,9 +25,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  *
  * @internal
  */
-final class FlowStepRecord extends Model
+final class FlowNodeChildRecord extends Model
 {
-    protected $table = 'flow_steps';
+    protected $table = 'flow_node_children';
 
     /**
      * @var list<string>
@@ -41,14 +38,12 @@ final class FlowStepRecord extends Model
      * @var array<string, string>
      */
     protected $casts = [
-        'business_impact' => 'array',
+        'child_index' => 'integer',
+        'child_version' => 'integer',
         'created_at' => 'immutable_datetime',
-        'duration_ms' => 'integer',
-        'dry_run_skipped' => 'boolean',
         'finished_at' => 'immutable_datetime',
         'input' => 'array',
-        'output' => 'array',
-        'sequence' => 'integer',
+        'outputs' => 'array',
         'started_at' => 'immutable_datetime',
         'updated_at' => 'immutable_datetime',
     ];

@@ -7,7 +7,8 @@ namespace Padosoft\LaravelFlow\Tests\Architecture;
 use PHPUnit\Framework\TestCase;
 
 /**
- * Every class under src/Node and src/Graph must carry exactly one of
+ * Every class under src/Node, src/Graph and src/Executor must carry exactly
+ * one of
  *
  * @api / @internal, so a new class cannot slip past the explicit pin
  * lists in the Contract suite unannotated.
@@ -16,11 +17,11 @@ final class NodeAnnotationSweepTest extends TestCase
 {
     public function test_every_node_and_graph_class_is_annotated(): void
     {
-        foreach (['/../../src/Node', '/../../src/Graph'] as $relative) {
+        foreach (['/../../src/Node', '/../../src/Graph', '/../../src/Executor'] as $relative) {
             $root = realpath(__DIR__.$relative);
 
             if ($root === false) {
-                continue; // src/Graph appears later in this macro
+                continue; // namespace may appear later in the macro
             }
 
             $iterator = new \RecursiveIteratorIterator(

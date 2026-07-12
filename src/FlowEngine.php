@@ -32,15 +32,23 @@ use Padosoft\LaravelFlow\Exceptions\FlowCompensationException;
 use Padosoft\LaravelFlow\Exceptions\FlowExecutionException;
 use Padosoft\LaravelFlow\Exceptions\FlowInputException;
 use Padosoft\LaravelFlow\Exceptions\FlowNotRegisteredException;
+use Padosoft\LaravelFlow\Executor\GraphApprovalCoordinator;
+use Padosoft\LaravelFlow\Executor\GraphRunner;
+use Padosoft\LaravelFlow\Executor\GraphRunResult;
+use Padosoft\LaravelFlow\Executor\Jobs\CoordinatorJob;
+use Padosoft\LaravelFlow\Executor\QueueGraphCoordinator;
+use Padosoft\LaravelFlow\Executor\State\NodeState;
 use Padosoft\LaravelFlow\Graph\Exceptions\DefinitionSignatureException;
 use Padosoft\LaravelFlow\Graph\Exceptions\InvalidGraphException;
+use Padosoft\LaravelFlow\Graph\GraphDefinition;
 use Padosoft\LaravelFlow\Graph\GraphSerializer;
 use Padosoft\LaravelFlow\Graph\StoredDefinition;
 use Padosoft\LaravelFlow\Jobs\RunFlowJob;
 use Padosoft\LaravelFlow\Models\FlowApprovalRecord;
+use Padosoft\LaravelFlow\Models\FlowRunNodeRecord;
 use Padosoft\LaravelFlow\Models\FlowRunRecord;
-use Padosoft\LaravelFlow\Models\FlowStepRecord;
 use Padosoft\LaravelFlow\Persistence\EloquentWebhookOutboxRepository;
+use Padosoft\LaravelFlow\Persistence\ErrorMessageRedactor;
 use Padosoft\LaravelFlow\Persistence\PayloadRedactorResolution;
 use Padosoft\LaravelFlow\Queue\QueueRetryPolicy;
 use Throwable;
@@ -101,6 +109,12 @@ class FlowEngine
          *         lock_retry_seconds?: int,
          *         tries?: mixed,
          *         backoff_seconds?: mixed
+         *     },
+         *     executor?: array{
+         *         queue?: string|null,
+         *         lock_store?: string|null,
+         *         lock_seconds?: int|null,
+         *         lock_retry_seconds?: int|null
          *     }
          * }
          */
@@ -249,6 +263,68 @@ class FlowEngine
     public function dryRun(string $name, array $input, ?FlowExecutionOptions $options = null): FlowRun
     {
         return $this->run($name, $input, true, $options);
+    }
+
+    /**
+     * Execute a graph definition synchronously through the v2 graph executor.
+     *
+     * @param  array<string, mixed>  $input
+     */
+    public function runGraph(GraphDefinition $graph, array $input, ?FlowExecutionOptions $options = null, string $definitionName = 'graph'): GraphRunResult
+    {
+        return $this->graphRunner()->run($graph, $input, $options, false, $definitionName);
+    }
+
+    /**
+     * Dry-run a graph definition through the v2 graph executor (writes no rows).
+     *
+     * @param  array<string, mixed>  $input
+     */
+    public function dryRunGraph(GraphDefinition $graph, array $input, ?FlowExecutionOptions $options = null, string $definitionName = 'graph'): GraphRunResult
+    {
+        return $this->graphRunner()->run($graph, $input, $options, true, $definitionName);
+    }
+
+    private function graphRunner(): GraphRunner
+    {
+        /** @var GraphRunner $runner */
+        $runner = $this->container->make(GraphRunner::class);
+
+        return $runner;
+    }
+
+    /**
+     * Dispatch a graph definition for queued execution: creates the run, seeds a
+     * pending row per node, and dispatches the coordinator that fans nodes out
+     * to per-node jobs. Returns the new run id. Requires persistence to be
+     * enabled (the queued path coordinates through the run/node rows).
+     *
+     * @param  array<string, mixed>  $input
+     */
+    public function dispatchGraph(GraphDefinition $graph, array $input, ?FlowExecutionOptions $options = null, string $definitionName = 'graph'): string
+    {
+        if ($this->storeForExecution(false) === null) {
+            throw new FlowExecutionException('Queued graph execution requires persistence to be enabled.');
+        }
+
+        /** @var QueueGraphCoordinator $coordinator */
+        $coordinator = $this->container->make(QueueGraphCoordinator::class);
+        $runId = $coordinator->start($graph, $input, $options, $definitionName);
+
+        /** @var BusDispatcher $bus */
+        $bus = $this->container->make(BusDispatcher::class);
+        $bus->dispatch(new CoordinatorJob(
+            runId: $runId,
+            graph: $graph,
+            definitionName: $definitionName,
+            input: $input,
+            queue: $this->executorQueue(),
+            lockStore: $this->executorLockStore(),
+            lockSeconds: $this->executorLockSeconds(),
+            lockRetrySeconds: $this->executorLockRetrySeconds(),
+        ));
+
+        return $runId;
     }
 
     /**
@@ -821,12 +897,21 @@ class FlowEngine
         PayloadRedactor $redactor,
     ): FlowRun {
         $preDecisionApproval = $this->approvalDecisionRecord($token);
+        $preDecisionRunRecord = $this->approvalRunRecord($preDecisionApproval, $store);
+
+        // Graph runs (engine === 'graph') never went through v1's step
+        // compilation, so none of the v1-specific machinery below (step-order
+        // drift checks, FlowContext/step-chain replay) applies to them —
+        // dispatch to the engine-agnostic graph path instead. The lock (this
+        // method's caller already holds it, run-id-keyed) and the token
+        // consume step below are shared by both engines unchanged.
+        if ($preDecisionRunRecord->engine === 'graph') {
+            return $this->decideGraphApproval($decision, $payload, $actor, $store, $redactor, $token, $preDecisionApproval, $preDecisionRunRecord);
+        }
 
         $preDecisionState = null;
 
         if ($preDecisionApproval->status === FlowApprovalRecord::STATUS_PENDING) {
-            $preDecisionRunRecord = $this->approvalRunRecord($preDecisionApproval, $store);
-
             if ($preDecisionRunRecord->status !== FlowRun::STATUS_PAUSED) {
                 return $this->flowRunFromRecord($preDecisionRunRecord, $store);
             }
@@ -844,6 +929,129 @@ class FlowEngine
         }
 
         return $this->rejectApprovalDecision($approval, $decisionPayload, $decisionActor, $store, $redactor, $preDecisionState);
+    }
+
+    /**
+     * Engine-agnostic approval decision for a graph run. Reuses the SAME
+     * token-consume step as v1 ({@see consumeApprovalDecisionForPausedRun}) —
+     * it only touches `flow_approvals`, never the run/node tables — then
+     * delegates the actual resume/reject to {@see GraphApprovalCoordinator},
+     * which mutates the paused node directly and re-drives the coordinator.
+     *
+     * @param  array<string, mixed>  $payload
+     * @param  array<string, mixed>  $actor
+     */
+    private function decideGraphApproval(
+        string $decision,
+        array $payload,
+        array $actor,
+        FlowStore $store,
+        PayloadRedactor $redactor,
+        string $token,
+        FlowApprovalRecord $preDecisionApproval,
+        FlowRunRecord $preDecisionRunRecord,
+    ): FlowRun {
+        // Mirrors the v1 pre-lock check: a PENDING token whose run already
+        // left `paused` belongs to a gate this run moved past (or a run that
+        // never reaches THIS token's gate under a different branch) — return
+        // the current state without attempting to re-decide.
+        if ($preDecisionApproval->status === FlowApprovalRecord::STATUS_PENDING
+            && $preDecisionRunRecord->status !== FlowRun::STATUS_PAUSED
+        ) {
+            return $this->flowRunFromRecord($preDecisionRunRecord, $store);
+        }
+
+        [$approval, $consumedNow] = $this->consumeApprovalDecisionForPausedRun($token, $decision, $payload, $actor, $redactor);
+
+        if (! $consumedNow) {
+            $currentRun = $this->approvalRunRecord($approval, $store);
+
+            // Crash-window recovery: the token is ALREADY decided (this branch
+            // only reaches here once consumeApprovalDecisionForPausedRun found
+            // it non-pending) but the run is STILL `paused` — a prior call
+            // consumed the one-time token and then died (process crash,
+            // transient queue/DB failure) before the coordinator ever mutated
+            // the node or dispatched CoordinatorJob. The token can never be
+            // resubmitted, so THIS call must re-drive the coordinator itself or
+            // the run hangs paused forever. Safe to retry: the coordinator's own
+            // node-row write and Paused->Running CAS are idempotent, and
+            // CoordinatorJob's claim/finalize (C-PR8/9) tolerate duplicate
+            // delivery by construction.
+            if ($currentRun->status === FlowRun::STATUS_PAUSED) {
+                return $this->flowRunFromRecord(
+                    $this->driveGraphApprovalCoordinator($currentRun, $approval),
+                    $store,
+                );
+            }
+
+            // Otherwise a genuine duplicate resume/reject on an already fully
+            // processed decision: idempotent, return current state without
+            // re-advancing or re-compensating.
+            return $this->flowRunFromRecord($currentRun, $store);
+        }
+
+        $updatedRun = $this->driveGraphApprovalCoordinator($preDecisionRunRecord, $approval);
+        $flowRun = $this->flowRunFromRecord($updatedRun, $store);
+
+        // Chained approval gates: if resuming/rejecting this gate advanced the
+        // graph straight into ANOTHER flow.approval node, that downstream
+        // node's token was already issued (NodeExecutor, mid-advance) but the
+        // plain value has nowhere else to surface — mirrors v1's downstream-
+        // gate token propagation on FlowRun::$approvalTokens.
+        if ($updatedRun->status === FlowRun::STATUS_PAUSED) {
+            $this->attachDownstreamGraphApprovalToken($flowRun, $updatedRun->id, $store, $redactor);
+        }
+
+        return $flowRun;
+    }
+
+    private function driveGraphApprovalCoordinator(FlowRunRecord $run, FlowApprovalRecord $approval): FlowRunRecord
+    {
+        $decisionPayload = $approval->payload ?? [];
+        $coordinator = $this->graphApprovalCoordinator();
+
+        return $approval->status === FlowApprovalRecord::STATUS_APPROVED
+            ? $coordinator->resume($run, $approval->step_name, $decisionPayload)
+            : $coordinator->reject($run, $approval->step_name, $decisionPayload);
+    }
+
+    private function attachDownstreamGraphApprovalToken(FlowRun $flowRun, string $runId, FlowStore $store, PayloadRedactor $redactor): void
+    {
+        // A graph can legitimately settle on MULTIPLE simultaneously-paused
+        // approval gates — e.g. two independent branches both advancing into
+        // their own gate in the same coordinator pass, or a branch that was
+        // already paused before this resume alongside a newly-paused one.
+        // Surface every one of them, not only the first found, or the others
+        // become unrecoverable to callers who only have the public API.
+        $pausedNodeIds = [];
+
+        foreach ($this->stepRecordsForRun($store, $runId) as $nodeRecord) {
+            if ($nodeRecord->status === NodeState::Paused->value) {
+                $pausedNodeIds[] = (string) $nodeRecord->node_id;
+            }
+        }
+
+        $manager = $this->approvalTokenManager($redactor);
+
+        foreach ($pausedNodeIds as $pausedNodeId) {
+            try {
+                $reissued = $manager->reissuePendingForStep($runId, $pausedNodeId);
+            } catch (QueryException $e) {
+                throw $this->approvalPersistenceUnavailableException($e);
+            }
+
+            if ($reissued instanceof IssuedApprovalToken) {
+                $flowRun->approvalTokens[$pausedNodeId] = $reissued;
+            }
+        }
+    }
+
+    private function graphApprovalCoordinator(): GraphApprovalCoordinator
+    {
+        /** @var GraphApprovalCoordinator $coordinator */
+        $coordinator = $this->container->make(GraphApprovalCoordinator::class);
+
+        return $coordinator;
     }
 
     /**
@@ -920,7 +1128,7 @@ class FlowEngine
             throw new FlowExecutionException('Approval token could not be consumed. Try again.');
         }
 
-        if ($this->persistedDownstreamPausedApprovalGate($approval, $store, $runRecord) instanceof FlowStepRecord) {
+        if ($this->persistedDownstreamPausedApprovalGate($approval, $store, $runRecord) instanceof FlowRunNodeRecord) {
             throw new FlowExecutionException('Approval token could not be consumed. Try again.');
         }
 
@@ -933,7 +1141,7 @@ class FlowEngine
         FlowRunRecord $runRecord,
     ): bool {
         foreach ($this->stepRecordsForRun($store, $runRecord->id) as $stepRecord) {
-            if ($stepRecord->step_name !== $approval->step_name) {
+            if ($stepRecord->node_id !== $approval->step_name) {
                 continue;
             }
 
@@ -961,7 +1169,7 @@ class FlowEngine
         $approvalSequence = null;
 
         foreach ($this->stepRecordsForRun($store, $runRecord->id) as $stepRecord) {
-            if ($stepRecord->step_name === $approval->step_name) {
+            if ($stepRecord->node_id === $approval->step_name) {
                 if ($stepRecord->status !== 'succeeded') {
                     return false;
                 }
@@ -986,7 +1194,7 @@ class FlowEngine
         FlowApprovalRecord $approval,
         FlowStore $store,
         FlowRunRecord $runRecord,
-    ): ?FlowStepRecord {
+    ): ?FlowRunNodeRecord {
         if ($runRecord->status !== FlowRun::STATUS_PAUSED
             || $approval->status !== FlowApprovalRecord::STATUS_APPROVED
         ) {
@@ -996,7 +1204,7 @@ class FlowEngine
         $approvalSequence = null;
 
         foreach ($this->stepRecordsForRun($store, $runRecord->id) as $stepRecord) {
-            if ($stepRecord->step_name === $approval->step_name) {
+            if ($stepRecord->node_id === $approval->step_name) {
                 if ($stepRecord->status !== 'succeeded') {
                     return null;
                 }
@@ -1021,21 +1229,21 @@ class FlowEngine
     private function flowRunFromRecordWithReissuedApprovalToken(
         FlowRunRecord $runRecord,
         FlowStore $store,
-        FlowStepRecord $approvalStepRecord,
+        FlowRunNodeRecord $approvalStepRecord,
     ): FlowRun {
         $run = $this->flowRunFromRecord($runRecord, $store);
 
         try {
-            $token = $this->approvalTokenManager()->reissuePendingForStep($runRecord->id, $approvalStepRecord->step_name);
+            $token = $this->approvalTokenManager()->reissuePendingForStep($runRecord->id, $approvalStepRecord->node_id);
         } catch (QueryException $e) {
             throw $this->approvalPersistenceUnavailableException($e);
         }
 
         if ($token instanceof IssuedApprovalToken) {
-            $output = is_array($approvalStepRecord->output) ? $approvalStepRecord->output : [];
+            $output = is_array($approvalStepRecord->outputs) ? $approvalStepRecord->outputs : [];
             $output['approval_expires_at'] = $token->expiresAt->format(DateTimeInterface::ATOM);
             try {
-                $refreshedStep = $store->steps()->createOrUpdate($runRecord->id, $approvalStepRecord->step_name, [
+                $refreshedStep = $store->runNodes()->createOrUpdate($runRecord->id, $approvalStepRecord->node_id, [
                     'business_impact' => $approvalStepRecord->business_impact,
                     'dry_run_skipped' => (bool) $approvalStepRecord->dry_run_skipped,
                     'duration_ms' => $approvalStepRecord->duration_ms,
@@ -1043,8 +1251,9 @@ class FlowEngine
                     'error_message' => $approvalStepRecord->error_message,
                     'finished_at' => $approvalStepRecord->finished_at,
                     'handler' => $approvalStepRecord->handler,
-                    'input' => $approvalStepRecord->input,
-                    'output' => $output,
+                    'inputs' => $approvalStepRecord->inputs,
+                    'node_type' => $approvalStepRecord->node_type,
+                    'outputs' => $output,
                     'sequence' => $approvalStepRecord->sequence,
                     'started_at' => $approvalStepRecord->started_at,
                     'status' => $approvalStepRecord->status,
@@ -1055,7 +1264,7 @@ class FlowEngine
             $result = $this->flowStepResultFromRecord($refreshedStep);
 
             if ($result instanceof FlowStepResult) {
-                $run->recordStepResult($refreshedStep->step_name, $result);
+                $run->recordStepResult($refreshedStep->node_id, $result);
             }
 
             $run->recordApprovalToken($token);
@@ -1076,7 +1285,7 @@ class FlowEngine
         $approvalSequence = null;
 
         foreach ($this->stepRecordsForRun($store, $runRecord->id) as $stepRecord) {
-            if ($stepRecord->step_name === $approval->step_name) {
+            if ($stepRecord->node_id === $approval->step_name) {
                 if ($stepRecord->status !== 'succeeded') {
                     return false;
                 }
@@ -1109,7 +1318,7 @@ class FlowEngine
         $approvalSequence = null;
 
         foreach ($this->stepRecordsForRun($store, $runRecord->id) as $stepRecord) {
-            if ($stepRecord->step_name === $approval->step_name) {
+            if ($stepRecord->node_id === $approval->step_name) {
                 if ($stepRecord->status !== 'succeeded') {
                     return false;
                 }
@@ -1218,7 +1427,7 @@ class FlowEngine
         if (! $consumedNow) {
             $downstreamPausedApprovalGate = $this->persistedDownstreamPausedApprovalGate($approval, $store, $runRecord);
 
-            if ($downstreamPausedApprovalGate instanceof FlowStepRecord) {
+            if ($downstreamPausedApprovalGate instanceof FlowRunNodeRecord) {
                 return $this->flowRunFromRecordWithReissuedApprovalToken($runRecord, $store, $downstreamPausedApprovalGate);
             }
         }
@@ -1672,29 +1881,29 @@ class FlowEngine
             $result = $this->flowStepResultFromRecord($stepRecord);
 
             if ($result instanceof FlowStepResult) {
-                $run->recordStepResult($stepRecord->step_name, $result);
+                $run->recordStepResult($stepRecord->node_id, $result);
             }
 
-            $stepIndex = $this->stepIndex($definition, $stepRecord->step_name);
+            $stepIndex = $this->stepIndex($definition, $stepRecord->node_id);
 
             if ($stepIndex === null || $stepIndex !== $expectedIndex) {
                 throw new FlowExecutionException(sprintf(
                     'Cannot resume approval because persisted step [%s] does not match the current flow definition.',
-                    $stepRecord->step_name,
+                    $stepRecord->node_id,
                 ));
             }
 
             if ($stepRecord->handler !== $definition->steps[$stepIndex]->handlerFqcn) {
                 throw new FlowExecutionException(sprintf(
                     'Cannot resume approval because persisted step [%s] does not match the current flow definition.',
-                    $stepRecord->step_name,
+                    $stepRecord->node_id,
                 ));
             }
 
             if ($stepIndex < $approvalIndex && ! in_array($stepRecord->status, ['succeeded', 'skipped'], true)) {
                 throw new FlowExecutionException(sprintf(
                     'Cannot resume approval because prior step [%s] is [%s].',
-                    $stepRecord->step_name,
+                    $stepRecord->node_id,
                     $stepRecord->status,
                 ));
             }
@@ -1703,7 +1912,7 @@ class FlowEngine
                 && $stepRecord->status === 'succeeded'
                 && ! $stepRecord->dry_run_skipped
             ) {
-                $context = $context->withStepOutput($stepRecord->step_name, $stepRecord->output ?? []);
+                $context = $context->withStepOutput($stepRecord->node_id, $stepRecord->outputs ?? []);
             }
 
             if ($stepIndex < $approvalIndex) {
@@ -1721,14 +1930,14 @@ class FlowEngine
                 $approvalStepRecord = $stepRecord;
 
                 if ($stepRecord->status === 'succeeded') {
-                    $retryContext = $context->withStepOutput($stepRecord->step_name, $stepRecord->output ?? []);
+                    $retryContext = $context->withStepOutput($stepRecord->node_id, $stepRecord->outputs ?? []);
                     $retryCompletedSteps = [...$completedSteps, $approvalStep];
                     $retrySequence = $stepRecord->sequence;
                     $retryStartIndex = $approvalIndex + 1;
                 } elseif (! in_array($stepRecord->status, ['paused', 'failed'], true)) {
                     throw new FlowExecutionException(sprintf(
                         'Cannot resume approval because approval step [%s] is [%s].',
-                        $stepRecord->step_name,
+                        $stepRecord->node_id,
                         $stepRecord->status,
                     ));
                 }
@@ -1738,15 +1947,15 @@ class FlowEngine
                 continue;
             }
 
-            if (! ($approvalStepRecord instanceof FlowStepRecord) || $approvalStepRecord->status !== 'succeeded') {
+            if (! ($approvalStepRecord instanceof FlowRunNodeRecord) || $approvalStepRecord->status !== 'succeeded') {
                 throw new FlowExecutionException(sprintf(
                     'Cannot resume approval because downstream step [%s] was persisted before the approval gate succeeded.',
-                    $stepRecord->step_name,
+                    $stepRecord->node_id,
                 ));
             }
 
             if ($stepRecord->status === 'paused' && $runRecord->status === FlowRun::STATUS_PAUSED) {
-                $pausedDownstreamStep = $stepRecord->step_name;
+                $pausedDownstreamStep = $stepRecord->node_id;
                 $expectedIndex++;
 
                 continue;
@@ -1763,13 +1972,13 @@ class FlowEngine
             if (! in_array($stepRecord->status, ['succeeded', 'skipped'], true)) {
                 throw new FlowExecutionException(sprintf(
                     'Cannot resume approval because downstream step [%s] is [%s].',
-                    $stepRecord->step_name,
+                    $stepRecord->node_id,
                     $stepRecord->status,
                 ));
             }
 
             if ($stepRecord->status === 'succeeded' && ! $stepRecord->dry_run_skipped) {
-                $retryContext = $retryContext->withStepOutput($stepRecord->step_name, $stepRecord->output ?? []);
+                $retryContext = $retryContext->withStepOutput($stepRecord->node_id, $stepRecord->outputs ?? []);
             }
 
             $retryCompletedSteps[] = $definition->steps[$stepIndex];
@@ -1778,7 +1987,7 @@ class FlowEngine
             $expectedIndex++;
         }
 
-        if (! ($approvalStepRecord instanceof FlowStepRecord)) {
+        if (! ($approvalStepRecord instanceof FlowRunNodeRecord)) {
             throw new FlowExecutionException(sprintf(
                 'Cannot resume approval because step [%s] was not persisted for run [%s].',
                 $approval->step_name,
@@ -1836,12 +2045,12 @@ class FlowEngine
     }
 
     /**
-     * @return iterable<FlowStepRecord>
+     * @return iterable<FlowRunNodeRecord>
      */
     private function stepRecordsForRun(FlowStore $store, string $runId): iterable
     {
         try {
-            return $store->steps()->forRun($runId);
+            return $store->runNodes()->forRun($runId);
         } catch (QueryException $e) {
             throw $this->flowPersistenceUnavailableException($e);
         }
@@ -2788,7 +2997,7 @@ class FlowEngine
                 $result = $this->flowStepResultFromRecord($stepRecord);
 
                 if ($result instanceof FlowStepResult) {
-                    $run->recordStepResult($stepRecord->step_name, $result);
+                    $run->recordStepResult($stepRecord->node_id, $result);
                 }
             }
         }
@@ -2815,7 +3024,7 @@ class FlowEngine
         return $run;
     }
 
-    private function flowStepResultFromRecord(FlowStepRecord $record): ?FlowStepResult
+    private function flowStepResultFromRecord(FlowRunNodeRecord $record): ?FlowStepResult
     {
         if ($record->status === 'failed') {
             return FlowStepResult::failed(new FlowExecutionException(
@@ -2824,7 +3033,7 @@ class FlowEngine
         }
 
         if ($record->status === 'paused') {
-            return FlowStepResult::paused($record->output ?? [], $record->business_impact);
+            return FlowStepResult::paused($record->outputs ?? [], $record->business_impact);
         }
 
         if ($record->status === 'skipped' || $record->dry_run_skipped) {
@@ -2835,7 +3044,7 @@ class FlowEngine
             return null;
         }
 
-        return FlowStepResult::success($record->output ?? [], $record->business_impact);
+        return FlowStepResult::success($record->outputs ?? [], $record->business_impact);
     }
 
     private function immutableDate(mixed $value): ?DateTimeImmutable
@@ -2885,10 +3094,11 @@ class FlowEngine
             return;
         }
 
-        $store->steps()->createOrUpdate($run->id, $step->name, [
+        $store->runNodes()->createOrUpdate($run->id, $step->name, [
             'dry_run_skipped' => false,
             'handler' => $step->handlerFqcn,
-            'input' => $this->stepInputSnapshot($context),
+            'inputs' => $this->stepInputSnapshot($context),
+            'node_type' => FlowDefinition::LEGACY_NODE_TYPE,
             'sequence' => $sequence,
             'started_at' => $startedAt,
             'status' => 'running',
@@ -2912,7 +3122,7 @@ class FlowEngine
 
         $error = $result->error;
 
-        $store->steps()->createOrUpdate($run->id, $step->name, [
+        $store->runNodes()->createOrUpdate($run->id, $step->name, [
             'business_impact' => $result->businessImpact,
             'duration_ms' => $this->durationMs($startedAt, $finishedAt),
             'dry_run_skipped' => $result->dryRunSkipped,
@@ -2920,8 +3130,9 @@ class FlowEngine
             'error_message' => $this->safeErrorMessage($error, $redactor),
             'finished_at' => $finishedAt,
             'handler' => $step->handlerFqcn,
-            'input' => $this->stepInputSnapshot($context),
-            'output' => $result->success ? $result->output : null,
+            'inputs' => $this->stepInputSnapshot($context),
+            'node_type' => FlowDefinition::LEGACY_NODE_TYPE,
+            'outputs' => $result->success ? $result->output : null,
             'sequence' => $sequence,
             'started_at' => $startedAt,
             'status' => $this->persistedStepStatus($result),
@@ -2958,125 +3169,15 @@ class FlowEngine
             return null;
         }
 
-        return $this->redactText($error->getMessage(), $redactor);
+        return $this->errorMessageRedactor()->redact($error->getMessage(), $redactor ?? $this->redactorForExecution());
     }
 
-    private function redactText(string $message, ?PayloadRedactor $redactor = null): string
+    private function errorMessageRedactor(): ErrorMessageRedactor
     {
-        $message = $this->redactTextWithPayloadRedactor($message, $redactor);
         $persistence = $this->config['persistence'] ?? [];
         $redaction = is_array($persistence) ? ($persistence['redaction'] ?? []) : [];
 
-        if (! is_array($redaction) || (bool) ($redaction['enabled'] ?? true) === false) {
-            return $message;
-        }
-
-        $replacement = (string) ($redaction['replacement'] ?? '[redacted]');
-        $keys = array_values(array_filter((array) ($redaction['keys'] ?? []), 'is_string'));
-        $message = $this->redactBearerTokens($message, $replacement);
-        $message = $this->redactConfiguredKeyValues($message, $keys, $replacement);
-
-        foreach ($keys as $key) {
-            $keyPattern = $this->redactionKeyPattern($key);
-            $message = preg_replace_callback(
-                '/\b('.$keyPattern.')\b(\s*[:=]\s*)(?:Bearer\s+)?([^\s,;]+)/i',
-                static fn (array $matches): string => $matches[1].$matches[2].$replacement,
-                $message,
-            ) ?? $message;
-            $message = preg_replace_callback(
-                '/(["\']'.$keyPattern.'["\']\s*:\s*["\'])([^"\']+)(["\'])/i',
-                static fn (array $matches): string => $matches[1].$replacement.$matches[3],
-                $message,
-            ) ?? $message;
-        }
-
-        return $this->redactBearerTokens($message, $replacement);
-    }
-
-    /**
-     * @param  list<string>  $keys
-     */
-    private function redactConfiguredKeyValues(string $message, array $keys, string $replacement): string
-    {
-        $normalizedKeys = [];
-
-        foreach ($keys as $key) {
-            $normalizedKeys[$this->normalizeRedactionKey($key)] = true;
-        }
-
-        if ($normalizedKeys === []) {
-            return $message;
-        }
-
-        return preg_replace_callback(
-            '/\b([A-Za-z][A-Za-z0-9_-]*)\b(\s*[:=]\s*)(?:Bearer\s+)?([^\s,;]+)/i',
-            function (array $matches) use ($normalizedKeys, $replacement): string {
-                if (! isset($normalizedKeys[$this->normalizeRedactionKey((string) $matches[1])])) {
-                    return (string) $matches[0];
-                }
-
-                return $matches[1].$matches[2].$replacement;
-            },
-            $message,
-        ) ?? $message;
-    }
-
-    private function redactTextWithPayloadRedactor(string $message, ?PayloadRedactor $redactor = null): string
-    {
-        $redactor ??= $this->redactorForExecution();
-
-        $redactor = PayloadRedactorResolution::current($redactor);
-
-        $redacted = $redactor->redact([
-            'error_message' => $message,
-            'message' => $message,
-        ]);
-
-        foreach (['error_message', 'message'] as $key) {
-            if (isset($redacted[$key]) && is_string($redacted[$key]) && $redacted[$key] !== $message) {
-                return $redacted[$key];
-            }
-        }
-
-        return $message;
-    }
-
-    private function redactBearerTokens(string $message, string $replacement): string
-    {
-        return preg_replace_callback(
-            '/\bBearer\s+([A-Za-z0-9._~+\/=-]+)/i',
-            static fn (): string => 'Bearer '.$replacement,
-            $message,
-        ) ?? $message;
-    }
-
-    private function redactionKeyPattern(string $key): string
-    {
-        $normalized = preg_replace('/(?<!^)[A-Z]/', '_$0', $key) ?? $key;
-        $parts = preg_split('/[^A-Za-z0-9]+/', $normalized, -1, PREG_SPLIT_NO_EMPTY);
-
-        if ($parts === false || count($parts) <= 1) {
-            $characters = preg_split('//', $key, -1, PREG_SPLIT_NO_EMPTY);
-
-            if ($characters === false || $characters === []) {
-                return '(?!)';
-            }
-
-            return implode('[_\-\s]*', array_map(
-                static fn (string $character): string => preg_quote($character, '/'),
-                $characters,
-            ));
-        }
-
-        return implode('[_\-\s]*', array_map(
-            static fn (string $part): string => preg_quote($part, '/'),
-            $parts,
-        ));
-    }
-
-    private function normalizeRedactionKey(string $key): string
-    {
-        return strtolower((string) preg_replace('/[^a-zA-Z0-9]/', '', $key));
+        return new ErrorMessageRedactor(is_array($redaction) ? $redaction : []);
     }
 
     /**
@@ -3303,6 +3404,49 @@ class FlowEngine
         $queue = $this->config['queue'] ?? [];
 
         return QueueRetryPolicy::fromConfig(is_array($queue) ? $queue : []);
+    }
+
+    private function executorQueue(): ?string
+    {
+        $queue = $this->config['executor']['queue'] ?? null;
+
+        return is_string($queue) && $queue !== '' ? $queue : null;
+    }
+
+    private function executorLockStore(): ?string
+    {
+        $store = $this->config['executor']['lock_store'] ?? null;
+
+        if (is_string($store) && $store !== '') {
+            return $store;
+        }
+
+        // Fall back to the v1 queue lock store (which itself falls back to
+        // cache.default) so a host that configured `queue.lock_store` gets the
+        // same shared store for queued graphs without a separate executor knob.
+        return $this->queueLockStore();
+    }
+
+    private function executorLockSeconds(): int
+    {
+        $seconds = $this->config['executor']['lock_seconds'] ?? null;
+
+        if (is_int($seconds) && $seconds >= 1) {
+            return $seconds;
+        }
+
+        return $this->queueLockSeconds();
+    }
+
+    private function executorLockRetrySeconds(): int
+    {
+        $seconds = $this->config['executor']['lock_retry_seconds'] ?? null;
+
+        if (is_int($seconds) && $seconds >= 1) {
+            return $seconds;
+        }
+
+        return $this->queueLockRetrySeconds();
     }
 
     private function assertQueuedRunRetryPolicyIsSafe(QueueRetryPolicy $retryPolicy, ?FlowExecutionOptions $options): void

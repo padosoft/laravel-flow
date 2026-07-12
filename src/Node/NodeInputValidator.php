@@ -52,6 +52,46 @@ final class NodeInputValidator
                 continue;
             }
 
+            if ($port->multiple) {
+                if (! is_array($value) || ! array_is_list($value)) {
+                    $violations[$port->key][] = "Input [{$port->key}] is a multiple port and must be a list, got [".get_debug_type($value).'].';
+
+                    continue;
+                }
+
+                if ($port->required && $value === []) {
+                    $violations[$port->key][] = "Input [{$port->key}] is required and must not be an empty list.";
+
+                    continue;
+                }
+
+                $itemViolation = false;
+                foreach ($value as $index => $item) {
+                    // A null hole is never a valid coalesced item, even for an
+                    // Any-typed port (whose validates() would otherwise accept
+                    // null) — consistent with the port-level null rejection.
+                    if ($item === null) {
+                        $violations[$port->key][] = "Input [{$port->key}][{$index}] must not be null.";
+                        $itemViolation = true;
+
+                        continue;
+                    }
+
+                    if (! $port->type->validates($item)) {
+                        $violations[$port->key][] = "Input [{$port->key}][{$index}] must be of type [{$port->type->value}], got [".get_debug_type($item).'].';
+                        $itemViolation = true;
+                    }
+                }
+
+                if ($itemViolation) {
+                    continue;
+                }
+
+                $validated[$port->key] = $value; // already a list (array_is_list checked above)
+
+                continue;
+            }
+
             if (! $port->type->validates($value)) {
                 $violations[$port->key][] = "Input [{$port->key}] must be of type [{$port->type->value}], got [".get_debug_type($value).'].';
 

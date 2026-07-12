@@ -12,6 +12,8 @@ use Padosoft\LaravelFlow\Graph\GraphValidator;
 use Padosoft\LaravelFlow\Node\NodeDefinitionFactory;
 use Padosoft\LaravelFlow\Node\NodeRegistry;
 use Padosoft\LaravelFlow\Tests\Fixtures\GraphNodes\CountNode;
+use Padosoft\LaravelFlow\Tests\Fixtures\GraphNodes\FanInNode;
+use Padosoft\LaravelFlow\Tests\Fixtures\GraphNodes\JsonEmitNode;
 use Padosoft\LaravelFlow\Tests\Fixtures\Nodes\GreetNode;
 use Padosoft\LaravelFlow\Tests\Fixtures\Nodes\UpperNode;
 use PHPUnit\Framework\TestCase;
@@ -23,7 +25,7 @@ final class GraphValidatorTest extends TestCase
     protected function setUp(): void
     {
         $registry = new NodeRegistry(new NodeDefinitionFactory);
-        $registry->registerMany([GreetNode::class, UpperNode::class, CountNode::class]);
+        $registry->registerMany([GreetNode::class, UpperNode::class, CountNode::class, JsonEmitNode::class, FanInNode::class]);
         $this->validator = new GraphValidator($registry);
     }
 
@@ -128,5 +130,61 @@ final class GraphValidatorTest extends TestCase
         $this->expectException(InvalidGraphException::class);
         $this->expectExceptionMessageMatches('/input port \[text\] on node \[u\] is wired from multiple sources/i');
         $this->validator->validate($graph);
+    }
+
+    public function test_multiple_port_config_literal_must_be_a_valid_list(): void
+    {
+        try {
+            $this->validator->validate(new GraphDefinition(
+                [new GraphNode('f', 'test.fanin', ['items' => 'not-a-list'])],
+                [],
+            ));
+            $this->fail('Expected InvalidGraphException');
+        } catch (InvalidGraphException $e) {
+            $this->assertStringContainsString('must be a list', implode(' | ', $e->violations()));
+        }
+    }
+
+    public function test_multiple_port_config_literal_rejects_bad_items(): void
+    {
+        try {
+            $this->validator->validate(new GraphDefinition(
+                [new GraphNode('f', 'test.fanin', ['items' => [['ok' => true], 'scalar']])],
+                [],
+            ));
+            $this->fail('Expected InvalidGraphException');
+        } catch (InvalidGraphException $e) {
+            $this->assertStringContainsString('items][1]', implode(' | ', $e->violations()));
+        }
+    }
+
+    public function test_multiple_port_valid_config_list_passes(): void
+    {
+        $this->validator->validate(new GraphDefinition(
+            [new GraphNode('f', 'test.fanin', ['items' => [['a' => 1], ['b' => 2]]])],
+            [],
+        ));
+        $this->addToAssertionCount(1);
+    }
+
+    public function test_multiple_source_into_multiple_port_passes(): void
+    {
+        // A `multiple` (fan-in) port deliberately coalesces every wire, so N
+        // sources into it are allowed — the counterpart to the single-port
+        // fan-in rejection above.
+        $graph = new GraphDefinition(
+            [
+                new GraphNode('j1', 'test.jsonemit'),
+                new GraphNode('j2', 'test.jsonemit'),
+                new GraphNode('f', 'test.fanin'),
+            ],
+            [
+                new Connection('j1', 'data', 'f', 'items'),
+                new Connection('j2', 'data', 'f', 'items'),
+            ],
+        );
+
+        $this->validator->validate($graph);
+        $this->addToAssertionCount(1);
     }
 }

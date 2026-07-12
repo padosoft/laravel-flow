@@ -58,7 +58,8 @@ final class PublicApiContractTest extends TestCase
 
         yield 'FlowStore contract' => ['Padosoft\\LaravelFlow\\Contracts\\FlowStore'];
         yield 'RunRepository contract' => ['Padosoft\\LaravelFlow\\Contracts\\RunRepository'];
-        yield 'StepRunRepository contract' => ['Padosoft\\LaravelFlow\\Contracts\\StepRunRepository'];
+        yield 'RunNodeRepository contract' => ['Padosoft\\LaravelFlow\\Contracts\\RunNodeRepository'];
+        yield 'NodeCacheRepository contract' => ['Padosoft\\LaravelFlow\\Contracts\\NodeCacheRepository'];
         yield 'AuditRepository contract' => ['Padosoft\\LaravelFlow\\Contracts\\AuditRepository'];
         yield 'ApprovalRepository contract' => ['Padosoft\\LaravelFlow\\Contracts\\ApprovalRepository'];
         yield 'ApprovalDecisionRepository contract' => ['Padosoft\\LaravelFlow\\Contracts\\ApprovalDecisionRepository'];
@@ -199,6 +200,28 @@ final class PublicApiContractTest extends TestCase
         ]);
     }
 
+    public function test_run_node_repository_pins_documented_methods(): void
+    {
+        // `states` and `claim` were added in Macro C C-PR5 for the queued
+        // coordinator; pin them alongside the v1-parity persistence methods.
+        $this->assertHasPublicMethods('Padosoft\\LaravelFlow\\Contracts\\RunNodeRepository', [
+            'createOrUpdate',
+            'forRun',
+            'states',
+            'claim',
+            'releaseClaim',
+        ]);
+    }
+
+    public function test_node_cache_repository_pins_documented_methods(): void
+    {
+        // Content-hash node cache contract added in Macro C C-PR7.
+        $this->assertHasPublicMethods('Padosoft\\LaravelFlow\\Contracts\\NodeCacheRepository', [
+            'find',
+            'put',
+        ]);
+    }
+
     public function test_internal_namespaces_are_marked_internal(): void
     {
         $internalClasses = [
@@ -210,7 +233,7 @@ final class PublicApiContractTest extends TestCase
             'Padosoft\\LaravelFlow\\Persistence\\ExecutionScopedPayloadRedactor',
             'Padosoft\\LaravelFlow\\Persistence\\FlowPruner',
             'Padosoft\\LaravelFlow\\Models\\FlowRunRecord',
-            'Padosoft\\LaravelFlow\\Models\\FlowStepRecord',
+            'Padosoft\\LaravelFlow\\Models\\FlowRunNodeRecord',
             'Padosoft\\LaravelFlow\\Models\\FlowAuditRecord',
             'Padosoft\\LaravelFlow\\Models\\FlowApprovalRecord',
             'Padosoft\\LaravelFlow\\Models\\FlowWebhookOutboxRecord',

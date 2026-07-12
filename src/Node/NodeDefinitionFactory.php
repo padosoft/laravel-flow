@@ -5,6 +5,10 @@ declare(strict_types=1);
 namespace Padosoft\LaravelFlow\Node;
 
 use InvalidArgumentException;
+use Padosoft\LaravelFlow\Executor\Attributes\Cacheable;
+use Padosoft\LaravelFlow\Executor\Attributes\Cost;
+use Padosoft\LaravelFlow\Executor\Attributes\Retry;
+use Padosoft\LaravelFlow\Executor\RetryPolicy;
 use Padosoft\LaravelFlow\Node\Attributes\FlowNode;
 use Padosoft\LaravelFlow\Node\Attributes\Input;
 use Padosoft\LaravelFlow\Node\Attributes\Output;
@@ -65,7 +69,93 @@ final class NodeDefinitionFactory
             inputs: $inputs,
             outputs: $outputs,
             handlerClass: $class,
+            retry: $this->retryFor($reflection),
+            cacheable: $this->cacheableFor($reflection),
+            cost: $this->costFor($reflection),
         );
+    }
+
+    /**
+     * Read the node's cache policy from a `#[Cacheable]` on `execute()`
+     * (preferred) or on the handler class. Returns null when neither declares
+     * one (the node is not cached).
+     *
+     * @param  ReflectionClass<object>  $reflection
+     */
+    private function cacheableFor(ReflectionClass $reflection): ?Cacheable
+    {
+        $attributes = $reflection->hasMethod('execute')
+            ? $reflection->getMethod('execute')->getAttributes(Cacheable::class)
+            : [];
+
+        if ($attributes === []) {
+            $attributes = $reflection->getAttributes(Cacheable::class);
+        }
+
+        if ($attributes === []) {
+            return null;
+        }
+
+        try {
+            return $attributes[0]->newInstance();
+        } catch (\Throwable $e) {
+            throw new InvalidNodeDefinitionException("Invalid #[Cacheable] on [{$reflection->getName()}]: {$e->getMessage()}", previous: $e);
+        }
+    }
+
+    /**
+     * Read the node's cost hints from a `#[Cost]` on `execute()` (preferred)
+     * or on the handler class. Returns null when neither declares one (the
+     * node advertises no cost estimate).
+     *
+     * @param  ReflectionClass<object>  $reflection
+     */
+    private function costFor(ReflectionClass $reflection): ?Cost
+    {
+        $attributes = $reflection->hasMethod('execute')
+            ? $reflection->getMethod('execute')->getAttributes(Cost::class)
+            : [];
+
+        if ($attributes === []) {
+            $attributes = $reflection->getAttributes(Cost::class);
+        }
+
+        if ($attributes === []) {
+            return null;
+        }
+
+        try {
+            return $attributes[0]->newInstance();
+        } catch (\Throwable $e) {
+            throw new InvalidNodeDefinitionException("Invalid #[Cost] on [{$reflection->getName()}]: {$e->getMessage()}", previous: $e);
+        }
+    }
+
+    /**
+     * Read the node's retry policy from a `#[Retry]` on `execute()` (preferred)
+     * or on the handler class. Returns null when neither declares one.
+     *
+     * @param  ReflectionClass<object>  $reflection
+     */
+    private function retryFor(ReflectionClass $reflection): ?RetryPolicy
+    {
+        $attributes = $reflection->hasMethod('execute')
+            ? $reflection->getMethod('execute')->getAttributes(Retry::class)
+            : [];
+
+        if ($attributes === []) {
+            $attributes = $reflection->getAttributes(Retry::class);
+        }
+
+        if ($attributes === []) {
+            return null;
+        }
+
+        try {
+            return RetryPolicy::fromAttribute($attributes[0]->newInstance());
+        } catch (\Throwable $e) {
+            throw new InvalidNodeDefinitionException("Invalid #[Retry] on [{$reflection->getName()}]: {$e->getMessage()}", previous: $e);
+        }
     }
 
     /**
@@ -99,10 +189,14 @@ final class NodeDefinitionFactory
                     throw new InvalidNodeDefinitionException("Input property [{$class}::\${$property->getName()}] must be public and not readonly.");
                 }
 
-                $this->assertPropertyTypeCompatible($property, $input->type, $class, 'Input');
+                if ($input->multiple && ! in_array($input->type, [PortType::Json, PortType::Any], true)) {
+                    throw new InvalidNodeDefinitionException("Multiple (fan-in) input port [{$class}::\${$property->getName()}] must be of port type json or any, got [{$input->type->value}].");
+                }
+
+                $this->assertPropertyTypeCompatible($property, $input->type, $class, 'Input', $input->multiple);
 
                 try {
-                    $port = new PortDefinition($key, $input->type, $input->required, $input->label, $property->getName());
+                    $port = new PortDefinition($key, $input->type, $input->required, $input->label, $property->getName(), $input->multiple);
                 } catch (InvalidArgumentException $e) {
                     throw new InvalidNodeDefinitionException("Invalid input port on [{$class}::\${$property->getName()}]: {$e->getMessage()}", previous: $e);
                 }
@@ -153,15 +247,36 @@ final class NodeDefinitionFactory
      * able to hold every value its PortType validates at run time, so a
      * mismatch fails fast at boot instead of a TypeError mid-hydration.
      */
-    private function assertPropertyTypeCompatible(\ReflectionProperty $property, PortType $portType, string $class, string $attribute): void
+    private function assertPropertyTypeCompatible(\ReflectionProperty $property, PortType $portType, string $class, string $attribute, bool $multiple = false): void
     {
         $type = $property->getType();
+        $branches = $type === null
+            ? []
+            : ($type instanceof \ReflectionUnionType ? $type->getTypes() : [$type]);
+
+        // A multiple (fan-in) port delivers a coalesced list<mixed>, so the
+        // property must be explicitly typed `array` to hold it. Untyped and
+        // `mixed` are rejected here (they would "work" but violate the
+        // documented contract that a multiple port's property is an array).
+        if ($multiple) {
+            foreach ($branches as $branch) {
+                if ($branch instanceof \ReflectionNamedType && $branch->getName() === 'array') {
+                    return;
+                }
+            }
+
+            throw new InvalidNodeDefinitionException(sprintf(
+                'Multiple (fan-in) %s property [%s::$%s] must be typed array to hold the coalesced list, got [%s].',
+                strtolower($attribute),
+                $class,
+                $property->getName(),
+                $type === null ? 'untyped' : (string) $type,
+            ));
+        }
 
         if ($type === null) {
             return; // untyped holds anything
         }
-
-        $branches = $type instanceof \ReflectionUnionType ? $type->getTypes() : [$type];
 
         foreach ($branches as $branch) {
             if (! $branch instanceof \ReflectionNamedType) {

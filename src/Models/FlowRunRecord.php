@@ -14,6 +14,7 @@ use Padosoft\LaravelFlow\FlowRun;
  * @property string $status
  * @property bool $dry_run
  * @property array<string, mixed>|null $input
+ * @property array<string, mixed>|null $graph
  * @property array<string, mixed>|null $output
  * @property array<string, mixed>|null $business_impact
  * @property string|null $failed_step
@@ -24,6 +25,10 @@ use Padosoft\LaravelFlow\FlowRun;
  * @property string|null $replayed_from_run_id
  * @property int|null $definition_version
  * @property string|null $definition_checksum
+ * @property string|null $engine
+ * @property int|null $nodes_total
+ * @property int|null $nodes_completed
+ * @property int|null $nodes_failed
  * @property int|null $duration_ms
  * @property \DateTimeInterface|null $started_at
  * @property \DateTimeInterface|null $finished_at
@@ -54,18 +59,22 @@ final class FlowRunRecord extends Model
         'duration_ms' => 'integer',
         'dry_run' => 'boolean',
         'finished_at' => 'immutable_datetime',
+        'graph' => 'array',
         'input' => 'array',
+        'nodes_completed' => 'integer',
+        'nodes_failed' => 'integer',
+        'nodes_total' => 'integer',
         'output' => 'array',
         'started_at' => 'immutable_datetime',
         'updated_at' => 'immutable_datetime',
     ];
 
     /**
-     * @return HasMany<FlowStepRecord, $this>
+     * @return HasMany<FlowRunNodeRecord, $this>
      */
-    public function steps(): HasMany
+    public function runNodes(): HasMany
     {
-        return $this->hasMany(FlowStepRecord::class, 'run_id', 'id');
+        return $this->hasMany(FlowRunNodeRecord::class, 'run_id', 'id');
     }
 
     public static function pendingStatus(): string

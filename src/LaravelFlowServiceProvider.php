@@ -5,9 +5,12 @@ declare(strict_types=1);
 namespace Padosoft\LaravelFlow;
 
 use Illuminate\Concurrency\ConcurrencyManager;
+use Illuminate\Contracts\Bus\Dispatcher as BusDispatcher;
+use Illuminate\Contracts\Cache\Factory as CacheFactory;
 use Illuminate\Contracts\Concurrency\Driver as ConcurrencyDriver;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Contracts\Events\Dispatcher;
+use Illuminate\Database\ConnectionResolverInterface;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\ServiceProvider;
 use Padosoft\LaravelFlow\Console\ApproveFlowCommand;
@@ -22,12 +25,32 @@ use Padosoft\LaravelFlow\Contracts\ApprovalRepository;
 use Padosoft\LaravelFlow\Contracts\AuditRepository;
 use Padosoft\LaravelFlow\Contracts\DefinitionRepository;
 use Padosoft\LaravelFlow\Contracts\FlowStore;
+use Padosoft\LaravelFlow\Contracts\NodeCacheRepository;
+use Padosoft\LaravelFlow\Contracts\NodeChildRepository;
 use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
+use Padosoft\LaravelFlow\Contracts\RunNodeRepository;
 use Padosoft\LaravelFlow\Contracts\RunRepository;
-use Padosoft\LaravelFlow\Contracts\StepRunRepository;
 use Padosoft\LaravelFlow\Dashboard\Authorization\DashboardActionAuthorizer;
 use Padosoft\LaravelFlow\Dashboard\Authorization\DenyAllAuthorizer;
 use Padosoft\LaravelFlow\Dashboard\FlowDashboardReadModel;
+use Padosoft\LaravelFlow\Exceptions\FlowInputException;
+use Padosoft\LaravelFlow\Executor\Attributes\Retry;
+use Padosoft\LaravelFlow\Executor\ChildFlowRunner;
+use Padosoft\LaravelFlow\Executor\GraphApprovalCoordinator;
+use Padosoft\LaravelFlow\Executor\GraphRunner;
+use Padosoft\LaravelFlow\Executor\GraphSaga;
+use Padosoft\LaravelFlow\Executor\InputRouter;
+use Padosoft\LaravelFlow\Executor\JoinCoordinator;
+use Padosoft\LaravelFlow\Executor\NodeCache;
+use Padosoft\LaravelFlow\Executor\NodeExecutor;
+use Padosoft\LaravelFlow\Executor\NodeResolver;
+use Padosoft\LaravelFlow\Executor\Nodes\ApprovalGateNode;
+use Padosoft\LaravelFlow\Executor\Nodes\ForEachNode;
+use Padosoft\LaravelFlow\Executor\Nodes\MapNode;
+use Padosoft\LaravelFlow\Executor\Nodes\MergeNode;
+use Padosoft\LaravelFlow\Executor\Nodes\SubFlowNode;
+use Padosoft\LaravelFlow\Executor\QueueGraphCoordinator;
+use Padosoft\LaravelFlow\Executor\ReadinessResolver;
 use Padosoft\LaravelFlow\Graph\DefinitionSigner;
 use Padosoft\LaravelFlow\Graph\GraphValidator;
 use Padosoft\LaravelFlow\Node\Attributes\FlowNode;
@@ -38,7 +61,10 @@ use Padosoft\LaravelFlow\Node\NodeRegistry;
 use Padosoft\LaravelFlow\Persistence\EloquentApprovalRepository;
 use Padosoft\LaravelFlow\Persistence\EloquentDefinitionRepository;
 use Padosoft\LaravelFlow\Persistence\EloquentFlowStore;
+use Padosoft\LaravelFlow\Persistence\EloquentNodeCacheRepository;
+use Padosoft\LaravelFlow\Persistence\EloquentNodeChildRepository;
 use Padosoft\LaravelFlow\Persistence\EloquentWebhookOutboxRepository;
+use Padosoft\LaravelFlow\Persistence\ErrorMessageRedactor;
 use Padosoft\LaravelFlow\Persistence\ExecutionScopedPayloadRedactor;
 use Padosoft\LaravelFlow\Persistence\KeyBasedPayloadRedactor;
 use Throwable;
@@ -56,6 +82,19 @@ use Throwable;
  */
 final class LaravelFlowServiceProvider extends ServiceProvider
 {
+    /**
+     * Executor node types shipped by the package and always registered.
+     *
+     * @var list<class-string>
+     */
+    private const BUILTIN_NODE_HANDLERS = [
+        MergeNode::class,
+        SubFlowNode::class,
+        ForEachNode::class,
+        MapNode::class,
+        ApprovalGateNode::class,
+    ];
+
     public function register(): void
     {
         $this->mergeConfigFrom(
@@ -102,7 +141,19 @@ final class LaravelFlowServiceProvider extends ServiceProvider
         });
 
         $this->app->bind(RunRepository::class, fn (Container $app): RunRepository => $app->make(FlowStore::class)->runs());
-        $this->app->bind(StepRunRepository::class, fn (Container $app): StepRunRepository => $app->make(FlowStore::class)->steps());
+        $this->app->bind(RunNodeRepository::class, fn (Container $app): RunNodeRepository => $app->make(FlowStore::class)->runNodes());
+        $this->app->bind(NodeChildRepository::class, function (Container $app): NodeChildRepository {
+            /** @var string|null $connection */
+            $connection = $app['config']->get('laravel-flow.default_storage');
+
+            return new EloquentNodeChildRepository($connection, $app->make(ExecutionScopedPayloadRedactor::class));
+        });
+        $this->app->bind(NodeCacheRepository::class, function (Container $app): NodeCacheRepository {
+            /** @var string|null $connection */
+            $connection = $app['config']->get('laravel-flow.default_storage');
+
+            return new EloquentNodeCacheRepository($connection);
+        });
         $this->app->bind(AuditRepository::class, fn (Container $app): AuditRepository => $app->make(FlowStore::class)->audit());
         $this->app->singleton(EloquentWebhookOutboxRepository::class, function (Container $app): EloquentWebhookOutboxRepository {
             /** @var string|null $connection */
@@ -172,6 +223,10 @@ final class LaravelFlowServiceProvider extends ServiceProvider
         $this->app->singleton(NodeDefinitionFactory::class);
         $this->app->singleton(NodeRegistry::class, function (Container $app): NodeRegistry {
             $registry = new NodeRegistry($app->make(NodeDefinitionFactory::class));
+            // Package built-in executor node types are always present, before
+            // host config/discovery, so control primitives like flow.merge
+            // cannot be accidentally dropped by an app's node configuration.
+            $registry->registerMany(self::BUILTIN_NODE_HANDLERS);
             /** @var mixed $configured */
             $configured = $app['config']->get('laravel-flow.nodes.handlers', []);
             /** @var list<class-string> $handlers */
@@ -185,6 +240,190 @@ final class LaravelFlowServiceProvider extends ServiceProvider
             return $registry;
         });
         $this->app->singleton(NodeCatalog::class);
+
+        $this->app->singleton(ReadinessResolver::class);
+        $this->app->singleton(InputRouter::class);
+        $this->app->singleton(NodeResolver::class, fn (Container $app): NodeResolver => new NodeResolver($app->make(NodeRegistry::class), $app));
+        $this->app->bind(NodeCache::class, fn (Container $app): NodeCache => new NodeCache(
+            $app->make(NodeCacheRepository::class),
+            $app->make(ExecutionScopedPayloadRedactor::class),
+            static fn (): \DateTimeImmutable => Date::now()->toDateTimeImmutable(),
+        ));
+        $this->app->singleton(NodeExecutor::class, function (Container $app): NodeExecutor {
+            /** @var array<string, mixed> $persistence */
+            $persistence = $app['config']->get('laravel-flow.persistence', []);
+            $persistenceEnabled = (bool) ($persistence['enabled'] ?? false);
+            $cache = $persistenceEnabled ? $app->make(NodeCache::class) : null;
+            $approvalTokens = $persistenceEnabled ? $app->make(ApprovalTokenManager::class) : null;
+
+            // Same gate as $cache/$approvalTokens: with persistence off, persist()
+            // writes nothing (dry-run parity), so there is no error_message write
+            // to protect. When on, redact exactly like v1's safeErrorMessage().
+            $errorMessageRedactor = null;
+            $payloadRedactor = null;
+
+            if ($persistenceEnabled) {
+                /** @var array<string, mixed> $redaction */
+                $redaction = is_array($persistence['redaction'] ?? null) ? $persistence['redaction'] : [];
+                $errorMessageRedactor = new ErrorMessageRedactor($redaction);
+                $payloadRedactor = $app->make(ExecutionScopedPayloadRedactor::class);
+            }
+
+            return new NodeExecutor(
+                $app->make(NodeResolver::class),
+                $app->make(InputRouter::class),
+                static fn (): \DateTimeImmutable => Date::now()->toDateTimeImmutable(),
+                $cache,
+                $approvalTokens,
+                $errorMessageRedactor,
+                $payloadRedactor,
+                $this->executorDefaultRetry($app),
+            );
+        });
+        $this->app->bind(GraphSaga::class, function (Container $app): GraphSaga {
+            /** @var array<string, mixed> $config */
+            $config = $app['config']->get('laravel-flow', []);
+
+            return new GraphSaga(
+                $app->make(NodeResolver::class),
+                $app,
+                $this->compensationConcurrencyDriver($app, $config),
+            );
+        });
+        $this->app->bind(GraphRunner::class, function (Container $app): GraphRunner {
+            /** @var array<string, mixed> $persistence */
+            $persistence = $app['config']->get('laravel-flow.persistence', []);
+            $store = (bool) ($persistence['enabled'] ?? false) ? $app->make(FlowStore::class) : null;
+
+            return new GraphRunner(
+                $app->make(NodeExecutor::class),
+                $app->make(ReadinessResolver::class),
+                static fn (): \DateTimeImmutable => Date::now()->toDateTimeImmutable(),
+                $store,
+                $app->make(GraphSaga::class),
+                $this->graphCompensationStrategy($app),
+            );
+        });
+        $this->app->bind(ChildFlowRunner::class, fn (Container $app): ChildFlowRunner => new ChildFlowRunner(
+            $app->make(DefinitionRepository::class),
+            $app->make(FlowEngine::class),
+            $app->make(NodeChildRepository::class),
+            $app->make(FlowStore::class),
+            static fn (): \DateTimeImmutable => Date::now()->toDateTimeImmutable(),
+        ));
+        $this->app->bind(JoinCoordinator::class, function (Container $app): JoinCoordinator {
+            $lockStore = $app['config']->get('laravel-flow.executor.lock_store')
+                ?? $app['config']->get('laravel-flow.queue.lock_store');
+
+            // The join uses its own small dedicated lock TTL + bounded block wait
+            // (its critical section is fast), NOT the long node-execution lock
+            // config — so only the lock STORE is wired here.
+            return new JoinCoordinator(
+                $app->make(NodeChildRepository::class),
+                $app->make(RunNodeRepository::class),
+                $app->make(ChildFlowRunner::class),
+                $app->make(CacheFactory::class),
+                static fn (): \DateTimeImmutable => Date::now()->toDateTimeImmutable(),
+                is_string($lockStore) && $lockStore !== '' ? $lockStore : null,
+            );
+        });
+        $this->app->bind(QueueGraphCoordinator::class, function (Container $app): QueueGraphCoordinator {
+            /** @var string|null $connection */
+            $connection = $app['config']->get('laravel-flow.default_storage');
+            $config = $app['config'];
+
+            $lockStore = $config->get('laravel-flow.executor.lock_store') ?? $config->get('laravel-flow.queue.lock_store');
+            $lockSeconds = $config->get('laravel-flow.executor.lock_seconds') ?? $config->get('laravel-flow.queue.lock_seconds');
+            $lockRetrySeconds = $config->get('laravel-flow.executor.lock_retry_seconds') ?? $config->get('laravel-flow.queue.lock_retry_seconds');
+            $queue = $config->get('laravel-flow.executor.queue');
+
+            return new QueueGraphCoordinator(
+                $app->make(ConnectionResolverInterface::class),
+                $app->make(FlowStore::class),
+                $app->make(ReadinessResolver::class),
+                static fn (): \DateTimeImmutable => Date::now()->toDateTimeImmutable(),
+                is_string($connection) ? $connection : null,
+                $app->make(JoinCoordinator::class),
+                $app->make(BusDispatcher::class),
+                is_string($queue) && $queue !== '' ? $queue : null,
+                is_string($lockStore) && $lockStore !== '' ? $lockStore : null,
+                is_numeric($lockSeconds) && (int) $lockSeconds >= 1 ? (int) $lockSeconds : 3600,
+                is_numeric($lockRetrySeconds) && (int) $lockRetrySeconds >= 1 ? (int) $lockRetrySeconds : 30,
+                $app->make(GraphSaga::class),
+                $this->graphCompensationStrategy($app),
+            );
+        });
+        $this->app->bind(GraphApprovalCoordinator::class, function (Container $app): GraphApprovalCoordinator {
+            $config = $app['config'];
+
+            $lockStore = $config->get('laravel-flow.executor.lock_store') ?? $config->get('laravel-flow.queue.lock_store');
+            $lockSeconds = $config->get('laravel-flow.executor.lock_seconds') ?? $config->get('laravel-flow.queue.lock_seconds');
+            $lockRetrySeconds = $config->get('laravel-flow.executor.lock_retry_seconds') ?? $config->get('laravel-flow.queue.lock_retry_seconds');
+            $queue = $config->get('laravel-flow.executor.queue');
+
+            return new GraphApprovalCoordinator(
+                $app->make(FlowStore::class),
+                static fn (): \DateTimeImmutable => Date::now()->toDateTimeImmutable(),
+                $app->make(BusDispatcher::class),
+                is_string($queue) && $queue !== '' ? $queue : null,
+                is_string($lockStore) && $lockStore !== '' ? $lockStore : null,
+                is_numeric($lockSeconds) && (int) $lockSeconds >= 1 ? (int) $lockSeconds : 3600,
+                is_numeric($lockRetrySeconds) && (int) $lockRetrySeconds >= 1 ? (int) $lockRetrySeconds : 30,
+            );
+        });
+    }
+
+    /**
+     * The graph saga reuses v1's `compensation_strategy` config key so both
+     * engines follow one deployment-wide compensation policy. A non-string or
+     * blank value falls back to reverse-order; an unsupported literal FAILS
+     * FAST here (at container resolution, mirroring v1's early rejection) so a
+     * bad deploy surfaces on the first graph run rather than mid-failure —
+     * after nodes already ran and exactly when rollback was needed.
+     */
+    private function graphCompensationStrategy(Container $app): string
+    {
+        $strategy = $app['config']->get('laravel-flow.compensation_strategy');
+
+        if (! is_string($strategy) || trim($strategy) === '') {
+            return GraphSaga::STRATEGY_REVERSE_ORDER;
+        }
+
+        $strategy = trim($strategy);
+
+        if (! in_array($strategy, [GraphSaga::STRATEGY_REVERSE_ORDER, GraphSaga::STRATEGY_PARALLEL], true)) {
+            throw new FlowInputException(sprintf(
+                'Unsupported compensation strategy [%s]. Supported strategies: %s, %s.',
+                $strategy,
+                GraphSaga::STRATEGY_REVERSE_ORDER,
+                GraphSaga::STRATEGY_PARALLEL,
+            ));
+        }
+
+        return $strategy;
+    }
+
+    /**
+     * The fallback #[Retry] a graph node with no attribute of its own gets,
+     * built from laravel-flow.executor.default_tries/default_backoff_seconds/
+     * node_timeout_seconds — so a deployment can protect every node by config
+     * alone without every handler repeating #[Retry]. A node's own
+     * config['retry'] still overrides whichever base applies.
+     */
+    private function executorDefaultRetry(Container $app): Retry
+    {
+        /** @var array<string, mixed> $executor */
+        $executor = $app['config']->get('laravel-flow.executor', []);
+
+        $tries = $executor['default_tries'] ?? 1;
+        $backoff = $executor['default_backoff_seconds'] ?? 0;
+        $timeout = $executor['node_timeout_seconds'] ?? 0;
+
+        return new Retry(
+            tries: is_int($tries) ? $tries : 1,
+            backoff: is_int($backoff) ? $backoff : 0,
+            timeout: is_int($timeout) ? $timeout : 0,
+        );
     }
 
     public function boot(): void
@@ -204,6 +443,12 @@ final class LaravelFlowServiceProvider extends ServiceProvider
             __DIR__.'/../database/migrations/2026_05_04_000004_add_previous_token_hash_to_flow_approvals.php' => $this->app->databasePath('migrations/2026_05_04_000004_add_previous_token_hash_to_flow_approvals.php'),
             __DIR__.'/../database/migrations/2026_07_08_000005_create_flow_definitions_table.php' => $this->app->databasePath('migrations/2026_07_08_000005_create_flow_definitions_table.php'),
             __DIR__.'/../database/migrations/2026_07_08_000006_add_definition_version_to_laravel_flow_runs.php' => $this->app->databasePath('migrations/2026_07_08_000006_add_definition_version_to_laravel_flow_runs.php'),
+            __DIR__.'/../database/migrations/2026_07_09_000007_create_flow_run_nodes_table.php' => $this->app->databasePath('migrations/2026_07_09_000007_create_flow_run_nodes_table.php'),
+            __DIR__.'/../database/migrations/2026_07_09_000008_add_graph_columns_to_laravel_flow_runs.php' => $this->app->databasePath('migrations/2026_07_09_000008_add_graph_columns_to_laravel_flow_runs.php'),
+            __DIR__.'/../database/migrations/2026_07_09_000009_migrate_flow_steps_to_run_nodes.php' => $this->app->databasePath('migrations/2026_07_09_000009_migrate_flow_steps_to_run_nodes.php'),
+            __DIR__.'/../database/migrations/2026_07_09_000010_create_flow_node_children_table.php' => $this->app->databasePath('migrations/2026_07_09_000010_create_flow_node_children_table.php'),
+            __DIR__.'/../database/migrations/2026_07_09_000011_add_graph_to_laravel_flow_runs.php' => $this->app->databasePath('migrations/2026_07_09_000011_add_graph_to_laravel_flow_runs.php'),
+            __DIR__.'/../database/migrations/2026_07_09_000012_create_flow_node_cache_table.php' => $this->app->databasePath('migrations/2026_07_09_000012_create_flow_node_cache_table.php'),
         ], 'laravel-flow-migrations');
 
         $this->commands([

@@ -234,4 +234,49 @@ return [
         'persist_registered' => env('LARAVEL_FLOW_DEFINITIONS_PERSIST_REGISTERED', false),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Graph executor (v2 graph engine)
+    |--------------------------------------------------------------------------
+    |
+    | Runtime knobs for the event-driven graph executor (`Flow::runGraph()` /
+    | `Flow::dispatchGraph()`, Macro C). These are inert for the v1 linear
+    | engine, which keeps its own execution and step-timeout settings above;
+    | they take effect only for graph runs. `lock_store` defaults to null
+    | (fall back to the app's default cache store at execution time).
+    |
+    | `default_tries` / `default_backoff_seconds` / `node_timeout_seconds` back
+    | a graph node's fallback #[Retry] policy when it declares none of its own
+    | (see NodeExecutor / RetryPolicy). A node's own `config['retry']` still
+    | overrides whichever base applies. Real per-node retry semantics: `tries`
+    | clamps to a MINIMUM of 1 (a graph node never retries "unlimited" times,
+    | unlike a Laravel job's `0 = unlimited`).
+    |
+    | `cache.*` is RESERVED and NOT YET READ anywhere — it is deliberately NOT
+    | wired as a global default node-cache TTL: `#[Cacheable(ttl: null)]`'s
+    | `null` already has a distinct, documented meaning ("never expires"), so
+    | a global fallback here would silently reinterpret that as "expires
+    | after N seconds", changing an opt-in node's caching semantics without
+    | it declaring anything different. A future consumer of this block must
+    | design around that, not treat it as an ordinary null-means-unset default.
+    |
+    */
+    'executor' => [
+        'coordinator_timeout_seconds' => (int) env('LARAVEL_FLOW_EXECUTOR_COORDINATOR_TIMEOUT', 120),
+        'node_timeout_seconds' => (int) env('LARAVEL_FLOW_EXECUTOR_NODE_TIMEOUT', 300),
+        // Queued-graph node lock. Null keys inherit the v1 `queue.*` lock config
+        // (which itself falls back to cache.default / sane TTLs), so configuring
+        // `queue.lock_store` covers queued graphs too; set these only to override.
+        'lock_store' => env('LARAVEL_FLOW_EXECUTOR_LOCK_STORE', null),
+        'lock_seconds' => ($executorLockSeconds = env('LARAVEL_FLOW_EXECUTOR_LOCK_SECONDS')) !== null ? (int) $executorLockSeconds : null,
+        'lock_retry_seconds' => ($executorLockRetrySeconds = env('LARAVEL_FLOW_EXECUTOR_LOCK_RETRY_SECONDS')) !== null ? (int) $executorLockRetrySeconds : null,
+        'default_tries' => (int) env('LARAVEL_FLOW_EXECUTOR_DEFAULT_TRIES', 1),
+        'default_backoff_seconds' => (int) env('LARAVEL_FLOW_EXECUTOR_DEFAULT_BACKOFF', 0),
+        'queue' => env('LARAVEL_FLOW_EXECUTOR_QUEUE', null),
+        'cache' => [
+            'store' => env('LARAVEL_FLOW_EXECUTOR_CACHE_STORE', null),
+            'ttl_seconds' => ($executorCacheTtl = env('LARAVEL_FLOW_EXECUTOR_CACHE_TTL')) !== null ? (int) $executorCacheTtl : null,
+        ],
+    ],
+
 ];

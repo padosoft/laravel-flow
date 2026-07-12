@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Padosoft\LaravelFlow\Tests\Unit\Node;
 
+use Padosoft\LaravelFlow\Executor\Attributes\Retry;
 use Padosoft\LaravelFlow\Node\Attributes\FlowNode;
 use Padosoft\LaravelFlow\Node\Attributes\Input;
 use Padosoft\LaravelFlow\Node\Attributes\Output;
@@ -60,6 +61,118 @@ final class NodeDefinitionFactoryTest extends TestCase
         $this->assertNull($definition->input('missing'));
     }
 
+    public function test_multiple_flag_threads_to_port_definition(): void
+    {
+        $handler = new #[FlowNode(type: 'fanin.node')] class
+        {
+            #[Input(type: PortType::Json, multiple: true)]
+            public array $items = [];
+
+            #[Input(type: PortType::Text, required: true)]
+            public string $label;
+        };
+
+        $definition = $this->factory->fromClass($handler::class);
+
+        $items = $definition->input('items');
+        $this->assertNotNull($items);
+        $this->assertTrue($items->multiple);
+        $this->assertTrue($definition->input('items')->toArray()['multiple']);
+
+        // A normal port stays multiple: false.
+        $this->assertFalse($definition->input('label')->multiple);
+    }
+
+    public function test_multiple_on_scalar_port_is_rejected(): void
+    {
+        $handler = new #[FlowNode(type: 'bad.fanin')] class
+        {
+            #[Input(type: PortType::Text, multiple: true)]
+            public array $items = [];
+        };
+
+        $this->expectException(InvalidNodeDefinitionException::class);
+        $this->expectExceptionMessage('must be of port type json or any');
+
+        $this->factory->fromClass($handler::class);
+    }
+
+    public function test_multiple_port_requires_array_property(): void
+    {
+        $handler = new #[FlowNode(type: 'bad.fanin.type')] class
+        {
+            #[Input(type: PortType::Json, multiple: true)]
+            public string $items = '';
+        };
+
+        $this->expectException(InvalidNodeDefinitionException::class);
+
+        $this->factory->fromClass($handler::class);
+    }
+
+    public function test_multiple_port_rejects_untyped_property(): void
+    {
+        $handler = new #[FlowNode(type: 'bad.fanin.untyped')] class
+        {
+            #[Input(type: PortType::Json, multiple: true)]
+            public $items = [];
+        };
+
+        $this->expectException(InvalidNodeDefinitionException::class);
+        $this->expectExceptionMessage('must be typed array');
+
+        $this->factory->fromClass($handler::class);
+    }
+
+    public function test_multiple_port_rejects_mixed_property(): void
+    {
+        $handler = new #[FlowNode(type: 'bad.fanin.mixed')] class
+        {
+            #[Input(type: PortType::Json, multiple: true)]
+            public mixed $items = [];
+        };
+
+        $this->expectException(InvalidNodeDefinitionException::class);
+        $this->expectExceptionMessage('must be typed array');
+
+        $this->factory->fromClass($handler::class);
+    }
+
+    public function test_multiple_port_allows_nullable_array_property(): void
+    {
+        $handler = new #[FlowNode(type: 'ok.fanin.nullable')] class
+        {
+            #[Input(type: PortType::Json, multiple: true)]
+            public ?array $items = null;
+        };
+
+        $definition = $this->factory->fromClass($handler::class);
+        $this->assertTrue($definition->input('items')->multiple);
+    }
+
+    public function test_retry_attribute_is_read_and_advertised_in_the_catalog(): void
+    {
+        $handler = new #[FlowNode(type: 'retry.node')] #[Retry(tries: 3, backoff: 5, timeout: 30)] class
+        {
+            #[Output(type: PortType::Json)]
+            public array $out;
+        };
+
+        $definition = $this->factory->fromClass($handler::class);
+
+        $this->assertNotNull($definition->retry);
+        $this->assertSame(3, $definition->retry->tries());
+        $this->assertSame(['tries' => 3, 'backoff' => 5, 'timeout' => 30], $definition->toArray()['retry']);
+    }
+
+    public function test_definition_without_retry_omits_it_from_the_catalog(): void
+    {
+        $definition = $this->factory->fromClass(GreetNode::class);
+
+        $this->assertNull($definition->retry);
+        $this->assertArrayNotHasKey('retry', $definition->toArray());
+    }
+
     public function test_name_defaults_to_class_basename(): void
     {
         $definition = $this->factory->fromClass(GreetNode::class);
@@ -74,7 +187,7 @@ final class NodeDefinitionFactoryTest extends TestCase
 
         $this->assertSame('test.greet', $array['type']);
         $this->assertSame(
-            [['key' => 'name', 'type' => 'text', 'required' => true, 'label' => 'name']],
+            [['key' => 'name', 'type' => 'text', 'required' => true, 'label' => 'name', 'multiple' => false]],
             $array['inputs'],
         );
         $this->assertArrayHasKey('outputs', $array);

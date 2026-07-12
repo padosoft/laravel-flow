@@ -14,7 +14,7 @@ Dry-runs never persist run, step, or audit rows. This remains true even when per
 ## Tables
 
 - `flow_runs`: run identity, status, input, output, business impact, correlation key, idempotency key, replay lineage.
-- `flow_steps`: per-step status and payload.
+- `flow_run_nodes`: per-step/per-node status and payload (a v1 step is a `legacy.step` node).
 - `flow_audit`: append-only transition log during normal runtime.
 - `flow_approvals`: hashed one-time approval tokens and decisions.
 - `flow_webhook_outbox`: signed lifecycle delivery queue.

@@ -11,7 +11,7 @@ interface FlowStore
 {
     public function runs(): RunRepository;
 
-    public function steps(): StepRunRepository;
+    public function runNodes(): RunNodeRepository;
 
     public function audit(): AuditRepository;
 

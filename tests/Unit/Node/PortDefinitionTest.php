@@ -15,9 +15,17 @@ final class PortDefinitionTest extends TestCase
         $port = new PortDefinition(key: 'order_id', type: PortType::Int, required: true, propertyName: 'orderId');
 
         $this->assertSame(
-            ['key' => 'order_id', 'type' => 'int', 'required' => true, 'label' => 'order_id'],
+            ['key' => 'order_id', 'type' => 'int', 'required' => true, 'label' => 'order_id', 'multiple' => false],
             $port->toArray(),
         );
+    }
+
+    public function test_to_array_exposes_multiple_flag(): void
+    {
+        $port = new PortDefinition(key: 'items', type: PortType::Json, multiple: true);
+
+        $this->assertTrue($port->multiple);
+        $this->assertTrue($port->toArray()['multiple']);
     }
 
     public function test_to_array_keeps_explicit_label(): void

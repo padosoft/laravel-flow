@@ -112,15 +112,16 @@ final class PruneFlowRunsCommandTest extends PersistenceTestCase
             'updated_at' => $timestamp,
         ]);
 
-        DB::table('flow_steps')->insert([
+        DB::table('flow_run_nodes')->insert([
             'created_at' => $timestamp,
             'dry_run_skipped' => false,
             'handler' => 'Tests\\Handler',
+            'node_id' => 'step-one',
+            'node_type' => 'legacy.step',
             'run_id' => $runId,
             'sequence' => 1,
             'started_at' => $timestamp,
             'status' => $status === FlowRun::STATUS_RUNNING ? 'running' : 'succeeded',
-            'step_name' => 'step-one',
             'updated_at' => $timestamp,
         ]);
 
@@ -146,13 +147,13 @@ final class PruneFlowRunsCommandTest extends PersistenceTestCase
 
     private function assertRelatedRowsExist(string $runId): void
     {
-        $this->assertSame(1, (int) DB::table('flow_steps')->where('run_id', $runId)->count());
+        $this->assertSame(1, (int) DB::table('flow_run_nodes')->where('run_id', $runId)->count());
         $this->assertSame(1, (int) DB::table('flow_audit')->where('run_id', $runId)->count());
     }
 
     private function assertRelatedRowsMissing(string $runId): void
     {
-        $this->assertSame(0, (int) DB::table('flow_steps')->where('run_id', $runId)->count());
+        $this->assertSame(0, (int) DB::table('flow_run_nodes')->where('run_id', $runId)->count());
         $this->assertSame(0, (int) DB::table('flow_audit')->where('run_id', $runId)->count());
     }
 }

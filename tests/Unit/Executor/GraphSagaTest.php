@@ -186,6 +186,37 @@ final class GraphSagaTest extends PersistenceTestCase
         $this->assertEqualsCanonicalizing(['a', 'b', 'c'], CompensatableRecordingNode::$log);
     }
 
+    public function test_parallel_strategy_without_a_driver_falls_back_to_sequential(): void
+    {
+        // No concurrency driver bound: the parallel strategy must fall back to
+        // in-process sequential rollback (never fatal on a null driver).
+        $saga = new GraphSaga($this->app->make(NodeResolver::class), $this->app, null);
+
+        $graph = new GraphDefinition(
+            [
+                new GraphNode('a', 'test.saga.comp'),
+                new GraphNode('b', 'test.saga.comp'),
+                new GraphNode('f', 'test.fail'),
+            ],
+            [
+                new Connection('a', 'out', 'b', 'in'),
+                new Connection('b', 'out', 'f', 'in'),
+            ],
+        );
+
+        $report = $saga->compensate(
+            'run-2',
+            'graph',
+            $graph,
+            ['a' => NodeState::Succeeded, 'b' => NodeState::Succeeded, 'f' => NodeState::Failed],
+            ['a' => ['out' => []], 'b' => ['out' => []]],
+            GraphSaga::STRATEGY_PARALLEL,
+        );
+
+        $this->assertSame(['b', 'a'], $report->compensatedNodeIds, 'sequential fallback preserves reverse-topological order');
+        $this->assertTrue($report->fullySucceeded());
+    }
+
     public function test_aggregate_compensator_runs_last(): void
     {
         $graph = new GraphDefinition(

@@ -213,7 +213,7 @@ final class GraphSaga
             return [[], []];
         }
 
-        if (! $this->concurrencyDriver instanceof ConcurrencyDriver || ! $this->containerIsGlobalInstance()) {
+        if (! ($this->concurrencyDriver instanceof ConcurrencyDriver) || ! $this->containerIsGlobalInstance()) {
             return $this->runSequential($candidates, $runId, $definitionName, $nodeOutputs, $runInput, $queued);
         }
 
@@ -323,7 +323,7 @@ final class GraphSaga
 
         $handler = $this->resolver->resolve($node)->handler;
 
-        if (! $handler instanceof CompensatableNode) {
+        if (! ($handler instanceof CompensatableNode)) {
             throw new FlowCompensationException(sprintf(
                 'Handler for node [%s] no longer implements %s.',
                 $node->id,
@@ -368,7 +368,7 @@ final class GraphSaga
     {
         $compensator = $this->container->make($fqcn);
 
-        if (! $compensator instanceof FlowCompensator) {
+        if (! ($compensator instanceof FlowCompensator)) {
             throw new FlowCompensationException(sprintf(
                 'Compensator [%s] for [%s] does not implement %s.',
                 $fqcn,

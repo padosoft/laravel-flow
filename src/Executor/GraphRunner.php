@@ -31,6 +31,8 @@ final class GraphRunner
         private readonly ReadinessResolver $readiness,
         private readonly Closure $clock,
         private readonly ?FlowStore $store = null,
+        private readonly ?GraphSaga $saga = null,
+        private readonly string $compensationStrategy = GraphSaga::STRATEGY_REVERSE_ORDER,
     ) {}
 
     /**
@@ -119,7 +121,31 @@ final class GraphRunner
         }
 
         $runState = RunRollup::state($graph, $states);
+
+        // Persist the terminal state BEFORE compensation — v1's order, and the
+        // same order as the queued coordinator's finalizeRun: finished_at /
+        // duration_ms measure EXECUTION only (not rollback time), and a fatal
+        // inside a user compensator can no longer strand the run row `running`.
         $this->persistRunFinished($store, $runId, $runState, $states, $outputs, $startedAt);
+
+        // Graph saga: a failed run rolls back its COMPLETED nodes (reverse-
+        // topological order / opt-in parallel; aggregate compensator last).
+        // Never on a dry run — compensation is a real side effect. The run is
+        // marked `compensated` ONLY when every intended compensator succeeded;
+        // the outcome is persisted as a follow-up update to the already-
+        // terminal row (Failed/PartiallySucceeded -> Compensated is a legal
+        // transition).
+        if (! $dryRun && $this->saga !== null && in_array($runState, [RunState::Failed, RunState::PartiallySucceeded], true)) {
+            $sagaReport = $this->saga->compensate($runId, $definitionName, $graph, $states, $outputs, $this->compensationStrategy, $input);
+
+            if ($sagaReport->attempted()) {
+                if ($sagaReport->fullySucceeded()) {
+                    $runState = RunState::Compensated;
+                }
+
+                $this->persistCompensationOutcome($store, $runId, $sagaReport);
+            }
+        }
 
         return new GraphRunResult($runId, $runState, $states, $outputs, $errors);
     }
@@ -182,6 +208,30 @@ final class GraphRunner
             'dry_run_skipped' => false,
             'finished_at' => $now,
         ]);
+    }
+
+    /**
+     * Record the saga outcome on the already-terminal run row (v1 vocabulary):
+     * `compensated` flips only on a FULL rollback (which also advances the
+     * status to `compensated`); a partial one records
+     * `compensation_status = 'failed'` while the run keeps its failure state.
+     */
+    private function persistCompensationOutcome(?FlowStore $store, string $runId, GraphSagaReport $sagaReport): void
+    {
+        if ($store === null) {
+            return;
+        }
+
+        $attributes = [
+            'compensated' => $sagaReport->fullySucceeded(),
+            'compensation_status' => $sagaReport->fullySucceeded() ? 'succeeded' : 'failed',
+        ];
+
+        if ($sagaReport->fullySucceeded()) {
+            $attributes['status'] = RunState::Compensated->value;
+        }
+
+        $store->runs()->update($runId, $attributes);
     }
 
     /**

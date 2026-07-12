@@ -1,15 +1,23 @@
 # Progress
 
-## 2026-07-12 - Macro C / C-PR7 (node cache, PR #62)
+## 2026-07-12 - Macro C / C-PR8 (graph saga compensation)
 
-- Branch `task/v2c-07-node-cache` → base `task/v2c-graph-executor`. PR #62 OPEN.
+- PR #62 (C-PR7) MERGED into `task/v2c-graph-executor` (merge commit `bf00615`) after round-11 Copilot convergence (0 findings, CI green).
+- Branch `task/v2c-08-graph-saga` (from `bf00615`): Task 16 implemented — `GraphSaga` (@api) + `GraphSagaReport` (@api) + `Node\CompensatableNode` (@api, additive capability interface). Reverse-topological compensation of ONLY Succeeded nodes; legacy `config['compensator']` v1 path preserved 1:1; `metadata['aggregate_compensator']` runs last (closes reserved v0.2 `withAggregateCompensator` for graphs); `parallel` strategy batches through the Concurrency driver with local fallback. Wired into `GraphRunner` (terminal failure state persisted FIRST — v1 order — then the saga runs and its outcome lands as a follow-up update via the legal Failed/PartiallySucceeded→Compensated transition) and `QueueGraphCoordinator` (compensation CLAIMED under the flow_runs row lock on the finalizing pass AND every allTerminal retry — crash-window recovery — then executed post-lock, before the parent join is driven). Run marked `compensated` + `compensation_status='succeeded'` ONLY on full rollback; partial keeps failure state + `compensation_status='failed'`; a conservative claim that finds nothing is cleared back to null.
+- Tests: `GraphSagaTest` 10 tests (only-completed, context-carries-outputs, diamond reverse-topo order, parallel batching via stub driver, aggregate-last, legacy v1 compensator, partial-failure keeps state, no-compensators untouched, dry-run never compensates, queued path). Contract pins for the 3 new @api classes + saga surface. README bullet + comparison row (conservative competitor claims, checked 2026-07-12). UPGRADE.md bullet.
+- Local gate GREEN (Herd PHP 8.5): Pint pass, PHPStan no errors, 753 tests (656 Unit + 5 Contract + 92 Arch).
+- **Next step**: commit, push, open PR toward `task/v2c-graph-executor`, request Copilot, converge, merge; then C-PR9 (DAG dry-run plan + cost, branch `task/v2c-09-dag-dry-run`).
+
+## 2026-07-12 - Macro C / C-PR7 (node cache, PR #62) — CLOSED
+
+- Branch `task/v2c-07-node-cache` → base `task/v2c-graph-executor`. PR #62 MERGED (merge commit `bf00615`) after round-11 Copilot convergence; the notes below are the durable history of its final review rounds.
 - Resumed after a machine restart. Round-9 Copilot review had surfaced two real defects on the already-pushed cache work:
   1. `NodeExecutor` cached PAUSED node output (paused carries `success===true`) → fixed in `83ba961` (guard `success && ! paused` + `CacheablePausingNode` fixture + test).
   2. `ContentHasher` collided objects to one hash (json_encode does not throw on objects) → fixed in `6b48c45` (new `UnhashableInputException`, fail-fast in `canonicalize()`, 2 tests). NodeExecutor's existing try/catch skips caching on throw.
 - Local gate GREEN on Herd PHP 8.5: Pint pass, PHPStan no errors, PHPUnit 740 tests (644 Unit + 5 Contract + 91 Arch) / all assertions pass.
 - Pushed head `6b48c45`. All 4 prior unresolved Copilot threads resolved (2 from earlier commits 440ef87/ed75472, 2 from these). Copilot re-requested (round 10, request registered via `gh pr edit`).
 - Lessons folded into `docs/LESSON.md` (2026-07-12 section): paused-carries-success guard rule; json_encode-object-collision → fail-fast hasher.
-- **Next step**: wait for round-10 CI (PHP 8.3/8.4/8.5 + CF Pages) green on `6b48c45` AND Copilot round-10 comments; resolve any new findings; merge PR #62 into `task/v2c-graph-executor`; then drive C-PR8 (graph saga compensation, `task/v2c-08-graph-saga`), C-PR9 (DAG dry-run), C-PR10 (approval gate node).
+- **Outcome**: round-10 surfaced 2 more findings (corrupted cache row served as miss, split read/write failure tests — fixed in `e9c2611`); round-11 converged clean and PR #62 merged. Work continued with C-PR8 (see the section above).
 
 ## 2026-05-03 - Durable Handoff
 

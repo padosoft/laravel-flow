@@ -135,6 +135,15 @@ final class DryRunPlannerTest extends PersistenceTestCase
         $this->assertSame(['tokens' => 100, 'cents' => 2], $cost->total);
     }
 
+    public function test_cost_estimate_to_array_keys_match_property_names(): void
+    {
+        // Convention shared by every other @api VO's toArray() here (RetryPolicy,
+        // PortDefinition): keys match the public property names, not snake_case.
+        ['cost' => $cost] = $this->planner()->plan($this->diamond(), []);
+
+        $this->assertSame(['perNode' => $cost->perNode, 'total' => $cost->total], $cost->toArray());
+    }
+
     public function test_planning_never_constructs_a_handler(): void
     {
         // The planner reads definitions from the registry only; constructing a

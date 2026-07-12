@@ -26,10 +26,10 @@ final readonly class CostEstimate
     ) {}
 
     /**
-     * @return array{per_node: array<string, array<string, int|float>>, total: array<string, int|float>}
+     * @return array{perNode: array<string, array<string, int|float>>, total: array<string, int|float>}
      */
     public function toArray(): array
     {
-        return ['per_node' => $this->perNode, 'total' => $this->total];
+        return ['perNode' => $this->perNode, 'total' => $this->total];
     }
 }

@@ -276,8 +276,9 @@ final class GraphSaga
             // Each task closure captures only ITS node's output slice (still
             // keyed by node id, so compensateOne() works unchanged) — capturing
             // the full map would copy/serialize every node's outputs once per
-            // task on large graphs.
-            $slice = array_intersect_key($nodeOutputs, [$candidate['node']->id => true]);
+            // task on large graphs. Direct O(1) index, not an array scan.
+            $id = $candidate['node']->id;
+            $slice = isset($nodeOutputs[$id]) ? [$id => $nodeOutputs[$id]] : [];
             $tasks[$index] = $this->parallelTask($candidate, $runId, $definitionName, $slice, $runInput, $queued);
         }
 

@@ -122,21 +122,30 @@ final class GraphRunner
 
         $runState = RunRollup::state($graph, $states);
 
+        // Persist the terminal state BEFORE compensation — v1's order, and the
+        // same order as the queued coordinator's finalizeRun: finished_at /
+        // duration_ms measure EXECUTION only (not rollback time), and a fatal
+        // inside a user compensator can no longer strand the run row `running`.
+        $this->persistRunFinished($store, $runId, $runState, $states, $outputs, $startedAt);
+
         // Graph saga: a failed run rolls back its COMPLETED nodes (reverse-
         // topological order / opt-in parallel; aggregate compensator last).
         // Never on a dry run — compensation is a real side effect. The run is
-        // marked `compensated` ONLY when every intended compensator succeeded.
-        $sagaReport = null;
-
+        // marked `compensated` ONLY when every intended compensator succeeded;
+        // the outcome is persisted as a follow-up update to the already-
+        // terminal row (Failed/PartiallySucceeded -> Compensated is a legal
+        // transition).
         if (! $dryRun && $this->saga !== null && in_array($runState, [RunState::Failed, RunState::PartiallySucceeded], true)) {
             $sagaReport = $this->saga->compensate($runId, $definitionName, $graph, $states, $outputs, $this->compensationStrategy, $input);
 
-            if ($sagaReport->fullySucceeded()) {
-                $runState = RunState::Compensated;
+            if ($sagaReport->attempted()) {
+                if ($sagaReport->fullySucceeded()) {
+                    $runState = RunState::Compensated;
+                }
+
+                $this->persistCompensationOutcome($store, $runId, $sagaReport);
             }
         }
-
-        $this->persistRunFinished($store, $runId, $runState, $states, $outputs, $startedAt, $sagaReport);
 
         return new GraphRunResult($runId, $runState, $states, $outputs, $errors);
     }
@@ -202,6 +211,30 @@ final class GraphRunner
     }
 
     /**
+     * Record the saga outcome on the already-terminal run row (v1 vocabulary):
+     * `compensated` flips only on a FULL rollback (which also advances the
+     * status to `compensated`); a partial one records
+     * `compensation_status = 'failed'` while the run keeps its failure state.
+     */
+    private function persistCompensationOutcome(?FlowStore $store, string $runId, GraphSagaReport $sagaReport): void
+    {
+        if ($store === null) {
+            return;
+        }
+
+        $attributes = [
+            'compensated' => $sagaReport->fullySucceeded(),
+            'compensation_status' => $sagaReport->fullySucceeded() ? 'succeeded' : 'failed',
+        ];
+
+        if ($sagaReport->fullySucceeded()) {
+            $attributes['status'] = RunState::Compensated->value;
+        }
+
+        $store->runs()->update($runId, $attributes);
+    }
+
+    /**
      * @param  array<string, NodeState>  $states
      * @param  array<string, array<string, mixed>>  $outputs
      */
@@ -212,7 +245,6 @@ final class GraphRunner
         array $states,
         array $outputs,
         DateTimeImmutable $startedAt,
-        ?GraphSagaReport $sagaReport = null,
     ): void {
         if ($store === null) {
             return;
@@ -226,14 +258,6 @@ final class GraphRunner
             'nodes_completed' => $counters['completed'],
             'nodes_failed' => $counters['failed'],
         ];
-
-        // Compensation outcome (v1 vocabulary): `compensated` flips only on a
-        // FULL rollback; a partial one records `compensation_status = 'failed'`
-        // while the run keeps its failure state.
-        if ($sagaReport !== null && $sagaReport->attempted()) {
-            $attributes['compensated'] = $sagaReport->fullySucceeded();
-            $attributes['compensation_status'] = $sagaReport->fullySucceeded() ? 'succeeded' : 'failed';
-        }
 
         // A paused run is not finished: keep finished_at / duration_ms null so
         // it is not treated as completed (matching v1's paused-run invariant).

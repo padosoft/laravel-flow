@@ -203,12 +203,17 @@ final class QueueGraphCoordinator
             }
 
             // CLAIM compensation under the SAME row lock (claim-before-execute,
-            // like the node claim): checked on the finalizing pass AND on every
-            // allTerminal retry, so a worker that finalized the run but died
-            // before rolling back does not skip compensation forever — the next
-            // coordinator retry re-enters here and finds the claim unrecorded.
+            // like the node claim), checked on the finalizing pass AND on every
+            // allTerminal retry. Finalize + claim commit ATOMICALLY, so no run
+            // is ever finalized without its claim; a retry claims (and then
+            // compensates) only while compensation_status is still NULL — e.g.
+            // a run finalized before this feature shipped. Once claimed, user
+            // compensators are NEVER re-run: a worker that dies after the
+            // commit but before the rollback leaves the claim's provisional
+            // 'failed' in place as the observable outcome (by design —
+            // re-running user compensators on a retry would double-compensate).
             // The row lock serializes duplicate coordinators, so exactly one
-            // pass ever claims; user compensators are never re-run.
+            // pass ever claims.
             if ($finalized || $allTerminal) {
                 $compensationClaimed = $this->claimCompensation($runId, $graph);
             }

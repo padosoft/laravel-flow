@@ -239,6 +239,28 @@ final class GraphSagaTest extends PersistenceTestCase
         $this->assertSame('succeeded', $run->compensation_status);
     }
 
+    public function test_stray_compensator_config_on_a_regular_node_is_ignored(): void
+    {
+        // Only a compiled v1 step (legacy.step) owns the config['compensator']
+        // convention. A REGULAR node using `compensator` as its own config key
+        // must keep its CompensatableNode capability — not be misrouted through
+        // the v1 path (which would rebuild a FlowStepResult from an `output`
+        // port the node does not have).
+        $graph = new GraphDefinition(
+            [
+                new GraphNode('a', 'test.saga.comp', ['compensator' => RecordingCompensator::class]),
+                new GraphNode('f', 'test.fail'),
+            ],
+            [new Connection('a', 'out', 'f', 'in')],
+        );
+
+        $result = $this->runner()->run($graph, []);
+
+        $this->assertSame(['a'], CompensatableRecordingNode::$log, 'the node compensates via its own CompensatableNode capability');
+        $this->assertSame([], RecordingCompensator::$invocations, 'the stray config key never routes through the v1 compensator path');
+        $this->assertSame(RunState::Compensated, $result->state);
+    }
+
     public function test_partial_compensation_failure_keeps_the_failure_state(): void
     {
         // a and m succeed, f fails. m's compensator THROWS: the saga keeps

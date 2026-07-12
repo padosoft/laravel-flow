@@ -12,6 +12,7 @@ use Padosoft\LaravelFlow\Exceptions\FlowInputException;
 use Padosoft\LaravelFlow\Executor\State\NodeState;
 use Padosoft\LaravelFlow\FlowCompensator;
 use Padosoft\LaravelFlow\FlowContext;
+use Padosoft\LaravelFlow\FlowDefinition;
 use Padosoft\LaravelFlow\FlowStepResult;
 use Padosoft\LaravelFlow\Graph\GraphDefinition;
 use Padosoft\LaravelFlow\Graph\GraphNode;
@@ -133,7 +134,14 @@ final class GraphSaga
                 continue;
             }
 
-            $legacyCompensator = $node->config['compensator'] ?? null;
+            // The v1-compensator path is gated on the legacy node TYPE: only a
+            // compiled v1 step owns the `config['compensator']` convention (and
+            // the `output` port its FlowStepResult is rebuilt from). A regular
+            // node using `compensator` as its own config key keeps its normal
+            // CompensatableNode capability check.
+            $legacyCompensator = $node->type === FlowDefinition::LEGACY_NODE_TYPE
+                ? ($node->config['compensator'] ?? null)
+                : null;
             $legacyCompensator = is_string($legacyCompensator) && $legacyCompensator !== '' ? $legacyCompensator : null;
 
             if ($legacyCompensator !== null) {

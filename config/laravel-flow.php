@@ -242,16 +242,23 @@ return [
     | Runtime knobs for the event-driven graph executor (`Flow::runGraph()` /
     | `Flow::dispatchGraph()`, Macro C). These are inert for the v1 linear
     | engine, which keeps its own execution and step-timeout settings above;
-    | they take effect only for graph runs. `lock_store` / `cache.store`
-    | default to null (fall back to the app's default cache store at
-    | execution time); `cache.ttl_seconds` null means cache forever.
+    | they take effect only for graph runs. `lock_store` defaults to null
+    | (fall back to the app's default cache store at execution time).
     |
-    | `default_tries` / `default_backoff_seconds` are reserved for a future
-    | graph-wide retry default and are not yet read anywhere — today per-node
-    | retry is configured only via `#[Retry]` or a node's `config['retry']`
-    | override (see RetryPolicy). Real per-node retry semantics: `tries`
+    | `default_tries` / `default_backoff_seconds` / `node_timeout_seconds` back
+    | a graph node's fallback #[Retry] policy when it declares none of its own
+    | (see NodeExecutor / RetryPolicy). A node's own `config['retry']` still
+    | overrides whichever base applies. Real per-node retry semantics: `tries`
     | clamps to a MINIMUM of 1 (a graph node never retries "unlimited" times,
     | unlike a Laravel job's `0 = unlimited`).
+    |
+    | `cache.*` is RESERVED and NOT YET READ anywhere — it is deliberately NOT
+    | wired as a global default node-cache TTL: `#[Cacheable(ttl: null)]`'s
+    | `null` already has a distinct, documented meaning ("never expires"), so
+    | a global fallback here would silently reinterpret that as "expires
+    | after N seconds", changing an opt-in node's caching semantics without
+    | it declaring anything different. A future consumer of this block must
+    | design around that, not treat it as an ordinary null-means-unset default.
     |
     */
     'executor' => [
@@ -268,7 +275,7 @@ return [
         'queue' => env('LARAVEL_FLOW_EXECUTOR_QUEUE', null),
         'cache' => [
             'store' => env('LARAVEL_FLOW_EXECUTOR_CACHE_STORE', null),
-            'ttl_seconds' => env('LARAVEL_FLOW_EXECUTOR_CACHE_TTL', null), // null = forever
+            'ttl_seconds' => ($executorCacheTtl = env('LARAVEL_FLOW_EXECUTOR_CACHE_TTL')) !== null ? (int) $executorCacheTtl : null,
         ],
     ],
 

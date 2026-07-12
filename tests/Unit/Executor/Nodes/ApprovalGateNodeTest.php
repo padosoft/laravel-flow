@@ -19,7 +19,7 @@ final class ApprovalGateNodeTest extends TestCase
 
         $this->assertTrue($result->paused);
         $this->assertTrue($result->success, 'a paused result carries success=true per NodeResult::paused() contract');
-        $this->assertSame(['approval_required' => true], $result->outputs);
+        $this->assertSame([], $result->outputs, 'outputs are keyed by output-port key; the declared `out` port has nothing to route yet');
     }
 
     public function test_dry_run_skips_without_pausing(): void

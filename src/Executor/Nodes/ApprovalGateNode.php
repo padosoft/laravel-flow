@@ -49,6 +49,9 @@ final class ApprovalGateNode implements FlowNodeHandler
             return NodeResult::dryRunSkipped();
         }
 
-        return NodeResult::paused(['approval_required' => true]);
+        // No outputs while paused: the node declares a single `out` port, and
+        // outputs are keyed by output-port key (NodeResult docblock) — there is
+        // no decision payload yet to route through it (see class docblock).
+        return NodeResult::paused();
     }
 }

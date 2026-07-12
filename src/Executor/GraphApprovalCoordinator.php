@@ -11,6 +11,7 @@ use Padosoft\LaravelFlow\Contracts\ConditionalRunRepository;
 use Padosoft\LaravelFlow\Contracts\FlowStore;
 use Padosoft\LaravelFlow\Exceptions\FlowExecutionException;
 use Padosoft\LaravelFlow\Executor\Jobs\CoordinatorJob;
+use Padosoft\LaravelFlow\Executor\Nodes\ApprovalGateNode;
 use Padosoft\LaravelFlow\Executor\State\NodeState;
 use Padosoft\LaravelFlow\Executor\State\RunState;
 use Padosoft\LaravelFlow\FlowEngine;

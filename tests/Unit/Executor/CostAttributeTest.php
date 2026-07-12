@@ -56,4 +56,14 @@ final class CostAttributeTest extends TestCase
 
         new Cost(estimate: ['tokens' => INF]);
     }
+
+    public function test_dimension_with_surrounding_whitespace_is_rejected(): void
+    {
+        // 'tokens' and 'tokens ' are DIFFERENT PHP array keys — allowing
+        // whitespace would let two entries silently double-count one
+        // dimension in the planner's summed totals.
+        $this->expectException(InvalidArgumentException::class);
+
+        new Cost(estimate: ['tokens ' => 1]);
+    }
 }

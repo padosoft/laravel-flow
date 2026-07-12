@@ -7,8 +7,8 @@ namespace Padosoft\LaravelFlow\Executor\DryRun;
 use Padosoft\LaravelFlow\FlowDefinition;
 use Padosoft\LaravelFlow\Graph\GraphDefinition;
 use Padosoft\LaravelFlow\Graph\GraphNode;
+use Padosoft\LaravelFlow\Node\Exceptions\UnknownNodeTypeException;
 use Padosoft\LaravelFlow\Node\NodeRegistry;
-use Throwable;
 
 /**
  * Static DAG dry-run: computes the execution plan (Kahn waves) and the cost
@@ -119,9 +119,12 @@ final class DryRunPlanner
             return null;
         }
 
+        // Only an UNKNOWN type is swallowed here (NodeRegistry::get()'s only
+        // documented failure mode) — anything else propagates so a real
+        // programming/configuration error is never hidden as "no cost".
         try {
             return $this->registry->get($node->type)->cost?->estimate;
-        } catch (Throwable) {
+        } catch (UnknownNodeTypeException) {
             return null;
         }
     }

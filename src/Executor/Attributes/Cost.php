@@ -31,8 +31,12 @@ final class Cost
         }
 
         foreach ($estimate as $dimension => $amount) {
-            if (! is_string($dimension) || trim($dimension) === '') {
-                throw new InvalidArgumentException('#[Cost] estimate dimensions must be non-empty strings.');
+            // Reject surrounding whitespace, not just an all-whitespace string:
+            // 'tokens' and 'tokens ' would otherwise be two DIFFERENT PHP array
+            // keys that silently double-count the same dimension in the
+            // planner's summed totals.
+            if (! is_string($dimension) || $dimension === '' || trim($dimension) !== $dimension) {
+                throw new InvalidArgumentException('#[Cost] estimate dimensions must be non-empty strings with no surrounding whitespace.');
             }
 
             if (! is_int($amount) && ! is_float($amount)) {

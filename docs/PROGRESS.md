@@ -1,5 +1,23 @@
 # Progress
 
+## 2026-07-13 - Macro F / F-PR1 (package bootstrap, LLM client contract)
+
+- **Macro branch confirmed correct this time**: `task/v2f-ai-pack` (in `padosoft/laravel-flow-ai`, NOT this repo) was created off that repo's `main` before F-PR1 branched from it — the earlier plan-file mistake (Codex-caught, corrected in PR #80) about Macro F needing no macro-branch layer was specifically avoided in practice.
+- **`laravel-flow-ai` PR #1** (`task/v2f-01-bootstrap` → `task/v2f-ai-pack`) MERGED after **7 review rounds** (Copilot + Codex). Delivered:
+  - CI workflow (PHP 8.3/8.4/8.5 × Laravel 13), mirroring `laravel-flow-connect`'s D-PR2 shape, pinned to core's `main` (no active core-side Macro F branch exists — core needs no changes for F-PR1).
+  - `composer.json` wires `padosoft/laravel-flow` as a hard `require` via a local `path` repository (`../padosoft-laravel-flow`), `dev-main`, same 3-stage retargeting connect uses.
+  - `Padosoft\LaravelFlowAI\Contracts\LlmClient` (`@api`, **local to `laravel-flow-ai`** — confirmed nothing outside that package implements/consumes it, unlike `FlowTrigger`, so the D-PR2 contract-ownership mistake was deliberately checked for and did NOT recur here): `complete(LlmRequest): LlmResponse`. `LlmRequest`: prompt/model/systemPrompt/temperature/maxTokens/optional responseSchema. `LlmResponse`: content/model/promptTokens/completionTokens/stopReason/`totalTokens()`.
+  - `AnthropicDriver` — injectable transport callable mirroring this repo's own `WebhookDeliveryClient` pattern exactly (`stream_context_create()`+`file_get_contents()`, no extra HTTP client dependency); every test injects a fake transport instead of a global HTTP fake.
+  - `FakeDriver` — deterministic, no-network, scriptable driver for `laravel-flow-ai`'s (and eventually host apps') tests.
+  - A structural, `token_get_all()`-based sweep test enforcing zero real network calls in that package's test suite from F-PR1 onward.
+- **Real findings fixed across the 7 rounds** (all in `docs/LESSON.md` below):
+  1. `LlmRequest::$responseSchema` was documented as forwarded to the provider but `AnthropicDriver` silently dropped it — fixed via Anthropic's forced-tool-use structured-output technique (caught independently by both Copilot and Codex).
+  2. The network-safety sweep's original regex missed fully-qualified/qualified/namespace-relative class references entirely (PHP 8 tokenizes those as a single `T_NAME_*` token, not a `T_STRING`/`T_NS_SEPARATOR` sequence) — rewritten token-based, verified against the installed PHP directly before fixing.
+  3. Two minor polish findings (duplicate violation entries per file, missing-`model`-field silently defaulting to `''` instead of failing fast) and two doc/style nits (README installation-command sequencing, a docblock typo) — all fixed; one style finding (mixed assertion style) was verified against the actual reviewed commit and found FALSE (the file already used `$this->assert*` consistently) and declined with the file content quoted as evidence.
+  4. **A real bug inherited from this repo's own `WebhookDeliveryClient::statusCodeFromHeaders()`**, mirrored verbatim into `AnthropicDriver`: the status-line regex required unconditional trailing whitespace after the 3-digit code, which an HTTP/2 response lacks (no reason phrase at all, e.g. `"HTTP/2 200"` not `"HTTP/2 200 OK"`) — silently treating a genuinely successful response as status 0. Verified with a direct `preg_match()` probe before fixing. **Fixed in `laravel-flow-ai` only** (out of F-PR1's scope to touch core) — `WebhookDeliveryClient` in THIS repo has the identical bug and needs the identical fix (`/^HTTP\/\S+\s+(\d{3})(?:\s|$)/i`) as a tracked follow-up.
+- Final local gate in `laravel-flow-ai`: Pint pass, PHPStan level 8 no errors, **26 tests** (23 Unit + 3 Contract).
+- **Next step**: F-PR2 (LLM prompt node) — branch `task/v2f-02-llm-node` off `task/v2f-ai-pack` in `laravel-flow-ai`, per `docs/superpowers/plans/2026-07-13-macro-f-ai-pack.md`. **Tracked debt for a future core PR**: fix the identical HTTP/2-status-line regex bug in `src/WebhookDeliveryClient.php::statusCodeFromHeaders()` (line 148, `/^HTTP\/\S+\s+(\d+)\s+/i` → `/^HTTP\/\S+\s+(\d{3})(?:\s|$)/i`), not yet actioned.
+
 ## 2026-07-13 - Macro D Gate G3 FULLY CLOSED — Macro F starting
 
 All 4 required G3 items are done. **G3 is closed.**

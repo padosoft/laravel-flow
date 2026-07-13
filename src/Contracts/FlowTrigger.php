@@ -18,13 +18,14 @@ use Padosoft\LaravelFlow\FlowExecutionOptions;
  * package) so it is a stable, SemVer-covered surface any trigger source —
  * first-party or third-party — can depend on and implement against.
  *
- * `fire()` is fire-and-forget: it queues a run and its OWN return type is
- * `void`, deliberately not surfacing {@see FlowEngine::dispatch()}'s
- * `mixed` return value — what that value actually resolves to depends on
- * the configured queue connection/driver and the surrounding transaction
- * state, and must never be relied on as a run identifier. A trigger that
- * needs the resulting run id must read it back later (e.g. via
- * `FlowDashboardReadModel`), not from `fire()`.
+ * `fire()` is fire-and-forget: it dispatches a run (queued or run inline,
+ * depending on the configured queue driver — e.g. `sync` runs it in
+ * process) and its OWN return type is `void`, deliberately not surfacing
+ * {@see FlowEngine::dispatch()}'s `mixed` return value — what that value
+ * actually resolves to depends on the driver AND the surrounding
+ * transaction state, and must never be relied on as a run identifier. A
+ * trigger that needs the resulting run id must read it back later (e.g.
+ * via `FlowDashboardReadModel`), not from `fire()`.
  *
  * @api
  */

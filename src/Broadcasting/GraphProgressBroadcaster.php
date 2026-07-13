@@ -60,8 +60,16 @@ final class GraphProgressBroadcaster
                 ($this->clock)()->format(DateTimeImmutable::ATOM),
             ));
         } catch (Throwable $e) {
+            // run_id/node_id/state/sequence are non-secret identifiers, unlike
+            // an exception MESSAGE (which for e.g. a QueryException can embed
+            // bound params) — included so an operator can correlate the
+            // failure to a specific execution without exposing anything.
             Log::warning('laravel-flow: node-transition broadcast failed.', [
+                'run_id' => $runId,
+                'node_id' => $nodeId,
                 'node_type' => $nodeType,
+                'state' => $state->value,
+                'sequence' => $sequence,
                 'exception' => $e::class,
                 'code' => $e->getCode(),
             ]);
@@ -85,7 +93,14 @@ final class GraphProgressBroadcaster
                 ($this->clock)()->format(DateTimeImmutable::ATOM),
             ));
         } catch (Throwable $e) {
+            // Same non-secret-identifiers-only discipline as the node-transition
+            // log above.
             Log::warning('laravel-flow: run-progress broadcast failed.', [
+                'run_id' => $runId,
+                'status' => $status->value,
+                'nodes_total' => $nodesTotal,
+                'nodes_completed' => $nodesCompleted,
+                'nodes_failed' => $nodesFailed,
                 'exception' => $e::class,
                 'code' => $e->getCode(),
             ]);

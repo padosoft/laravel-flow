@@ -6,6 +6,7 @@ namespace Padosoft\LaravelFlow\Executor;
 
 use Closure;
 use DateTimeImmutable;
+use Padosoft\LaravelFlow\Broadcasting\GraphProgressBroadcaster;
 use Padosoft\LaravelFlow\Contracts\FlowStore;
 use Padosoft\LaravelFlow\Executor\State\NodeState;
 use Padosoft\LaravelFlow\Executor\State\RunState;
@@ -35,6 +36,7 @@ final class GraphRunner
         private readonly ?FlowStore $store = null,
         private readonly ?GraphSaga $saga = null,
         private readonly string $compensationStrategy = GraphSaga::STRATEGY_REVERSE_ORDER,
+        private readonly ?GraphProgressBroadcaster $progressBroadcaster = null,
     ) {}
 
     /**
@@ -53,6 +55,7 @@ final class GraphRunner
         $startedAt = ($this->clock)();
 
         $sequenceOf = array_flip($graph->topologicalOrder());
+        $nodesTotal = count($graph->nodeIds());
 
         // Root nodes (no incoming wire) receive the run input on the conventional
         // `input` port — this is how the compiled v1 first step reads the flow
@@ -60,7 +63,7 @@ final class GraphRunner
         // port (the router only reads config for ports the node actually has).
         $hasIncoming = NodeRouting::nodesWithIncoming($graph);
 
-        $this->persistRunStarted($store, $graph, $runId, $definitionName, $input, $dryRun, count($graph->nodeIds()), $startedAt, $options);
+        $this->persistRunStarted($store, $graph, $runId, $definitionName, $input, $dryRun, $nodesTotal, $startedAt, $options);
 
         /** @var array<string, NodeState> $states */
         $states = [];
@@ -82,7 +85,7 @@ final class GraphRunner
 
             foreach ($decision->blocked as $id) {
                 $states[$id] = NodeState::Blocked;
-                $this->persistBlocked($store, $runId, $graph, $id, $sequenceOf[$id] ?? null);
+                $this->persistBlocked($store, $runId, $graph, $id, $sequenceOf[$id] ?? null, $dryRun);
                 $progressed = true;
             }
 
@@ -136,6 +139,19 @@ final class GraphRunner
         // inside a user compensator can no longer strand the run row `running`.
         $this->persistRunFinished($store, $runId, $runState, $states, $outputs, $startedAt);
 
+        // Aggregate progress snapshot broadcasts AFTER the persist above — same
+        // "durable before observable" ordering as the queued coordinator (which
+        // re-reads its just-committed row rather than broadcast mid-transaction).
+        // Still decoupled from persistence.enabled: a subscriber-visible
+        // settle-point is announced regardless of whether $store is null, only
+        // ! $dryRun gates it (a dry run has zero externally-observable side
+        // effects).
+        $counters = RunRollup::counters($states);
+
+        if (! $dryRun && $this->progressBroadcaster !== null) {
+            $this->progressBroadcaster->runProgressUpdated($runId, $runState, $nodesTotal, $counters['completed'], $counters['failed']);
+        }
+
         // Graph saga: a failed run rolls back its COMPLETED nodes (reverse-
         // topological order / opt-in parallel; aggregate compensator last).
         // Never on a dry run — compensation is a real side effect. The run is
@@ -152,6 +168,15 @@ final class GraphRunner
                 }
 
                 $this->persistCompensationOutcome($store, $runId, $sagaReport);
+
+                // A subscriber that already saw the pre-compensation snapshot
+                // (failed/partially_succeeded, broadcast above) must also see
+                // the run settle as `compensated` on a full rollback — a
+                // second, ACCURATE snapshot after persisting the outcome,
+                // never before it (same durable-before-observable ordering).
+                if ($this->progressBroadcaster !== null && $runState === RunState::Compensated) {
+                    $this->progressBroadcaster->runProgressUpdated($runId, $runState, $nodesTotal, $counters['completed'], $counters['failed']);
+                }
             }
         }
 
@@ -205,27 +230,38 @@ final class GraphRunner
         $store->runs()->create($attributes);
     }
 
-    private function persistBlocked(?FlowStore $store, string $runId, GraphDefinition $graph, string $nodeId, ?int $sequence): void
+    private function persistBlocked(?FlowStore $store, string $runId, GraphDefinition $graph, string $nodeId, ?int $sequence, bool $dryRun): void
     {
-        if ($store === null) {
-            return;
-        }
-
         $node = $graph->node($nodeId);
 
         if ($node === null) {
             return;
         }
 
-        $now = ($this->clock)();
+        // Persist FIRST, broadcast SECOND — same durable-before-observable
+        // ordering as NodeExecutor::persist() and the queued coordinator: a
+        // subscriber must never observe `blocked` before the durable
+        // `flow_run_nodes` row exists.
+        if ($store !== null) {
+            $store->runNodes()->createOrUpdate($runId, $nodeId, [
+                'node_type' => $node->type,
+                'sequence' => $sequence,
+                'status' => NodeState::Blocked->value,
+                'dry_run_skipped' => false,
+                'finished_at' => ($this->clock)(),
+            ]);
+        }
 
-        $store->runNodes()->createOrUpdate($runId, $nodeId, [
-            'node_type' => $node->type,
-            'sequence' => $sequence,
-            'status' => NodeState::Blocked->value,
-            'dry_run_skipped' => false,
-            'finished_at' => $now,
-        ]);
+        // Blocked nodes never reach NodeExecutor::persist() (poison propagation
+        // marks them directly, no handler attempt) — broadcast here too, or a
+        // live monitor would see the aggregate snapshot count them as failed
+        // with no per-node transition event to explain why. Still decoupled
+        // from persistence.enabled (fires even when $store is null); gated on
+        // ! $dryRun like every other broadcast — a dry run is a simulation
+        // with zero externally-observable side effects.
+        if (! $dryRun && $this->progressBroadcaster !== null) {
+            $this->progressBroadcaster->nodeTransitioned($runId, $nodeId, $node->type, NodeState::Blocked, $sequence ?? 0);
+        }
     }
 
     /**

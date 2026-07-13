@@ -9,6 +9,7 @@ use DateTimeImmutable;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Sleep;
 use Padosoft\LaravelFlow\ApprovalTokenManager;
+use Padosoft\LaravelFlow\Broadcasting\GraphProgressBroadcaster;
 use Padosoft\LaravelFlow\Contracts\FlowStore;
 use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
 use Padosoft\LaravelFlow\Executor\Attributes\Retry;
@@ -51,6 +52,7 @@ final class NodeExecutor
         // node_timeout_seconds). Null keeps the historical single-attempt,
         // no-timeout default (e.g. a bare unit-test executor).
         private readonly ?Retry $executorDefaultRetry = null,
+        private readonly ?GraphProgressBroadcaster $progressBroadcaster = null,
     ) {}
 
     /**
@@ -96,8 +98,7 @@ final class NodeExecutor
             // must not leave the run stuck `running` with no node row — record
             // it as a failed node, mirroring v1's handler-resolution behaviour.
             $finishedAt = ($this->clock)();
-            $this->persist($store, $runId, $node, $sequence, [
-                'status' => NodeState::Failed->value,
+            $this->persist($store, $runId, $node, $sequence, NodeState::Failed, $dryRun, [
                 'error_class' => $e::class,
                 'error_message' => $this->redactErrorMessage($e->getMessage()),
                 'dry_run_skipped' => false,
@@ -112,9 +113,8 @@ final class NodeExecutor
         $routed = $this->router->route($resolved->definition, $node, $connectionsIntoNode, $upstreamOutputs);
 
         if (! $routed->valid) {
-            $this->persist($store, $runId, $node, $sequence, [
+            $this->persist($store, $runId, $node, $sequence, NodeState::InvalidInput, $dryRun, [
                 'handler' => $resolved->definition->handlerClass,
-                'status' => NodeState::InvalidInput->value,
                 'error_class' => $routed->violation !== null ? $routed->violation::class : null,
                 'error_message' => $this->redactErrorMessage($routed->violation?->getMessage()),
                 'dry_run_skipped' => false,
@@ -158,7 +158,7 @@ final class NodeExecutor
 
             if ($hit !== null) {
                 $finishedAt = ($this->clock)();
-                $this->persist($store, $runId, $node, $sequence, [
+                $this->persist($store, $runId, $node, $sequence, NodeState::Succeeded, $dryRun, [
                     'handler' => $definition->handlerClass,
                     'attempts' => 0,
                     'inputs' => $routed->inputs,
@@ -172,7 +172,6 @@ final class NodeExecutor
                     'error_message' => null,
                     'available_at' => null,
                     'dry_run_skipped' => false,
-                    'status' => NodeState::Succeeded->value,
                     'cache_hit' => $contentHash,
                     'started_at' => $startedAt,
                     'finished_at' => $finishedAt,
@@ -231,27 +230,15 @@ final class NodeExecutor
 
         $finishedAt = ($this->clock)();
 
-        $this->persist($store, $runId, $node, $sequence, [
-            'handler' => $resolved->definition->handlerClass,
-            'attempts' => $attempts,
-            'inputs' => $routed->inputs,
-            'outputs' => $result->success ? $result->outputs : null,
-            'business_impact' => $result->businessImpact,
-            'error_class' => $result->error instanceof Throwable ? $result->error::class : null,
-            'error_message' => $this->redactErrorMessage($result->error?->getMessage()),
-            'dry_run_skipped' => $result->dryRunSkipped,
-            'status' => $state->value,
-            'available_at' => $availableAt,
-            'started_at' => $startedAt,
-            'finished_at' => $finishedAt,
-            'duration_ms' => $this->durationMs($startedAt, $finishedAt),
-        ]);
-
         // Approval token issuance is owned by the EXECUTOR, not the node —
         // mirrors v1, where FlowEngine (not the ApprovalGate step) detects a
         // paused ApprovalGate::class result and issues the token. Hash-only
         // storage: the plain token returned here is never persisted, only
         // available to this call's caller for the duration of this request.
+        // Issued BEFORE persist()/broadcast below: a NodeTransitioned(paused)
+        // listener may immediately query for the pending approval record, so
+        // the token must already exist by the time that event is observable —
+        // never announce a pause before the thing it is pausing FOR exists.
         $issuedApprovalToken = null;
 
         if ($state === NodeState::Paused
@@ -265,10 +252,10 @@ final class NodeExecutor
                     'node_id' => $node->id,
                 ]);
             } catch (Throwable $e) {
-                // The node itself already paused successfully and persisted —
-                // an approval-infrastructure failure must not fail it. Log
-                // only the exception CLASS and code — never the message, which
-                // for a QueryException embeds the SQL + bound params (the
+                // The node itself already paused successfully — an
+                // approval-infrastructure failure must not fail it. Log only
+                // the exception CLASS and code — never the message, which for
+                // a QueryException embeds the SQL + bound params (the
                 // approval payload) — so a broken approval backend does not
                 // degrade invisibly, same discipline as the cache write below.
                 Log::warning('laravel-flow: approval token issuance failed; the node paused without an issuable token.', [
@@ -278,6 +265,21 @@ final class NodeExecutor
                 ]);
             }
         }
+
+        $this->persist($store, $runId, $node, $sequence, $state, $dryRun, [
+            'handler' => $resolved->definition->handlerClass,
+            'attempts' => $attempts,
+            'inputs' => $routed->inputs,
+            'outputs' => $result->success ? $result->outputs : null,
+            'business_impact' => $result->businessImpact,
+            'error_class' => $result->error instanceof Throwable ? $result->error::class : null,
+            'error_message' => $this->redactErrorMessage($result->error?->getMessage()),
+            'dry_run_skipped' => $result->dryRunSkipped,
+            'available_at' => $availableAt,
+            'started_at' => $startedAt,
+            'finished_at' => $finishedAt,
+            'duration_ms' => $this->durationMs($startedAt, $finishedAt),
+        ]);
 
         // Populate the cache after a fresh success (redaction gate + skip-on-
         // divergence enforced inside NodeCache::put()). Best-effort: a failed
@@ -356,17 +358,33 @@ final class NodeExecutor
     /**
      * @param  array<string, mixed>  $attributes
      */
-    private function persist(?FlowStore $store, string $runId, GraphNode $node, int $sequence, array $attributes): void
+    private function persist(?FlowStore $store, string $runId, GraphNode $node, int $sequence, NodeState $state, bool $dryRun, array $attributes): void
     {
-        if ($store === null) {
-            return; // dry-run / persistence disabled: zero rows
+        // Persist FIRST, broadcast SECOND: durable state must land before it is
+        // announced. GraphProgressBroadcaster already catches every Throwable
+        // internally (broadcasting is best-effort, same discipline as the node
+        // cache / approval token issuance below), so this ordering is defense
+        // in depth on top of that, not the only thing preventing a broadcast
+        // failure from rewinding executor state.
+        if ($store !== null) {
+            $store->runNodes()->createOrUpdate($runId, $node->id, [
+                'node_type' => $node->type,
+                'sequence' => $sequence,
+                'status' => $state->value,
+                ...$attributes,
+            ]);
         }
 
-        $store->runNodes()->createOrUpdate($runId, $node->id, [
-            'node_type' => $node->type,
-            'sequence' => $sequence,
-            ...$attributes,
-        ]);
+        // Broadcasting is decoupled from persistence: a run id/node id/state
+        // are known regardless of whether $store is null (persistence disabled
+        // still executes real nodes), so a broadcast-enabled deployment gets
+        // live progress even without opting into persistence. A dry run is the
+        // one case that stays silent — it is a simulation with zero externally
+        // observable side effects, and broadcasting a fake transition would
+        // violate that contract.
+        if (! $dryRun && $this->progressBroadcaster !== null) {
+            $this->progressBroadcaster->nodeTransitioned($runId, $node->id, $node->type, $state, $sequence);
+        }
     }
 
     private function durationMs(DateTimeImmutable $startedAt, DateTimeImmutable $finishedAt): int

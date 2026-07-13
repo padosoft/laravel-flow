@@ -19,7 +19,7 @@
   - `AnthropicDriver` — injectable transport callable mirroring this repo's own `WebhookDeliveryClient` pattern exactly (`stream_context_create()`+`file_get_contents()`, no extra HTTP client dependency); every test injects a fake transport instead of a global HTTP fake.
   - `FakeDriver` — deterministic, no-network, scriptable driver for `laravel-flow-ai`'s (and eventually host apps') tests.
   - A structural, `token_get_all()`-based sweep test enforcing zero real network calls in that package's test suite from F-PR1 onward.
-- **Real findings fixed across the 7 rounds** (all in `docs/LESSON.md` below):
+- **Real findings fixed across the 7 rounds** (all in `docs/LESSON.md`):
   1. `LlmRequest::$responseSchema` was documented as forwarded to the provider but `AnthropicDriver` silently dropped it — fixed via Anthropic's forced-tool-use structured-output technique (caught independently by both Copilot and Codex).
   2. The network-safety sweep's original regex missed fully-qualified/qualified/namespace-relative class references entirely (PHP 8 tokenizes those as a single `T_NAME_*` token, not a `T_STRING`/`T_NS_SEPARATOR` sequence) — rewritten token-based, verified against the installed PHP directly before fixing.
   3. Two minor polish findings (duplicate violation entries per file, missing-`model`-field silently defaulting to `''` instead of failing fast) and two doc/style nits (README installation-command sequencing, a docblock typo) — all fixed; one style finding (mixed assertion style) was verified against the actual reviewed commit and found FALSE (the file already used `$this->assert*` consistently) and declined with the file content quoted as evidence.

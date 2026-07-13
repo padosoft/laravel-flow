@@ -20,12 +20,13 @@ use Padosoft\LaravelFlow\FlowExecutionOptions;
  *
  * `fire()` mirrors {@see FlowEngine::dispatch()}'s own fire-and-forget
  * contract exactly: it queues a run and returns nothing. `dispatch()`
- * itself returns `mixed` — under the `sync` queue driver that happens to
- * resolve to a `FlowRun`, but under any real async driver it is `null`
- * (the job is queued, not run) — so `fire()` deliberately does not
- * promise a driver-dependent value as if it were a reliable run id. A
- * trigger that needs the resulting run id must read it back later (e.g.
- * via `FlowDashboardReadModel`), not from `fire()`.
+ * itself returns `mixed` — its underlying job is queue- and
+ * after-commit-deferred, so what that return value actually resolves to
+ * depends on the configured queue connection/driver and is NOT something
+ * a caller should rely on as a run identifier. `fire()` deliberately
+ * does not surface it. A trigger that needs the resulting run id must
+ * read it back later (e.g. via `FlowDashboardReadModel`), not from
+ * `fire()`.
  *
  * @api
  */

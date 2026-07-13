@@ -6,6 +6,8 @@
 
 **Depends on:** Macro C (graph executor, node/run state machines) — CLOSED 2026-07-12, merged to `main`.
 
+**Macro branch:** per the master plan's macro-branch convention (subtask PRs target the macro branch, not `main` directly), create `task/v2d-realtime-triggers` off `main` FIRST, before opening any D-PR. Every core-repo subtask branch below (D-PR1) branches off `task/v2d-realtime-triggers`, not off `main`. The macro branch itself merges to `main` via a macro PR at the Macro D gate, same as `task/v2c-graph-executor` did for Macro C.
+
 ---
 
 ## Grounding notes (verified against the current codebase 2026-07-12, HEAD `main` post-Macro-C-merge)
@@ -21,7 +23,7 @@
 
 ## D-PR1 — Broadcasting opt-in
 
-**Branch:** `task/v2d-01-broadcasting` (from `main`, post-Macro-C-merge)
+**Branch:** `task/v2d-01-broadcasting` (from `task/v2d-realtime-triggers`, the Macro D branch — create that branch off `main` first if it doesn't exist yet)
 
 **Objective:** When `laravel-flow.broadcasting.enabled` is `true`, graph run/node state transitions broadcast on a per-run private channel with a documented, versioned payload shape; when `false` (default), the core package makes ZERO broadcast dispatches and has no hard runtime dependency on a broadcasting driver being configured.
 

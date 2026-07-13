@@ -148,6 +148,32 @@ final class GraphBroadcastingTest extends PersistenceTestCase
         Event::assertDispatched(GraphRunProgressUpdated::class, fn (GraphRunProgressUpdated $event): bool => $event->runId === $result->runId);
     }
 
+    public function test_blocked_node_broadcasts_only_after_its_row_is_durable(): void
+    {
+        // Real (non-faked) listener, same technique as the run-progress
+        // ordering test: persistBlocked() has its OWN persist-then-broadcast
+        // call site (not NodeExecutor's), so it needs its own regression proof
+        // that a subscriber never observes `blocked` before the row exists.
+        $seenStatus = null;
+        Event::listen(NodeTransitioned::class, function (NodeTransitioned $event) use (&$seenStatus): void {
+            if ($event->nodeId === 'downstream') {
+                $seenStatus = DB::table('flow_run_nodes')
+                    ->where('run_id', $event->runId)->where('node_id', 'downstream')
+                    ->value('status');
+            }
+        });
+        $this->app['config']->set('laravel-flow.broadcasting.enabled', true);
+
+        $graph = new GraphDefinition(
+            [new GraphNode('f', 'test.fail'), new GraphNode('downstream', 'test.probe')],
+            [new Connection('f', 'out', 'downstream', 'in')],
+        );
+
+        $this->app->make(FlowEngine::class)->runGraph($graph, []);
+
+        $this->assertSame(NodeState::Blocked->value, $seenStatus, 'the row was durable before the broadcast fired');
+    }
+
     public function test_blocked_nodes_broadcast_a_transition_too(): void
     {
         // A blocked node is marked directly by GraphRunner::persistBlocked()/the

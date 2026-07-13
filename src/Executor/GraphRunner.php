@@ -228,29 +228,30 @@ final class GraphRunner
             return;
         }
 
+        // Persist FIRST, broadcast SECOND — same durable-before-observable
+        // ordering as NodeExecutor::persist() and the queued coordinator: a
+        // subscriber must never observe `blocked` before the durable
+        // `flow_run_nodes` row exists.
+        if ($store !== null) {
+            $store->runNodes()->createOrUpdate($runId, $nodeId, [
+                'node_type' => $node->type,
+                'sequence' => $sequence,
+                'status' => NodeState::Blocked->value,
+                'dry_run_skipped' => false,
+                'finished_at' => ($this->clock)(),
+            ]);
+        }
+
         // Blocked nodes never reach NodeExecutor::persist() (poison propagation
         // marks them directly, no handler attempt) — broadcast here too, or a
         // live monitor would see the aggregate snapshot count them as failed
-        // with no per-node transition event to explain why. Gated on ! $dryRun
-        // like every other broadcast: a dry run is a simulation with zero
-        // externally-observable side effects.
+        // with no per-node transition event to explain why. Still decoupled
+        // from persistence.enabled (fires even when $store is null); gated on
+        // ! $dryRun like every other broadcast — a dry run is a simulation
+        // with zero externally-observable side effects.
         if (! $dryRun && $this->progressBroadcaster !== null) {
             $this->progressBroadcaster->nodeTransitioned($runId, $nodeId, $node->type, NodeState::Blocked, $sequence ?? 0);
         }
-
-        if ($store === null) {
-            return;
-        }
-
-        $now = ($this->clock)();
-
-        $store->runNodes()->createOrUpdate($runId, $nodeId, [
-            'node_type' => $node->type,
-            'sequence' => $sequence,
-            'status' => NodeState::Blocked->value,
-            'dry_run_skipped' => false,
-            'finished_at' => $now,
-        ]);
     }
 
     /**

@@ -9,6 +9,7 @@ use DateTimeImmutable;
 use Illuminate\Contracts\Bus\Dispatcher as BusDispatcher;
 use Illuminate\Database\ConnectionInterface;
 use Illuminate\Database\ConnectionResolverInterface;
+use Padosoft\LaravelFlow\Broadcasting\GraphProgressBroadcaster;
 use Padosoft\LaravelFlow\Contracts\FlowStore;
 use Padosoft\LaravelFlow\Executor\Jobs\CoordinatorJob;
 use Padosoft\LaravelFlow\Executor\State\NodeState;
@@ -53,6 +54,7 @@ final class QueueGraphCoordinator
         private readonly int $lockRetrySeconds = 30,
         private readonly ?GraphSaga $saga = null,
         private readonly string $compensationStrategy = GraphSaga::STRATEGY_REVERSE_ORDER,
+        private readonly ?GraphProgressBroadcaster $progressBroadcaster = null,
     ) {}
 
     /**
@@ -365,6 +367,12 @@ final class QueueGraphCoordinator
 
         $runState = RunRollup::state($graph, $states);
         $counters = RunRollup::counters($states);
+
+        // Aggregate progress snapshot — the queued path is never a dry run, so
+        // no dry-run gate is needed here (unlike GraphRunner).
+        if ($this->progressBroadcaster !== null) {
+            $this->progressBroadcaster->runProgressUpdated($runId, $runState, count($graph->nodeIds()), $counters['completed'], $counters['failed']);
+        }
 
         $attributes = [
             'status' => $runState->value,

@@ -6,6 +6,7 @@ namespace Padosoft\LaravelFlow\Executor;
 
 use Closure;
 use DateTimeImmutable;
+use Padosoft\LaravelFlow\Broadcasting\GraphProgressBroadcaster;
 use Padosoft\LaravelFlow\Contracts\FlowStore;
 use Padosoft\LaravelFlow\Executor\State\NodeState;
 use Padosoft\LaravelFlow\Executor\State\RunState;
@@ -35,6 +36,7 @@ final class GraphRunner
         private readonly ?FlowStore $store = null,
         private readonly ?GraphSaga $saga = null,
         private readonly string $compensationStrategy = GraphSaga::STRATEGY_REVERSE_ORDER,
+        private readonly ?GraphProgressBroadcaster $progressBroadcaster = null,
     ) {}
 
     /**
@@ -53,6 +55,7 @@ final class GraphRunner
         $startedAt = ($this->clock)();
 
         $sequenceOf = array_flip($graph->topologicalOrder());
+        $nodesTotal = count($graph->nodeIds());
 
         // Root nodes (no incoming wire) receive the run input on the conventional
         // `input` port — this is how the compiled v1 first step reads the flow
@@ -60,7 +63,7 @@ final class GraphRunner
         // port (the router only reads config for ports the node actually has).
         $hasIncoming = NodeRouting::nodesWithIncoming($graph);
 
-        $this->persistRunStarted($store, $graph, $runId, $definitionName, $input, $dryRun, count($graph->nodeIds()), $startedAt, $options);
+        $this->persistRunStarted($store, $graph, $runId, $definitionName, $input, $dryRun, $nodesTotal, $startedAt, $options);
 
         /** @var array<string, NodeState> $states */
         $states = [];
@@ -129,6 +132,16 @@ final class GraphRunner
         }
 
         $runState = RunRollup::state($graph, $states);
+
+        // Aggregate progress snapshot: broadcast BEFORE any persistence write,
+        // same "decoupled from persistence" reasoning as node transitions — a
+        // dry run stays silent (zero externally-observable side effects), but
+        // a real run broadcasts its settle-point regardless of whether
+        // persistence is enabled.
+        if (! $dryRun && $this->progressBroadcaster !== null) {
+            $counters = RunRollup::counters($states);
+            $this->progressBroadcaster->runProgressUpdated($runId, $runState, $nodesTotal, $counters['completed'], $counters['failed']);
+        }
 
         // Persist the terminal state BEFORE compensation — v1's order, and the
         // same order as the queued coordinator's finalizeRun: finished_at /

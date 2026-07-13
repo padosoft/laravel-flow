@@ -1,5 +1,19 @@
 # Progress
 
+## 2026-07-13 - Macro D / D-PR1 (broadcasting opt-in)
+
+- Macro branch `task/v2d-realtime-triggers` created off `main` (post Macro C Gate G3 closure, commit `d5c0ba4`... — verify exact base once PR #69's merge commit lands, it was in flight when this branch was cut).
+- Branch `task/v2d-01-broadcasting`: Task 1 of Macro D implemented — opt-in broadcasting of graph run/node progress.
+  - `laravel-flow.broadcasting.enabled` (default `false`) + `channel_prefix` config, following the existing `webhook`/`persistence` block style. `illuminate/broadcasting` added to `composer.json` `require`.
+  - New `@api` `src/Broadcasting/` namespace: `NodeTransitioned` and `GraphRunProgressUpdated` (both `ShouldBroadcastNow`, private per-run channel `"{prefix}.run.{runId}"`, pinned payload shapes) — the package emits only, ships no channel authorization callback (host app's `routes/channels.php` decides who may subscribe). `@internal` `GraphProgressBroadcaster` is the single dispatch point both graph engines call into.
+  - Node-level: `NodeExecutor::persist()` (the ONE seam both the sync `GraphRunner` and queued `QueueGraphCoordinator` already funnel every node-state persist through) now also broadcasts a `NodeTransitioned` event, gated on `! $dryRun` — deliberately decoupled from `persistence.enabled` (broadcasting works even with persistence off; only a dry run stays silent).
+  - Run-level: no single physical seam exists for run-level finalization (unlike node-level) — `GraphRunner::persistRunFinished()` and `QueueGraphCoordinator::finalizeRun()` each independently call `RunRollup`, so each now separately calls the SAME `GraphProgressBroadcaster::runProgressUpdated()` (mirrors the C-PR8 `GraphSaga` "shared service, two call sites" precedent). Fires once per run at its settle point (terminal or paused), not after every node — a coarser "aggregate progress snapshot" per spec §3.5. Known scope boundary (not a bug): a later saga-compensation state change (Failed/PartiallySucceeded → Compensated) does not get its own follow-up broadcast; documented, not expanded in this PR.
+  - New `tests/Architecture/BroadcastingIsolationTest.php`: no file under `src/` outside `src/Broadcasting/` may reference `Illuminate\Broadcasting`/`Illuminate\Contracts\Broadcasting`/`Broadcast::` — keeps the dependency contained to one directory.
+- Tests: `tests/Unit/Broadcasting/GraphBroadcastingTest.php` (7): disabled-by-default dispatches nothing (sync AND queued), dry-run stays silent even when enabled, documented payload shape on both events, private run-scoped channels (no cross-talk between two runs), sync and queued paths broadcast the identical node-transition sequence. Contract pin (`ExecutorApiContractTest::test_broadcasting_payload_shape_is_pinned`) for both new `@api` classes.
+- **Real gotcha found while writing tests** (see `docs/LESSON.md` 2026-07-13): calling `Event::fake()` a second time mid-test orphans an already-resolved singleton's captured `Dispatcher` reference, making its dispatches silently invisible to the new fake — test-only artifact, not a production bug. Fixed by faking once per test and distinguishing scenarios by run id.
+- Local gate GREEN (Herd PHP 8.5): Pint pass, PHPStan no errors, **817 tests** (717 Unit + 6 Contract + 94 Arch).
+- **Next step**: commit, push, open PR toward `task/v2d-realtime-triggers`, Copilot review loop, merge. Then D-PR2 (`laravel-flow-connect` CI/quality bootstrap + trigger contract) in the sibling repo.
+
 ## 2026-07-13 - Macro C Gate G3 FULLY CLOSED — Macro D unblocked
 
 All 4 required G3 items are done. **G3 is closed.**

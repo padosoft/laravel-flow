@@ -13,6 +13,7 @@ use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Database\ConnectionResolverInterface;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\ServiceProvider;
+use Padosoft\LaravelFlow\Broadcasting\GraphProgressBroadcaster;
 use Padosoft\LaravelFlow\Console\ApproveFlowCommand;
 use Padosoft\LaravelFlow\Console\DeliverWebhookOutboxCommand;
 use Padosoft\LaravelFlow\Console\ExportFlowDefinitionCommand;
@@ -249,6 +250,18 @@ final class LaravelFlowServiceProvider extends ServiceProvider
             $app->make(ExecutionScopedPayloadRedactor::class),
             static fn (): \DateTimeImmutable => Date::now()->toDateTimeImmutable(),
         ));
+        $this->app->singleton(GraphProgressBroadcaster::class, function (Container $app): GraphProgressBroadcaster {
+            /** @var array<string, mixed> $broadcasting */
+            $broadcasting = $app['config']->get('laravel-flow.broadcasting', []);
+            $prefix = $broadcasting['channel_prefix'] ?? 'laravel-flow';
+
+            return new GraphProgressBroadcaster(
+                $app->make(Dispatcher::class),
+                (bool) ($broadcasting['enabled'] ?? false),
+                is_string($prefix) && $prefix !== '' ? $prefix : 'laravel-flow',
+                static fn (): \DateTimeImmutable => Date::now()->toDateTimeImmutable(),
+            );
+        });
         $this->app->singleton(NodeExecutor::class, function (Container $app): NodeExecutor {
             /** @var array<string, mixed> $persistence */
             $persistence = $app['config']->get('laravel-flow.persistence', []);
@@ -278,6 +291,7 @@ final class LaravelFlowServiceProvider extends ServiceProvider
                 $errorMessageRedactor,
                 $payloadRedactor,
                 $this->executorDefaultRetry($app),
+                $app->make(GraphProgressBroadcaster::class),
             );
         });
         $this->app->bind(GraphSaga::class, function (Container $app): GraphSaga {
@@ -302,6 +316,7 @@ final class LaravelFlowServiceProvider extends ServiceProvider
                 $store,
                 $app->make(GraphSaga::class),
                 $this->graphCompensationStrategy($app),
+                $app->make(GraphProgressBroadcaster::class),
             );
         });
         $this->app->bind(ChildFlowRunner::class, fn (Container $app): ChildFlowRunner => new ChildFlowRunner(
@@ -351,6 +366,7 @@ final class LaravelFlowServiceProvider extends ServiceProvider
                 is_numeric($lockRetrySeconds) && (int) $lockRetrySeconds >= 1 ? (int) $lockRetrySeconds : 30,
                 $app->make(GraphSaga::class),
                 $this->graphCompensationStrategy($app),
+                $app->make(GraphProgressBroadcaster::class),
             );
         });
         $this->app->bind(GraphApprovalCoordinator::class, function (Container $app): GraphApprovalCoordinator {

@@ -230,8 +230,16 @@ final class GraphBroadcastingTest extends PersistenceTestCase
             public function forgetPushed() {}
         };
 
-        $this->app->instance(Dispatcher::class, $throwingDispatcher);
-        $this->app->forgetInstance(GraphProgressBroadcaster::class);
+        // Scope the throwing dispatcher to GraphProgressBroadcaster ONLY — never
+        // rebind the app-wide Dispatcher::class, or every other event dispatch
+        // in the graph execution path (audit events, etc.) would also break,
+        // making this test brittle to unrelated changes.
+        $this->app->instance(GraphProgressBroadcaster::class, new GraphProgressBroadcaster(
+            $throwingDispatcher,
+            true,
+            'laravel-flow',
+            static fn (): \DateTimeImmutable => new \DateTimeImmutable,
+        ));
         $this->app['config']->set('laravel-flow.broadcasting.enabled', true);
 
         $result = $this->app->make(FlowEngine::class)->runGraph($this->linearGraph(), []);

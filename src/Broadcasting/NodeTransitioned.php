@@ -11,15 +11,18 @@ use Padosoft\LaravelFlow\Executor\NodeExecutor;
 use Padosoft\LaravelFlow\Executor\State\NodeState;
 
 /**
- * Broadcast when a graph node transitions to a new persisted state. Dispatched
- * from {@see NodeExecutor}'s single persist seam for every EXECUTED node (so
- * the synchronous and queued graph executors can never emit divergent events
- * for a node that actually ran), plus two additional emission points for
- * nodes that never reach that seam because they never attempt a handler:
- * `GraphRunner::persistBlocked()` (sync) and the queued coordinator's
- * poison-propagation loop, both firing `NodeState::Blocked`. Never dispatched
- * on a dry run (a simulation has no externally-observable side effects) or
- * when `laravel-flow.broadcasting.enabled` is `false`.
+ * Broadcast when a graph node reaches an EXECUTION OUTCOME — not every
+ * persisted state along the way. There is no event for the queued
+ * coordinator's `pending -> running` claim; this fires once a node's
+ * outcome is known: `succeeded`, `failed`, `dead_letter`, `paused`,
+ * `skipped`, or `invalid_input` (dispatched from {@see NodeExecutor}'s single
+ * persist seam, so the synchronous and queued graph executors can never emit
+ * divergent events for a node that actually ran), plus `blocked` — the one
+ * outcome that never reaches that seam because the node never attempts a
+ * handler, fired instead from `GraphRunner::persistBlocked()` (sync) and the
+ * queued coordinator's poison-propagation loop. Never dispatched on a dry run
+ * (a simulation has no externally-observable side effects) or when
+ * `laravel-flow.broadcasting.enabled` is `false`.
  *
  * The package emits only — it ships NO channel authorization callback; the
  * host application's `routes/channels.php` decides who may subscribe.

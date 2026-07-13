@@ -1,5 +1,18 @@
 # Progress
 
+## 2026-07-13 - Macro D / D-PR3 (schedule trigger)
+
+Work happened in the SIBLING repo `padosoft/laravel-flow-connect` (local checkout `../laravel-flow-connect`), consuming core's `Padosoft\LaravelFlow\Contracts\FlowTrigger` (landed in D-PR2, PR #73).
+
+- Branch `task/v2d-03-schedule-trigger` (in `laravel-flow-connect`, off its `main`): Task 3 of Macro D implemented.
+  - `Triggers\ScheduleTrigger` implements `FlowTrigger`: `fire()` hands its input straight to `Flow::dispatch()`.
+  - `Triggers\ScheduleTriggerRegistrar` reads `config('laravel-flow-connect.schedule_triggers')` (list of `['flow' => ..., 'cron' => ..., 'input' => [...], 'timezone' => ...]`) and registers each valid entry on Laravel's own `Schedule` via `Schedule::call(...)->cron(...)`. Validation is eager (at registration): a malformed `flow`/`cron`/`input`/`timezone` — including a non-array entry, an invalid IANA timezone identifier (validated via `DateTimeZone`'s constructor, not just a string type-check) — is logged and SKIPPED, never registered; a `fire()` failure at run time is caught inside the registered callback and logged the same way, never aborting the scheduler's run of the other events.
+  - `Schedule::class` is resolved LAZILY via `$this->app->afterResolving(Schedule::class, ...)`, not eagerly — an eager `app->make(Schedule::class)` in `boot()` would force the HOST APPLICATION's entire schedule to build on every console command this package ships alongside (migrate, queue:work, tinker), not just `schedule:run`/`schedule:list`. Publishing the config is still guarded on `runningInConsole()` (irrelevant to HTTP requests).
+  - `composer.json` explicitly requires `illuminate/console` and `dragonmantank/cron-expression` (previously only transitively available via `illuminate/support`'s dev-time pull of the full framework).
+  - README documents the `schedule_triggers` config shape.
+- **PR #3 MERGED** into `laravel-flow-connect`'s `main` after **7 Copilot/Codex review rounds**. Real findings fixed: non-array config entry fataled instead of being skipped; timezone only type-checked as a string, not validated as a real IANA identifier; eager `Schedule::class` resolution (see above, the round-2/3 back-and-forth); missing explicit composer requires; docblock-only unused import; two docblocks under-typed as `array<int, mixed>` when config casts can yield string keys; two skip branches (`input` non-array, `timezone` non-string) lacked test coverage. Two findings correctly DECLINED with verifiable evidence: a stale timezone-validation claim (already fixed one round earlier — quoted the current code); a `schedule:cache` closure-exclusion caveat that describes REAL Laravel behavior from older versions but does not apply to Laravel 13 (verified: `ScheduleCacheCommand` does not exist anywhere in the installed `laravel/framework` vendor tree for this version — only a vestigial `ScheduleClearCacheCommand`, unrelated). Final local gate: Pint pass, PHPStan level 8 no errors, **16 tests** (14 Unit + 2 Contract).
+- **Next step**: D-PR4 (`EventTrigger`), also in `laravel-flow-connect`, same review-loop discipline.
+
 ## 2026-07-13 - Macro D / D-PR2 (laravel-flow-connect CI bootstrap + trigger contract) — CORRECTED
 
 **Correction (read this first)**: the first pass of D-PR2 (connect PR #1, below) defined the `FlowTrigger` contract IN `laravel-flow-connect`. Codex review on this very docs PR caught that this contradicts the master plan, which is unambiguous: "trigger contracts in core; ... trigger contracts consumed from core" (`docs/superpowers/plans/2026-07-07-flow-v2-program-master-plan.md`, Macro D objective + D-PR2's own gate-criteria row). Fixed across three follow-up PRs:

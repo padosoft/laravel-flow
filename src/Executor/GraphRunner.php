@@ -220,13 +220,21 @@ final class GraphRunner
 
     private function persistBlocked(?FlowStore $store, string $runId, GraphDefinition $graph, string $nodeId, ?int $sequence): void
     {
-        if ($store === null) {
-            return;
-        }
-
         $node = $graph->node($nodeId);
 
         if ($node === null) {
+            return;
+        }
+
+        // Blocked nodes never reach NodeExecutor::persist() (poison propagation
+        // marks them directly, no handler attempt) — broadcast here too, or a
+        // live monitor would see the aggregate snapshot count them as failed
+        // with no per-node transition event to explain why.
+        if ($this->progressBroadcaster !== null) {
+            $this->progressBroadcaster->nodeTransitioned($runId, $nodeId, $node->type, NodeState::Blocked, $sequence ?? 0);
+        }
+
+        if ($store === null) {
             return;
         }
 

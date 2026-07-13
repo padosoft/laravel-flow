@@ -7,9 +7,11 @@ namespace Padosoft\LaravelFlow\Broadcasting;
 use Closure;
 use DateTimeImmutable;
 use Illuminate\Contracts\Events\Dispatcher;
+use Illuminate\Support\Facades\Log;
 use Padosoft\LaravelFlow\Executor\NodeExecutor;
 use Padosoft\LaravelFlow\Executor\State\NodeState;
 use Padosoft\LaravelFlow\Executor\State\RunState;
+use Throwable;
 
 /**
  * Single dispatch point for graph run/node broadcasting: both {@see NodeExecutor}
@@ -42,15 +44,28 @@ final class GraphProgressBroadcaster
             return;
         }
 
-        $this->events->dispatch(new NodeTransitioned(
-            $this->channelPrefix,
-            $runId,
-            $nodeId,
-            $nodeType,
-            $state,
-            $sequence,
-            ($this->clock)()->format(DateTimeImmutable::ATOM),
-        ));
+        // Broadcasting is best-effort, like the node cache / approval token
+        // issuance elsewhere in NodeExecutor: a throwing broadcast driver must
+        // NEVER propagate into the executor. Uncaught here, it would abort
+        // persist() before the durable DB write on the queued path — the job
+        // then retries and re-executes a handler that already succeeded.
+        try {
+            $this->events->dispatch(new NodeTransitioned(
+                $this->channelPrefix,
+                $runId,
+                $nodeId,
+                $nodeType,
+                $state,
+                $sequence,
+                ($this->clock)()->format(DateTimeImmutable::ATOM),
+            ));
+        } catch (Throwable $e) {
+            Log::warning('laravel-flow: node-transition broadcast failed.', [
+                'node_type' => $nodeType,
+                'exception' => $e::class,
+                'code' => $e->getCode(),
+            ]);
+        }
     }
 
     public function runProgressUpdated(string $runId, RunState $status, int $nodesTotal, int $nodesCompleted, int $nodesFailed): void
@@ -59,14 +74,21 @@ final class GraphProgressBroadcaster
             return;
         }
 
-        $this->events->dispatch(new GraphRunProgressUpdated(
-            $this->channelPrefix,
-            $runId,
-            $status,
-            $nodesTotal,
-            $nodesCompleted,
-            $nodesFailed,
-            ($this->clock)()->format(DateTimeImmutable::ATOM),
-        ));
+        try {
+            $this->events->dispatch(new GraphRunProgressUpdated(
+                $this->channelPrefix,
+                $runId,
+                $status,
+                $nodesTotal,
+                $nodesCompleted,
+                $nodesFailed,
+                ($this->clock)()->format(DateTimeImmutable::ATOM),
+            ));
+        } catch (Throwable $e) {
+            Log::warning('laravel-flow: run-progress broadcast failed.', [
+                'exception' => $e::class,
+                'code' => $e->getCode(),
+            ]);
+        }
     }
 }

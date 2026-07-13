@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace Padosoft\LaravelFlow\Tests\Unit\Broadcasting;
 
 use Illuminate\Broadcasting\PrivateChannel;
+use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Support\Facades\Event;
+use Padosoft\LaravelFlow\Broadcasting\GraphProgressBroadcaster;
 use Padosoft\LaravelFlow\Broadcasting\GraphRunProgressUpdated;
 use Padosoft\LaravelFlow\Broadcasting\NodeTransitioned;
 use Padosoft\LaravelFlow\Executor\State\NodeState;
@@ -14,8 +16,10 @@ use Padosoft\LaravelFlow\FlowEngine;
 use Padosoft\LaravelFlow\Graph\Connection;
 use Padosoft\LaravelFlow\Graph\GraphDefinition;
 use Padosoft\LaravelFlow\Graph\GraphNode;
+use Padosoft\LaravelFlow\Tests\Fixtures\GraphNodes\FailingGraphNode;
 use Padosoft\LaravelFlow\Tests\Fixtures\GraphNodes\QueueProbeNode;
 use Padosoft\LaravelFlow\Tests\Unit\Persistence\PersistenceTestCase;
+use RuntimeException;
 
 final class GraphBroadcastingTest extends PersistenceTestCase
 {
@@ -23,7 +27,7 @@ final class GraphBroadcastingTest extends PersistenceTestCase
     {
         parent::defineEnvironment($app);
         $app['config']->set('laravel-flow.persistence.enabled', true);
-        $app['config']->set('laravel-flow.nodes.handlers', [QueueProbeNode::class]);
+        $app['config']->set('laravel-flow.nodes.handlers', [QueueProbeNode::class, FailingGraphNode::class]);
         $app['config']->set('queue.default', 'sync');
     }
 
@@ -64,7 +68,7 @@ final class GraphBroadcastingTest extends PersistenceTestCase
         Event::assertNotDispatched(GraphRunProgressUpdated::class);
     }
 
-    public function test_broadcasting_disabled_dispatches_nothing_on_a_dry_run(): void
+    public function test_broadcasting_enabled_still_dispatches_nothing_on_a_dry_run(): void
     {
         $this->app['config']->set('laravel-flow.broadcasting.enabled', true);
         Event::fake([NodeTransitioned::class, GraphRunProgressUpdated::class]);
@@ -106,6 +110,91 @@ final class GraphBroadcastingTest extends PersistenceTestCase
         });
     }
 
+    public function test_broadcasting_works_even_when_persistence_is_disabled(): void
+    {
+        // The key promised decoupling: broadcasting.enabled and
+        // persistence.enabled are INDEPENDENT toggles. This must not merely be
+        // asserted in a docblock — exercise it directly.
+        $this->app['config']->set('laravel-flow.persistence.enabled', false);
+        $this->app['config']->set('laravel-flow.broadcasting.enabled', true);
+        Event::fake([NodeTransitioned::class, GraphRunProgressUpdated::class]);
+
+        $result = $this->app->make(FlowEngine::class)->runGraph($this->linearGraph(), []);
+
+        Event::assertDispatched(NodeTransitioned::class, fn (NodeTransitioned $event): bool => $event->runId === $result->runId && $event->nodeId === 'a');
+        Event::assertDispatched(NodeTransitioned::class, fn (NodeTransitioned $event): bool => $event->runId === $result->runId && $event->nodeId === 'b');
+        Event::assertDispatched(GraphRunProgressUpdated::class, fn (GraphRunProgressUpdated $event): bool => $event->runId === $result->runId);
+    }
+
+    public function test_blocked_nodes_broadcast_a_transition_too(): void
+    {
+        // A blocked node is marked directly by GraphRunner::persistBlocked()/the
+        // queued coordinator's poison-propagation loop — NEITHER goes through
+        // NodeExecutor::persist(), the seam every OTHER node-transition
+        // broadcast relies on. Without its own wiring, a live monitor would see
+        // the aggregate snapshot count a blocked node as failed with no
+        // per-node event explaining why.
+        $this->app['config']->set('laravel-flow.broadcasting.enabled', true);
+        Event::fake([NodeTransitioned::class]);
+
+        $graph = new GraphDefinition(
+            [new GraphNode('f', 'test.fail'), new GraphNode('downstream', 'test.probe')],
+            [new Connection('f', 'out', 'downstream', 'in')],
+        );
+
+        $result = $this->app->make(FlowEngine::class)->runGraph($graph, []);
+
+        Event::assertDispatched(NodeTransitioned::class, fn (NodeTransitioned $event): bool => $event->runId === $result->runId
+            && $event->nodeId === 'downstream'
+            && $event->state === NodeState::Blocked);
+    }
+
+    public function test_a_throwing_broadcast_driver_never_prevents_node_persistence(): void
+    {
+        // GraphProgressBroadcaster must swallow every Throwable internally: an
+        // uncaught exception here would abort NodeExecutor::persist() BEFORE
+        // the durable DB write, and on the queued path the job would then be
+        // retried — re-executing a handler that already succeeded.
+        $throwingDispatcher = new class implements Dispatcher
+        {
+            public function listen($events, $listener = null) {}
+
+            public function hasListeners($eventName)
+            {
+                return false;
+            }
+
+            public function subscribe($subscriber) {}
+
+            public function until($event, $payload = []) {}
+
+            public function dispatch($event, $payload = [], $halt = false)
+            {
+                throw new RuntimeException('broadcast driver is down');
+            }
+
+            public function push($event, $payload = []) {}
+
+            public function flush($event) {}
+
+            public function forget($event) {}
+
+            public function forgetPushed() {}
+        };
+
+        $this->app->instance(Dispatcher::class, $throwingDispatcher);
+        $this->app->forgetInstance(GraphProgressBroadcaster::class);
+        $this->app['config']->set('laravel-flow.broadcasting.enabled', true);
+
+        $result = $this->app->make(FlowEngine::class)->runGraph($this->linearGraph(), []);
+
+        $this->assertSame(RunState::Succeeded, $result->state);
+        $this->assertSame(['out' => ['id' => 'a']], $result->nodeOutputs['a']);
+        $this->assertSame(['out' => ['id' => 'b']], $result->nodeOutputs['b']);
+        $this->assertSame(1, QueueProbeNode::count('a'));
+        $this->assertSame(1, QueueProbeNode::count('b'));
+    }
+
     public function test_broadcasting_channel_is_private_and_run_scoped(): void
     {
         $this->app['config']->set('laravel-flow.broadcasting.enabled', true);
@@ -145,8 +234,14 @@ final class GraphBroadcastingTest extends PersistenceTestCase
         $syncResult = $this->app->make(FlowEngine::class)->runGraph($this->linearGraph(), []);
         $queuedRunId = $this->app->make(FlowEngine::class)->dispatchGraph($this->linearGraph(), []);
 
-        $this->assertSame(['a:succeeded', 'b:succeeded'], $this->transitionSequence($syncResult->runId));
-        $this->assertSame(['a:succeeded', 'b:succeeded'], $this->transitionSequence($queuedRunId));
+        // ORDER matters here (no sort()): 'a' must transition before 'b' — the
+        // downstream node cannot become ready until its upstream succeeds — and
+        // each event's own `sequence` field must match its topological position
+        // (0 for the root, 1 for its dependent), not just the SET of (nodeId,
+        // state) pairs that occurred.
+        $expected = ['a:succeeded:0', 'b:succeeded:1'];
+        $this->assertSame($expected, $this->transitionSequence($syncResult->runId));
+        $this->assertSame($expected, $this->transitionSequence($queuedRunId));
     }
 
     /**
@@ -160,13 +255,12 @@ final class GraphBroadcastingTest extends PersistenceTestCase
             ->filter(static fn (NodeTransitioned $event): bool => $event->runId === $runId)
             ->all();
 
-        $sequence = array_map(
-            static fn (NodeTransitioned $event): string => "{$event->nodeId}:{$event->state->value}",
-            $dispatched,
+        // Preserve DISPATCH order (no sorting) — this is what actually proves
+        // the two engines emit transitions in the same order, not merely the
+        // same unordered set.
+        return array_map(
+            static fn (NodeTransitioned $event): string => "{$event->nodeId}:{$event->state->value}:{$event->sequence}",
+            array_values($dispatched),
         );
-
-        sort($sequence);
-
-        return $sequence;
     }
 }

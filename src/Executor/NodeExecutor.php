@@ -356,6 +356,21 @@ final class NodeExecutor
      */
     private function persist(?FlowStore $store, string $runId, GraphNode $node, int $sequence, NodeState $state, bool $dryRun, array $attributes): void
     {
+        // Persist FIRST, broadcast SECOND: durable state must land before it is
+        // announced. GraphProgressBroadcaster already catches every Throwable
+        // internally (broadcasting is best-effort, same discipline as the node
+        // cache / approval token issuance below), so this ordering is defense
+        // in depth on top of that, not the only thing preventing a broadcast
+        // failure from rewinding executor state.
+        if ($store !== null) {
+            $store->runNodes()->createOrUpdate($runId, $node->id, [
+                'node_type' => $node->type,
+                'sequence' => $sequence,
+                'status' => $state->value,
+                ...$attributes,
+            ]);
+        }
+
         // Broadcasting is decoupled from persistence: a run id/node id/state
         // are known regardless of whether $store is null (persistence disabled
         // still executes real nodes), so a broadcast-enabled deployment gets
@@ -366,17 +381,6 @@ final class NodeExecutor
         if (! $dryRun && $this->progressBroadcaster !== null) {
             $this->progressBroadcaster->nodeTransitioned($runId, $node->id, $node->type, $state, $sequence);
         }
-
-        if ($store === null) {
-            return; // dry-run / persistence disabled: zero rows
-        }
-
-        $store->runNodes()->createOrUpdate($runId, $node->id, [
-            'node_type' => $node->type,
-            'sequence' => $sequence,
-            'status' => $state->value,
-            ...$attributes,
-        ]);
     }
 
     private function durationMs(DateTimeImmutable $startedAt, DateTimeImmutable $finishedAt): int

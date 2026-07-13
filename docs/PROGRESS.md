@@ -36,10 +36,10 @@ Work happened in the SIBLING repo `padosoft/laravel-flow-connect` (local checkou
 
 **All 5 Macro D subtask PRs are now merged**: D-PR1 (broadcasting, this repo's PR #70+#71), D-PR2 (connect bootstrap + `FlowTrigger` contract — corrected mid-flight to live in CORE not connect, this repo's PR #72/#73/#74 + connect's PR #1/#2), D-PR3 (schedule trigger, connect PR #3 + this repo's PR #75), D-PR4 (event trigger, connect PR #4 + this repo's PR #76), D-PR5 (webhook trigger, connect PR #5, this entry).
 
-**SUPERSEDED — see the "Macro D Gate G3.1-G3.3 DONE, G3.4 PENDING" entry at the top of this file for the current, authoritative Gate G3 status.** (Historical checklist, kept for the record of what was originally planned at this point:)
+**SUPERSEDED — see the "Macro D Gate G3 FULLY CLOSED — Macro F starting" entry at the top of this file for the current, authoritative Gate G3 status.** (Historical checklist, kept for the record of what was originally planned at this point:)
 1. ~~Merge the macro branch `task/v2d-realtime-triggers` → `main` via a macro PR~~ — done, macro PR #78, merge commit `c9532d7`.
 2. ~~Verify the Macro D acceptance checklist... WITH EXECUTABLE EVIDENCE~~ — done, see the top entry (the Reverb clause was flagged as fake-only coverage, not silently claimed).
-3. Author the Macro F (AI Pack) detailed plan and get it **user-reviewed** before any Macro F work starts — still outstanding, this is G3.4, reserved for the coordinating session.
+3. ~~Author the Macro F (AI Pack) detailed plan and get it **user-reviewed**~~ — done, see the top entry.
 
 ## 2026-07-13 - Macro D / D-PR4 (event trigger)
 

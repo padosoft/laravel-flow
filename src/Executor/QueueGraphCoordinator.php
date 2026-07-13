@@ -519,8 +519,7 @@ final class QueueGraphCoordinator
      * as inter-node routing). The run is marked `compensated` only on a FULL
      * rollback; a partial one keeps the provisional
      * `compensation_status = 'failed'` and the failure status.
-     */
-    /**
+     *
      * @return bool true when this pass ran a saga that fully succeeded and
      *              flipped the run to `RunState::Compensated` — the caller
      *              uses this to decide whether a follow-up broadcast is

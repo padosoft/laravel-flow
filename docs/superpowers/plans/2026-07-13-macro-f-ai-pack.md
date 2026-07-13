@@ -6,6 +6,8 @@
 
 **Depends on:** Macro C (graph executor — node contract, `PayloadRedactor`, `NodeContext`/`NodeResult`). Does NOT depend on Macro D (real-time/triggers) — F and D are independent branches off Macro C per the master plan's dependency graph; this macro deliberately runs before Macro E (Studio UI), which depends on both D and F-core.
 
+**Macro branch:** the master plan names Macro F's branch explicitly — `task/v2f-ai-pack`, IN THE `padosoft/laravel-flow-ai` REPO (unlike Macro D, where the satellite `laravel-flow-connect` repo had no macro-branch layer and D-PR3/4/5 went straight to its `main`). Create `task/v2f-ai-pack` off `laravel-flow-ai`'s `main` FIRST, before opening any F-PR. Every F-PR below branches off `task/v2f-ai-pack` and merges back into it, NOT into `laravel-flow-ai`'s `main` directly. `task/v2f-ai-pack` itself merges to `laravel-flow-ai`'s `main` via a macro PR at the Macro F gate (mirroring how `task/v2c-graph-executor` merged to core's `main` at the Macro C gate) — full G2 review loop on that macro PR too.
+
 ---
 
 ## Grounding notes (verified against the current codebase 2026-07-13, HEAD `main` post-Macro-D)
@@ -24,7 +26,7 @@
 
 ## F-PR1 — Package bootstrap + provider-agnostic LLM client contract
 
-**Branch:** `task/v2f-01-bootstrap` in `laravel-flow-ai` (off `main`) — this is the Macro F equivalent of D-PR2's connect-bootstrap; unlike Macro D, there is **no separate "macro branch" step needed in `laravel-flow-ai` itself** since each F-PR is a normal subtask PR straight to `laravel-flow-ai`'s `main` (mirroring how D-PR3/4/5 each merged straight to connect's `main` — connect never got its own macro-branch layer; treat `laravel-flow-ai` the same way). The CORE-repo side of this macro (if any core changes are needed at all — VERIFY, it's plausible F needs zero core changes since nodes are entirely AI-pack-local) uses a macro branch `task/v2f-ai-pack` off `main`, same convention as C/D.
+**Branch:** `task/v2f-01-bootstrap` in `laravel-flow-ai`, off `task/v2f-ai-pack` (the Macro F branch — create it off `laravel-flow-ai`'s `main` first if it doesn't exist yet). This is the Macro F equivalent of D-PR2's connect-bootstrap, but unlike Macro D — where the satellite `laravel-flow-connect` repo had NO macro-branch layer and D-PR3/4/5 went straight to its `main` — the master plan explicitly names `task/v2f-ai-pack` as Macro F's branch INSIDE `laravel-flow-ai` itself. Every F-PR targets that branch, not `main` directly. The master plan does NOT define a matching macro branch in the CORE repo — if a concrete core-repo change turns out to be needed (plausible none are, since AI-pack nodes are entirely local to `laravel-flow-ai`), handle it via its own separate, explicitly-created core PR/branch once the need is identified (branch name TBD at that time, do not reuse `task/v2f-ai-pack` for it).
 
 **Objective:** CI-green, `composer quality`-passing package; a provider-agnostic LLM client CONTRACT (interface) with an Anthropic driver and a fake/test driver — no network calls anywhere in the test suite.
 
@@ -48,7 +50,7 @@ Commit `feat: package bootstrap, provider-agnostic LLM client contract`; **close
 
 ## F-PR2 — LLM node
 
-**Branch:** `task/v2f-02-llm-node` (in `laravel-flow-ai`)
+**Branch:** `task/v2f-02-llm-node` (in `laravel-flow-ai`, off `task/v2f-ai-pack`)
 
 **Objective:** A `FlowNodeHandler` that runs a templated prompt over its input ports, validates structured output against its declared output-port schema, auto-retries (feeding the validation error back into the prompt) on a schema violation, and surfaces tokens/cost into `NodeResult::$businessImpact`.
 
@@ -68,7 +70,7 @@ Commit `feat: LLM prompt node with schema-validated structured output`; **close 
 
 ## F-PR3 — Guardrails / policy engine
 
-**Branch:** `task/v2f-03-guardrails` (in `laravel-flow-ai`)
+**Branch:** `task/v2f-03-guardrails` (in `laravel-flow-ai`, off `task/v2f-ai-pack`)
 
 **Objective:** Egress allowlist (which external hosts/tools an AI node may reach), automatic redaction of outbound payloads (reusing core's `PayloadRedactor`), rate limits, and per-node-type permissions — enforced BEFORE any network call, not after.
 
@@ -88,7 +90,7 @@ Commit `feat: guardrails policy engine — egress allowlist, redaction, rate lim
 
 ## F-PR4 — MCP client node
 
-**Branch:** `task/v2f-04-mcp-client` (in `laravel-flow-ai`)
+**Branch:** `task/v2f-04-mcp-client` (in `laravel-flow-ai`, off `task/v2f-ai-pack`)
 
 **Objective:** A node type that connects to an MCP server, selects a tool, maps node input/output ports to the tool's JSON-Schema-described parameters/result.
 
@@ -108,7 +110,7 @@ Commit `feat: MCP client node`; **close F-PR4**, branch `task/v2f-05-mcp-server`
 
 ## F-PR5 — MCP server: flow-as-tool
 
-**Branch:** `task/v2f-05-mcp-server` (in `laravel-flow-ai`)
+**Branch:** `task/v2f-05-mcp-server` (in `laravel-flow-ai`, off `task/v2f-ai-pack`)
 
 **Objective:** Expose a PUBLISHED flow as an MCP tool (port schemas → tool JSON Schema), **disabled by default**, per-flow opt-in + authorizer-gated; a tool call that hits an approval gate pauses correctly (the external MCP caller must see a "pending approval" state, not a hang or a false failure).
 
@@ -127,7 +129,7 @@ Commit `feat: MCP server exposing published flows as tools`; **close F-PR5**, br
 
 ## F-PR6 — Bounded agent node
 
-**Branch:** `task/v2f-06-bounded-agent` (in `laravel-flow-ai`)
+**Branch:** `task/v2f-06-bounded-agent` (in `laravel-flow-ai`, off `task/v2f-ai-pack`)
 
 **Objective:** A node that runs an LLM-driven tool-use loop bounded by token/cost/iteration budgets, a tool allowlist (tools may themselves be flows, via F-PR5's flow-as-tool), and an approval escape hatch for risky tool calls.
 
@@ -146,7 +148,7 @@ Commit `feat: bounded agent node with budgets, tool allowlist, approval escape h
 
 ## F-PR7 — AI flow builder service
 
-**Branch:** `task/v2f-07-flow-builder` (in `laravel-flow-ai`)
+**Branch:** `task/v2f-07-flow-builder` (in `laravel-flow-ai`, off `task/v2f-ai-pack`)
 
 **Objective:** A service that turns a natural-language prompt into a VALIDATED `GraphDefinition` draft — never an invalid draft, always either a passing graph or a typed failure.
 
@@ -163,7 +165,7 @@ Commit `feat: AI flow builder — prompt to validated graph draft`; **close F-PR
 
 ## F-PR8 — Flow Advisor core
 
-**Branch:** `task/v2f-08-advisor` (in `laravel-flow-ai`)
+**Branch:** `task/v2f-08-advisor` (in `laravel-flow-ai`, off `task/v2f-ai-pack`)
 
 **Objective:** Deterministic history analyzers (no LLM — failure hotspots, cost/duration outliers, repeated node-sequence segments, unused declared tools) plus catalog/MCP introspection, producing suggestions as DRAFT `GraphDefinition` versions with machine-readable rationale. `FlowAdvisor` service (`@api`); `flow:suggest` + `flow:improve {flow}` Artisan commands.
 

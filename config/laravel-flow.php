@@ -120,6 +120,26 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Graph run/node broadcasting (opt-in)
+    |--------------------------------------------------------------------------
+    |
+    | When enabled, GRAPH engine run/node state transitions broadcast on a
+    | private, per-run channel ("{channel_prefix}.run.{runId}"). The package
+    | only EMITS — it never registers a channel authorization callback (the
+    | host app's channels.php decides who may subscribe) and never requires a
+    | specific broadcast driver (Reverb/Pusher/etc. is a host-app choice).
+    | Disabled by default: zero broadcast dispatches, no dependency on a
+    | configured broadcast connection. v1's linear-engine audit events
+    | (FlowStepStarted, etc.) are unrelated and unaffected by this toggle.
+    |
+    */
+    'broadcasting' => [
+        'enabled' => env('LARAVEL_FLOW_BROADCASTING_ENABLED', false),
+        'channel_prefix' => env('LARAVEL_FLOW_BROADCASTING_CHANNEL_PREFIX', 'laravel-flow'),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Webhook delivery outbox
     |--------------------------------------------------------------------------
     |

@@ -9,6 +9,7 @@ use DateTimeImmutable;
 use Illuminate\Contracts\Bus\Dispatcher as BusDispatcher;
 use Illuminate\Database\ConnectionInterface;
 use Illuminate\Database\ConnectionResolverInterface;
+use Padosoft\LaravelFlow\Broadcasting\GraphProgressBroadcaster;
 use Padosoft\LaravelFlow\Contracts\FlowStore;
 use Padosoft\LaravelFlow\Executor\Jobs\CoordinatorJob;
 use Padosoft\LaravelFlow\Executor\State\NodeState;
@@ -53,6 +54,7 @@ final class QueueGraphCoordinator
         private readonly int $lockRetrySeconds = 30,
         private readonly ?GraphSaga $saga = null,
         private readonly string $compensationStrategy = GraphSaga::STRATEGY_REVERSE_ORDER,
+        private readonly ?GraphProgressBroadcaster $progressBroadcaster = null,
     ) {}
 
     /**
@@ -132,9 +134,11 @@ final class QueueGraphCoordinator
         $settled = false;
         $finalized = false;
         $compensationClaimed = false;
+        /** @var list<array{nodeId: string, nodeType: string, sequence: int}> $blockedTransitions */
+        $blockedTransitions = [];
         $sequenceOf = array_flip($graph->topologicalOrder());
 
-        $this->connection()->transaction(function () use ($runId, $graph, $sequenceOf, &$claimed, &$allTerminal, &$settled, &$finalized, &$compensationClaimed): void {
+        $this->connection()->transaction(function () use ($runId, $graph, $sequenceOf, &$claimed, &$allTerminal, &$settled, &$finalized, &$compensationClaimed, &$blockedTransitions): void {
             // Serialize advancement: two coordinators for the same run cannot
             // interleave readiness resolution + claiming.
             $this->connection()->table('flow_runs')->where('id', $runId)->lockForUpdate()->first();
@@ -165,6 +169,15 @@ final class QueueGraphCoordinator
                             'dry_run_skipped' => false,
                             'finished_at' => ($this->clock)(),
                         ]);
+
+                        // Collected here, broadcast AFTER the transaction commits
+                        // (see advance()) — never synchronously while holding the
+                        // row lock.
+                        $blockedTransitions[] = [
+                            'nodeId' => $id,
+                            'nodeType' => $node->type,
+                            'sequence' => $sequenceOf[$id] ?? 0,
+                        ];
                     }
 
                     continue;
@@ -218,6 +231,20 @@ final class QueueGraphCoordinator
                 $compensationClaimed = $this->claimCompensation($runId, $graph);
             }
         });
+
+        // Broadcasting runs OUTSIDE the row lock (a slow/failing driver must
+        // never stall duplicate coordinators/joins on the flow_runs lock) and
+        // AFTER the transaction has committed, so a subscriber never observes a
+        // transition before its persisted state is durable.
+        if ($this->progressBroadcaster !== null) {
+            foreach ($blockedTransitions as $blocked) {
+                $this->progressBroadcaster->nodeTransitioned($runId, $blocked['nodeId'], $blocked['nodeType'], NodeState::Blocked, $blocked['sequence']);
+            }
+
+            if ($finalized) {
+                $this->broadcastRunProgress($runId, $graph);
+            }
+        }
 
         // Graph saga runs OUTSIDE the row lock (compensators are user code that
         // must never hold a `flow_runs` lock), only on the pass that CLAIMED
@@ -366,6 +393,10 @@ final class QueueGraphCoordinator
         $runState = RunRollup::state($graph, $states);
         $counters = RunRollup::counters($states);
 
+        // The aggregate snapshot broadcasts AFTER this transaction commits (see
+        // advance()) — never synchronously while holding the flow_runs row
+        // lock, or a slow/failing broadcast driver could stall duplicate
+        // coordinators/joins on a lock that has nothing to do with broadcasting.
         $attributes = [
             'status' => $runState->value,
             'output' => $output,
@@ -384,6 +415,39 @@ final class QueueGraphCoordinator
         $this->store->runs()->update($runId, $attributes);
 
         return true;
+    }
+
+    /**
+     * Broadcast the aggregate progress snapshot from the JUST-COMMITTED run
+     * row (read fresh, after {@see finalizeRun()}'s transaction released the
+     * lock) rather than recomputing — reuses the DB's own committed truth
+     * instead of re-deriving state outside the lock that produced it.
+     */
+    private function broadcastRunProgress(string $runId, GraphDefinition $graph): void
+    {
+        if ($this->progressBroadcaster === null) {
+            return;
+        }
+
+        $run = $this->store->runs()->find($runId);
+
+        if ($run === null) {
+            return;
+        }
+
+        $runState = RunState::tryFrom((string) $run->status);
+
+        if ($runState === null) {
+            return;
+        }
+
+        $this->progressBroadcaster->runProgressUpdated(
+            $runId,
+            $runState,
+            count($graph->nodeIds()),
+            (int) $run->nodes_completed,
+            (int) $run->nodes_failed,
+        );
     }
 
     /**

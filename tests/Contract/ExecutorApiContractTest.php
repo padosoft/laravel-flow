@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Padosoft\LaravelFlow\Tests\Contract;
 
+use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
+use Padosoft\LaravelFlow\Broadcasting\GraphRunProgressUpdated;
+use Padosoft\LaravelFlow\Broadcasting\NodeTransitioned;
 use Padosoft\LaravelFlow\Contracts\NodeCacheRepository;
 use Padosoft\LaravelFlow\Executor\Attributes\Cacheable;
 use Padosoft\LaravelFlow\Executor\Attributes\Cost;
@@ -102,6 +105,8 @@ final class ExecutorApiContractTest extends TestCase
             ExecutionPlan::class,
             CostEstimate::class,
             ApprovalGateNode::class,
+            NodeTransitioned::class,
+            GraphRunProgressUpdated::class,
         ];
 
         foreach ($classes as $class) {
@@ -109,6 +114,28 @@ final class ExecutorApiContractTest extends TestCase
             $this->assertStringContainsString('@api', $doc, $class);
             $this->assertStringNotContainsString('@internal', $doc, $class);
         }
+    }
+
+    public function test_broadcasting_payload_shape_is_pinned(): void
+    {
+        $this->assertTrue((new ReflectionClass(NodeTransitioned::class))->implementsInterface(ShouldBroadcastNow::class));
+        $this->assertTrue((new ReflectionClass(GraphRunProgressUpdated::class))->implementsInterface(ShouldBroadcastNow::class));
+
+        $nodeEvent = new NodeTransitioned('laravel-flow', 'run-1', 'node-1', 'test.type', NodeState::Succeeded, 0, '2026-07-13T00:00:00+00:00');
+        $this->assertSame(
+            ['run_id', 'node_id', 'node_type', 'state', 'sequence', 'occurred_at'],
+            array_keys($nodeEvent->broadcastWith()),
+        );
+        $this->assertSame('node.transitioned', $nodeEvent->broadcastAs());
+        $this->assertSame('private-laravel-flow.run.run-1', $nodeEvent->broadcastOn()->name);
+
+        $runEvent = new GraphRunProgressUpdated('laravel-flow', 'run-1', RunState::Succeeded, 2, 2, 0, '2026-07-13T00:00:00+00:00');
+        $this->assertSame(
+            ['run_id', 'status', 'nodes_total', 'nodes_completed', 'nodes_failed', 'progress_pct', 'occurred_at'],
+            array_keys($runEvent->broadcastWith()),
+        );
+        $this->assertSame('run.progress', $runEvent->broadcastAs());
+        $this->assertSame('private-laravel-flow.run.run-1', $runEvent->broadcastOn()->name);
     }
 
     public function test_graph_saga_surface_is_pinned(): void

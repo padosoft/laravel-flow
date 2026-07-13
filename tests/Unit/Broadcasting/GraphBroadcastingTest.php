@@ -197,6 +197,28 @@ final class GraphBroadcastingTest extends PersistenceTestCase
             && $event->state === NodeState::Blocked);
     }
 
+    public function test_blocked_nodes_broadcast_a_transition_on_the_queued_path_too(): void
+    {
+        // QueueGraphCoordinator's poison-propagation loop is a SEPARATE call
+        // site from GraphRunner::persistBlocked() — collected under the row
+        // lock but broadcast after it commits. Only the sync path was covered
+        // above; a regression here (missing event, wrong node id, wrong
+        // ordering) needs its own dedicated proof.
+        $this->app['config']->set('laravel-flow.broadcasting.enabled', true);
+        Event::fake([NodeTransitioned::class]);
+
+        $graph = new GraphDefinition(
+            [new GraphNode('f', 'test.fail'), new GraphNode('downstream', 'test.probe')],
+            [new Connection('f', 'out', 'downstream', 'in')],
+        );
+
+        $runId = $this->app->make(FlowEngine::class)->dispatchGraph($graph, []);
+
+        Event::assertDispatched(NodeTransitioned::class, fn (NodeTransitioned $event): bool => $event->runId === $runId
+            && $event->nodeId === 'downstream'
+            && $event->state === NodeState::Blocked);
+    }
+
     public function test_a_throwing_broadcast_driver_never_prevents_node_persistence(): void
     {
         // GraphProgressBroadcaster must swallow every Throwable internally: an

@@ -1,5 +1,14 @@
 # Progress
 
+## 2026-07-13 - Macro C Gate G3.1-G3.3 DONE, G3.4 PENDING (do not start Macro D yet)
+
+Macro C (event-driven graph executor) has 3 of 4 required G3 items done. **G3 is NOT closed** — G3.4 (Macro D's detailed plan, user-reviewed) is outstanding; a cold restart must NOT treat Macro D as startable until that plan exists and the user has reviewed it (master plan's Plan Authoring Rule).
+
+- **G3.1 done**: all 10 subtask PRs (C-PR1 #56 .. C-PR10 #65) merged into `task/v2c-graph-executor`, which is now merged into `main` via macro **PR #66** (merge commit `d9535c5`, 4 review rounds — see the PR for findings, or `docs/LESSON.md` 2026-07-13 for the technical detail worth remembering long-term).
+- **G3.2 done**: acceptance checklist verified with executable evidence — `tests/Unit/Executor/MacroCAcceptanceTest.php`, merged via **PR #67** (merge commit `5c435b2`). A real `JoinCoordinator` self-deadlock under the `sync` queue driver + `maxConcurrency>1` fan-out was found and documented as a tracked follow-up in `docs/LESSON.md`, not fixed (out of scope for a same-gate patch); the acceptance test itself uses the real DB queue driver to avoid it.
+- **G3.3 done**: this entry; lessons in `docs/LESSON.md` (2026-07-12, 2026-07-13 sections).
+- **G3.4 — NEXT STEP, BLOCKING**: author the detailed Macro D plan (Real-time & Triggers) and get it **user-reviewed** before any Macro D implementation starts. Macro D branch would be `task/v2d-realtime-triggers` off `main` per the master plan's macro order A→B→C→D→F(core)→E(Studio UI)→G(release).
+
 ## 2026-07-12 - Macro C / C-PR10 (approval gate node on graphs) — closes Macro C
 
 - PR #64 (C-PR9) MERGED into `task/v2c-graph-executor` after Copilot convergence (round-1 caught the planner constructing handlers via `NodeResolver`, fixed by switching to `NodeRegistry`-only reads; later rounds hardened `#[Cost]` against non-finite amounts and cleaned up docs).

@@ -1,13 +1,15 @@
 # Progress
 
-## 2026-07-13 - Macro C Gate G3.1-G3.3 DONE, G3.4 PENDING (do not start Macro D yet)
+## 2026-07-13 - Macro C Gate G3 FULLY CLOSED — Macro D unblocked
 
-Macro C (event-driven graph executor) has 3 of 4 required G3 items done. **G3 is NOT closed** — G3.4 (Macro D's detailed plan, user-reviewed) is outstanding; a cold restart must NOT treat Macro D as startable until that plan exists and the user has reviewed it (master plan's Plan Authoring Rule).
+All 4 required G3 items are done. **G3 is closed.**
 
 - **G3.1 done**: all 10 subtask PRs (C-PR1 #56 .. C-PR10 #65) merged into `task/v2c-graph-executor`, which is now merged into `main` via macro **PR #66** (merge commit `d9535c5`, 4 review rounds — see the PR for findings, or `docs/LESSON.md` 2026-07-13 for the technical detail worth remembering long-term).
-- **G3.2 done**: acceptance checklist verified with executable evidence — `tests/Unit/Executor/MacroCAcceptanceTest.php`, merged via **PR #67** (merge commit `5c435b2`). A real `JoinCoordinator` self-deadlock under the `sync` queue driver + `maxConcurrency>1` fan-out was found and documented as a tracked follow-up in `docs/LESSON.md`, not fixed (out of scope for a same-gate patch); the acceptance test itself uses the real DB queue driver to avoid it.
+- **G3.2 done**: acceptance checklist verified with executable evidence — `tests/Unit/Executor/MacroCAcceptanceTest.php`, merged via **PR #67** (merge commit `5c435b2`). A real `JoinCoordinator` self-deadlock under the `sync` queue driver + `maxConcurrency>1` fan-out was found and documented as a tracked follow-up in `docs/LESSON.md`, not fixed (out of scope for a same-gate patch — a genuine redesign of the join lock's critical section, per the LESSON.md entry's fix-shape sketch); the acceptance test itself uses the real DB queue driver to avoid it.
 - **G3.3 done**: this entry; lessons in `docs/LESSON.md` (2026-07-12, 2026-07-13 sections).
-- **G3.4 — NEXT STEP, BLOCKING**: author the detailed Macro D plan (Real-time & Triggers) and get it **user-reviewed** before any Macro D implementation starts. Macro D branch would be `task/v2d-realtime-triggers` off `main` per the master plan's macro order A→B→C→D→F(core)→E(Studio UI)→G(release).
+- **G3.4 done**: detailed Macro D plan authored at `docs/superpowers/plans/2026-07-12-macro-d-realtime-triggers.md` (broadcasting opt-in D-PR1, `laravel-flow-connect` CI bootstrap D-PR2, schedule/event/webhook triggers D-PR3/4/5), presented to the user via `AskUserQuestion` 2026-07-13, and explicitly approved ("Approva e prosegui in automode").
+- Final local gate on `main` post-G3: Pint pass, PHPStan no errors, **809 tests** (711 Unit + 5 Contract + 93 Arch).
+- **Next step**: create the Macro D branch `task/v2d-realtime-triggers` off `main` first (per the master plan's macro-branch convention — subtask PRs target the macro branch, not `main` directly), then branch D-PR1 (`task/v2d-01-broadcasting`) off `task/v2d-realtime-triggers` per the approved plan. Known tracked debt (non-blocking): `JoinCoordinator` sync-driver self-deadlock under `maxConcurrency>1` fan-out, `NodeExecutor`'s in-process retry-backoff sleep blocking queue workers instead of `release($backoff)` — both documented with fix shapes in `docs/LESSON.md` 2026-07-13, deliberately deferred.
 
 ## 2026-07-12 - Macro C / C-PR10 (approval gate node on graphs) — closes Macro C
 

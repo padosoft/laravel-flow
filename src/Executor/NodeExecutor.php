@@ -230,6 +230,42 @@ final class NodeExecutor
 
         $finishedAt = ($this->clock)();
 
+        // Approval token issuance is owned by the EXECUTOR, not the node —
+        // mirrors v1, where FlowEngine (not the ApprovalGate step) detects a
+        // paused ApprovalGate::class result and issues the token. Hash-only
+        // storage: the plain token returned here is never persisted, only
+        // available to this call's caller for the duration of this request.
+        // Issued BEFORE persist()/broadcast below: a NodeTransitioned(paused)
+        // listener may immediately query for the pending approval record, so
+        // the token must already exist by the time that event is observable —
+        // never announce a pause before the thing it is pausing FOR exists.
+        $issuedApprovalToken = null;
+
+        if ($state === NodeState::Paused
+            && $this->approvalTokens !== null
+            && $store !== null
+            && $resolved->definition->handlerClass === ApprovalGateNode::class
+        ) {
+            try {
+                $issuedApprovalToken = $this->approvalTokens->issue($runId, $node->id, [
+                    'definition_name' => $definitionName,
+                    'node_id' => $node->id,
+                ]);
+            } catch (Throwable $e) {
+                // The node itself already paused successfully — an
+                // approval-infrastructure failure must not fail it. Log only
+                // the exception CLASS and code — never the message, which for
+                // a QueryException embeds the SQL + bound params (the
+                // approval payload) — so a broken approval backend does not
+                // degrade invisibly, same discipline as the cache write below.
+                Log::warning('laravel-flow: approval token issuance failed; the node paused without an issuable token.', [
+                    'node_type' => $node->type,
+                    'exception' => $e::class,
+                    'code' => $e->getCode(),
+                ]);
+            }
+        }
+
         $this->persist($store, $runId, $node, $sequence, $state, $dryRun, [
             'handler' => $resolved->definition->handlerClass,
             'attempts' => $attempts,
@@ -244,38 +280,6 @@ final class NodeExecutor
             'finished_at' => $finishedAt,
             'duration_ms' => $this->durationMs($startedAt, $finishedAt),
         ]);
-
-        // Approval token issuance is owned by the EXECUTOR, not the node —
-        // mirrors v1, where FlowEngine (not the ApprovalGate step) detects a
-        // paused ApprovalGate::class result and issues the token. Hash-only
-        // storage: the plain token returned here is never persisted, only
-        // available to this call's caller for the duration of this request.
-        $issuedApprovalToken = null;
-
-        if ($state === NodeState::Paused
-            && $this->approvalTokens !== null
-            && $store !== null
-            && $resolved->definition->handlerClass === ApprovalGateNode::class
-        ) {
-            try {
-                $issuedApprovalToken = $this->approvalTokens->issue($runId, $node->id, [
-                    'definition_name' => $definitionName,
-                    'node_id' => $node->id,
-                ]);
-            } catch (Throwable $e) {
-                // The node itself already paused successfully and persisted —
-                // an approval-infrastructure failure must not fail it. Log
-                // only the exception CLASS and code — never the message, which
-                // for a QueryException embeds the SQL + bound params (the
-                // approval payload) — so a broken approval backend does not
-                // degrade invisibly, same discipline as the cache write below.
-                Log::warning('laravel-flow: approval token issuance failed; the node paused without an issuable token.', [
-                    'node_type' => $node->type,
-                    'exception' => $e::class,
-                    'code' => $e->getCode(),
-                ]);
-            }
-        }
 
         // Populate the cache after a fresh success (redaction gate + skip-on-
         // divergence enforced inside NodeCache::put()). Best-effort: a failed

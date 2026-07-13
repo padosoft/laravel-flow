@@ -17,6 +17,7 @@ use Padosoft\LaravelFlow\FlowEngine;
 use Padosoft\LaravelFlow\Graph\Connection;
 use Padosoft\LaravelFlow\Graph\GraphDefinition;
 use Padosoft\LaravelFlow\Graph\GraphNode;
+use Padosoft\LaravelFlow\Tests\Fixtures\GraphNodes\CompensatableRecordingNode;
 use Padosoft\LaravelFlow\Tests\Fixtures\GraphNodes\FailingGraphNode;
 use Padosoft\LaravelFlow\Tests\Fixtures\GraphNodes\QueueProbeNode;
 use Padosoft\LaravelFlow\Tests\Unit\Persistence\PersistenceTestCase;
@@ -28,7 +29,11 @@ final class GraphBroadcastingTest extends PersistenceTestCase
     {
         parent::defineEnvironment($app);
         $app['config']->set('laravel-flow.persistence.enabled', true);
-        $app['config']->set('laravel-flow.nodes.handlers', [QueueProbeNode::class, FailingGraphNode::class]);
+        $app['config']->set('laravel-flow.nodes.handlers', [
+            QueueProbeNode::class,
+            FailingGraphNode::class,
+            CompensatableRecordingNode::class,
+        ]);
         $app['config']->set('queue.default', 'sync');
     }
 
@@ -290,6 +295,84 @@ final class GraphBroadcastingTest extends PersistenceTestCase
 
         $this->assertNotNull($seenFinishedAt[$syncResult->runId] ?? null, 'sync run row was durable before the broadcast fired');
         $this->assertNotNull($seenFinishedAt[$queuedRunId] ?? null, 'queued run row was durable before the broadcast fired');
+    }
+
+    public function test_approval_gate_pause_broadcasts_only_after_the_token_is_issued(): void
+    {
+        // Real (non-faked) listener, same technique as the run-durability test
+        // above: a subscriber reacting to NodeTransitioned(paused) may
+        // immediately query for the pending approval — the token must already
+        // exist by the time this event is observable, not issued afterward.
+        $sawApprovalRow = null;
+        Event::listen(NodeTransitioned::class, function (NodeTransitioned $event) use (&$sawApprovalRow): void {
+            if ($event->state !== NodeState::Paused) {
+                return;
+            }
+
+            $sawApprovalRow = DB::table('flow_approvals')->where('run_id', $event->runId)->exists();
+        });
+        $this->app['config']->set('laravel-flow.broadcasting.enabled', true);
+
+        $graph = new GraphDefinition([new GraphNode('g', 'flow.approval')], []);
+        $this->app->make(FlowEngine::class)->runGraph($graph, []);
+
+        $this->assertTrue($sawApprovalRow, 'the approval token was already issued by the time the paused transition broadcast');
+    }
+
+    public function test_run_progress_broadcasts_the_compensated_outcome_after_a_full_rollback(): void
+    {
+        $this->app['config']->set('laravel-flow.broadcasting.enabled', true);
+        Event::fake([GraphRunProgressUpdated::class]);
+
+        $graph = new GraphDefinition(
+            [new GraphNode('a', 'test.saga.comp'), new GraphNode('f', 'test.fail')],
+            [new Connection('a', 'out', 'f', 'in')],
+        );
+
+        $result = $this->app->make(FlowEngine::class)->runGraph($graph, []);
+
+        $this->assertSame(RunState::Compensated, $result->state);
+
+        $statuses = [];
+        Event::assertDispatched(GraphRunProgressUpdated::class, function (GraphRunProgressUpdated $event) use ($result, &$statuses): bool {
+            if ($event->runId !== $result->runId) {
+                return false;
+            }
+
+            $statuses[] = $event->status;
+
+            return true;
+        });
+
+        $this->assertSame([RunState::PartiallySucceeded, RunState::Compensated], $statuses, 'a second, accurate snapshot follows the pre-compensation one');
+    }
+
+    public function test_queued_run_progress_broadcasts_the_compensated_outcome_after_a_full_rollback(): void
+    {
+        $this->app['config']->set('laravel-flow.broadcasting.enabled', true);
+        Event::fake([GraphRunProgressUpdated::class]);
+
+        $graph = new GraphDefinition(
+            [new GraphNode('a', 'test.saga.comp'), new GraphNode('f', 'test.fail')],
+            [new Connection('a', 'out', 'f', 'in')],
+        );
+
+        $runId = $this->app->make(FlowEngine::class)->dispatchGraph($graph, []);
+
+        $this->assertSame('compensated', DB::table('flow_runs')->where('id', $runId)->value('status'));
+
+        $statuses = [];
+        Event::assertDispatched(GraphRunProgressUpdated::class, function (GraphRunProgressUpdated $event) use ($runId, &$statuses): bool {
+            if ($event->runId !== $runId) {
+                return false;
+            }
+
+            $statuses[] = $event->status;
+
+            return true;
+        });
+
+        $this->assertSame([RunState::PartiallySucceeded, RunState::Compensated], $statuses, 'a second, accurate snapshot follows the pre-compensation one on the queued path too');
     }
 
     public function test_broadcasting_channel_is_private_and_run_scoped(): void

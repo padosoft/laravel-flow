@@ -47,8 +47,11 @@ final class BroadcastingIsolationTest extends TestCase
             }
 
             // Anything inside src/Broadcasting/ is exempt — that IS the
-            // contained namespace.
-            if (str_starts_with($file->getPathname(), $broadcastingRoot)) {
+            // contained namespace. The trailing separator is required: a bare
+            // prefix match would also exempt a SIBLING file/dir that merely
+            // shares the string prefix (e.g. src/BroadcastingFoo.php), a real
+            // gap in the isolation guarantee this test exists to enforce.
+            if (str_starts_with($file->getPathname(), $broadcastingRoot.DIRECTORY_SEPARATOR)) {
                 continue;
             }
 

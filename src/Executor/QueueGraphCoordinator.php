@@ -258,7 +258,16 @@ final class QueueGraphCoordinator
         // itself still ends `compensated`), and the join fires exactly once
         // either way.
         if ($compensationClaimed) {
-            $this->compensateIfFailed($runId, $graph);
+            // A subscriber that already saw the pre-compensation snapshot
+            // (broadcast above, before this saga even ran) must also see the
+            // run settle as `compensated` on a full rollback — re-broadcast
+            // AFTER persisting the outcome (compensateIfFailed's own writes),
+            // never before it. broadcastRunProgress() re-reads the run's
+            // now-current status fresh from the store, so it reports the real
+            // post-compensation state.
+            if ($this->compensateIfFailed($runId, $graph) && $this->progressBroadcaster !== null) {
+                $this->broadcastRunProgress($runId, $graph);
+            }
         }
 
         // Drive the parent join AFTER the lock is released (so the child's
@@ -511,22 +520,30 @@ final class QueueGraphCoordinator
      * rollback; a partial one keeps the provisional
      * `compensation_status = 'failed'` and the failure status.
      */
-    private function compensateIfFailed(string $runId, GraphDefinition $graph): void
+    /**
+     * @return bool true when this pass ran a saga that fully succeeded and
+     *              flipped the run to `RunState::Compensated` — the caller
+     *              uses this to decide whether a follow-up broadcast is
+     *              needed (a run whose compensation was never attempted, or
+     *              failed/partial, already has an accurate broadcast from
+     *              before this method ran).
+     */
+    private function compensateIfFailed(string $runId, GraphDefinition $graph): bool
     {
         if ($this->saga === null) {
-            return;
+            return false;
         }
 
         $run = $this->store->runs()->find($runId);
 
         if ($run === null) {
-            return;
+            return false;
         }
 
         $state = RunState::tryFrom((string) $run->status);
 
         if (! in_array($state, [RunState::Failed, RunState::PartiallySucceeded], true)) {
-            return;
+            return false;
         }
 
         /** @var array<string, NodeState> $states */
@@ -561,7 +578,7 @@ final class QueueGraphCoordinator
             // claim so its compensation_status ends null, same as the sync path.
             $this->store->runs()->update($runId, ['compensation_status' => null]);
 
-            return;
+            return false;
         }
 
         $attributes = [
@@ -574,6 +591,8 @@ final class QueueGraphCoordinator
         }
 
         $this->store->runs()->update($runId, $attributes);
+
+        return $report->fullySucceeded();
     }
 
     private function durationMs(mixed $startedAt, DateTimeImmutable $finishedAt): ?int

@@ -146,8 +146,9 @@ final class GraphRunner
         // settle-point is announced regardless of whether $store is null, only
         // ! $dryRun gates it (a dry run has zero externally-observable side
         // effects).
+        $counters = RunRollup::counters($states);
+
         if (! $dryRun && $this->progressBroadcaster !== null) {
-            $counters = RunRollup::counters($states);
             $this->progressBroadcaster->runProgressUpdated($runId, $runState, $nodesTotal, $counters['completed'], $counters['failed']);
         }
 
@@ -167,6 +168,15 @@ final class GraphRunner
                 }
 
                 $this->persistCompensationOutcome($store, $runId, $sagaReport);
+
+                // A subscriber that already saw the pre-compensation snapshot
+                // (failed/partially_succeeded, broadcast above) must also see
+                // the run settle as `compensated` on a full rollback — a
+                // second, ACCURATE snapshot after persisting the outcome,
+                // never before it (same durable-before-observable ordering).
+                if ($this->progressBroadcaster !== null && $runState === RunState::Compensated) {
+                    $this->progressBroadcaster->runProgressUpdated($runId, $runState, $nodesTotal, $counters['completed'], $counters['failed']);
+                }
             }
         }
 

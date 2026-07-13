@@ -1,5 +1,28 @@
 # Progress
 
+## 2026-07-13 - Macro D / D-PR5 (webhook trigger) — all 5 subtask PRs complete
+
+Work happened in the SIBLING repo `padosoft/laravel-flow-connect` (local checkout `../laravel-flow-connect`).
+
+- Branch `task/v2d-05-webhook-trigger` (in `laravel-flow-connect`, off its `main`): Task 5 of Macro D implemented — the FIFTH AND FINAL Macro D subtask.
+  - Signature scheme mirrors core's OUTBOUND delivery exactly (`src/WebhookDeliveryClient.php`): header `X-Laravel-Flow-Signature: t={unix timestamp},v1={hex hmac-sha256("{timestamp}.{raw body}", secret)}`.
+  - New `Http\WebhookRequestVerifier` (pure logic, no HTTP `Request` dependency): rejects a missing/malformed/tampered signature and an out-of-window timestamp as 401, malformed JSON as 422; replay protection reuses the signature itself as the nonce (a function of timestamp+body) cached via `Cache::add()` (atomic, closing a concurrent-duplicate-delivery race a read-then-write check would miss) — TTL is computed from the SIGNED timestamp's own window end, not from acceptance time, so a future-skewed timestamp's nonce doesn't expire before the timestamp itself would.
+  - New `Http\WebhookRequestController` (invokable) + `Triggers\WebhookTriggerRegistrar` + new shared `Triggers\WebhookTriggerConfig` (validate/read logic used by BOTH, since the registrar validates at boot and the controller re-resolves at request time).
+- **PR #5 MERGED** into `laravel-flow-connect`'s `main` after **5 Copilot/Codex review rounds**. Real findings fixed, in order:
+  1. (round 1) Route-cache risk — the initial design threaded `flow`/`secret`/`mapper`/window through as CLOSURE captures (a `$this`-bound arrow function) on the registered route; `route:cache` CAN technically serialize a plain closure in Laravel 13, but a `$this`-bound one drags the registrar's whole object graph (container/cache/trigger) into the cache too, risking either a serialization failure or stale service instances baked into a production cache file — see `docs/LESSON.md` for the source-verified mechanism (an initial write-up of this entry overclaimed "closures can't be cached," corrected after review). Replaced with an invokable controller class + `Route::defaults()`, which sidesteps the bound-object-graph problem regardless.
+  2. (round 1) `route_prefix` config value of `"/"` stripped to an empty string after slash-trimming (checked non-emptiness BEFORE trimming, not after); `replay_window_seconds` from `env()` (always a string when set) was silently discarded by an `is_int()`-only check; nonce TTL bug described above.
+  3. (round 2, Copilot — Codex's round-2 findings on these same two points were STALE, already fixed in round 1 and declined with evidence) Storing `secret` as a route DEFAULT means `route:cache` would write it verbatim into a build artifact — moved to request-time re-resolution from config (only the non-sensitive `slug` stays a route default); a config-key slug with `/`/`{`/`}` could split the URI into unintended segments — now validated against `[A-Za-z0-9_-]+` at boot.
+  4. (round 3) `Request::route()` can return null; a non-nullable `Route` parameter on the extraction helper could `TypeError` BEFORE the controller's own try/catch, undermining the "never leak an uncaught exception to an untrusted caller" guarantee — same bug CLASS as D-PR4's string-name-plus-payload dispatch finding, different call site. Made the parameter nullable.
+  5. (round 4) A whitespace-only secret (`"   "`) passed a bare `$secret === ''` check; slug extraction and config resolution ran BEFORE the try/catch despite the class docblock claiming the entire body was guarded — fixed by making the code match the stronger claim (moved inside the try) rather than weakening the docblock.
+  - Final local gate: Pint pass, PHPStan level 8 no errors, **69 tests** (67 Unit + 2 Contract) in `laravel-flow-connect`.
+
+**All 5 Macro D subtask PRs are now merged**: D-PR1 (broadcasting, this repo's PR #70+#71), D-PR2 (connect bootstrap + `FlowTrigger` contract — corrected mid-flight to live in CORE not connect, this repo's PR #72/#73/#74 + connect's PR #1/#2), D-PR3 (schedule trigger, connect PR #3 + this repo's PR #75), D-PR4 (event trigger, connect PR #4 + this repo's PR #76), D-PR5 (webhook trigger, connect PR #5, this entry).
+
+**Next step — Macro D Gate (G3), NOT yet done, reserved for the coordinating session (do not start Macro F before this)**:
+1. Merge the macro branch `task/v2d-realtime-triggers` → `main` via a macro PR, full G2 review loop (mirrors Macro C's macro PR #66).
+2. Verify the Macro D acceptance checklist from `docs/superpowers/plans/2026-07-07-flow-v2-program-master-plan.md`'s Macro D section WITH EXECUTABLE EVIDENCE (re-read the exact wording there, don't rely on memory) — the "streams over Reverb in a testbench app" clause likely needs an explicit decision on whether a real Reverb integration test belongs in CI or only a `Broadcast`/`Event::fake()`-based test suffices; document whichever call is made rather than silently downgrading the bar.
+3. Author the Macro F (AI Pack) detailed plan and get it **user-reviewed** before any Macro F work starts — same Plan Authoring Rule that gated Macro D (`docs/superpowers/plans/2026-07-07-flow-v2-program-master-plan.md`'s "## Macro F — AI Pack" section is the source).
+
 ## 2026-07-13 - Macro D / D-PR4 (event trigger)
 
 Work happened in the SIBLING repo `padosoft/laravel-flow-connect` (local checkout `../laravel-flow-connect`).

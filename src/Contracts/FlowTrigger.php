@@ -20,12 +20,11 @@ use Padosoft\LaravelFlow\FlowExecutionOptions;
  *
  * `fire()` is fire-and-forget: it queues a run and its OWN return type is
  * `void`, deliberately not surfacing {@see FlowEngine::dispatch()}'s
- * `mixed` return value — `dispatch()`'s underlying job is queue- and
- * after-commit-deferred, so what that value actually resolves to depends
- * on the configured queue connection/driver and must never be relied on
- * as a run identifier. A trigger that needs the resulting run id must
- * read it back later (e.g. via `FlowDashboardReadModel`), not from
- * `fire()`.
+ * `mixed` return value — what that value actually resolves to depends on
+ * the configured queue connection/driver and the surrounding transaction
+ * state, and must never be relied on as a run identifier. A trigger that
+ * needs the resulting run id must read it back later (e.g. via
+ * `FlowDashboardReadModel`), not from `fire()`.
  *
  * @api
  */

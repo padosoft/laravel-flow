@@ -12,11 +12,14 @@ use Padosoft\LaravelFlow\Executor\State\NodeState;
 
 /**
  * Broadcast when a graph node transitions to a new persisted state. Dispatched
- * from the single seam both the synchronous and queued graph executors persist
- * node state through ({@see NodeExecutor}), so
- * the two execution paths can never emit divergent events. Never dispatched on
- * a dry run (a simulation has no externally-observable side effects) or when
- * `laravel-flow.broadcasting.enabled` is `false`.
+ * from {@see NodeExecutor}'s single persist seam for every EXECUTED node (so
+ * the synchronous and queued graph executors can never emit divergent events
+ * for a node that actually ran), plus two additional emission points for
+ * nodes that never reach that seam because they never attempt a handler:
+ * `GraphRunner::persistBlocked()` (sync) and the queued coordinator's
+ * poison-propagation loop, both firing `NodeState::Blocked`. Never dispatched
+ * on a dry run (a simulation has no externally-observable side effects) or
+ * when `laravel-flow.broadcasting.enabled` is `false`.
  *
  * The package emits only — it ships NO channel authorization callback; the
  * host application's `routes/channels.php` decides who may subscribe.

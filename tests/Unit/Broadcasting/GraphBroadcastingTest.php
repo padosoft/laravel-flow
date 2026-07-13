@@ -6,6 +6,7 @@ namespace Padosoft\LaravelFlow\Tests\Unit\Broadcasting;
 
 use Illuminate\Broadcasting\PrivateChannel;
 use Illuminate\Contracts\Events\Dispatcher;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Padosoft\LaravelFlow\Broadcasting\GraphProgressBroadcaster;
 use Padosoft\LaravelFlow\Broadcasting\GraphRunProgressUpdated;
@@ -74,6 +75,27 @@ final class GraphBroadcastingTest extends PersistenceTestCase
         Event::fake([NodeTransitioned::class, GraphRunProgressUpdated::class]);
 
         $this->app->make(FlowEngine::class)->dryRunGraph($this->linearGraph(), []);
+
+        Event::assertNotDispatched(NodeTransitioned::class);
+        Event::assertNotDispatched(GraphRunProgressUpdated::class);
+    }
+
+    public function test_a_blocked_node_broadcasts_nothing_on_a_dry_run(): void
+    {
+        // persistBlocked() has its OWN broadcast call site (it never reaches
+        // NodeExecutor::persist()) and must honor the same dry-run silence —
+        // a dry run over a graph with an upstream failure still computes
+        // Blocked in-memory (the state machine doesn't care that $store is
+        // null), so this needs its own dedicated regression test.
+        $this->app['config']->set('laravel-flow.broadcasting.enabled', true);
+        Event::fake([NodeTransitioned::class, GraphRunProgressUpdated::class]);
+
+        $graph = new GraphDefinition(
+            [new GraphNode('f', 'test.fail'), new GraphNode('downstream', 'test.probe')],
+            [new Connection('f', 'out', 'downstream', 'in')],
+        );
+
+        $this->app->make(FlowEngine::class)->dryRunGraph($graph, []);
 
         Event::assertNotDispatched(NodeTransitioned::class);
         Event::assertNotDispatched(GraphRunProgressUpdated::class);
@@ -193,6 +215,25 @@ final class GraphBroadcastingTest extends PersistenceTestCase
         $this->assertSame(['out' => ['id' => 'b']], $result->nodeOutputs['b']);
         $this->assertSame(1, QueueProbeNode::count('a'));
         $this->assertSame(1, QueueProbeNode::count('b'));
+    }
+
+    public function test_run_progress_broadcasts_only_after_the_run_row_is_durable(): void
+    {
+        // Real (non-faked) listener: proves the DB write actually happened
+        // BEFORE this event fires, on both engines — Event::assertDispatched
+        // alone can't distinguish "before" from "after" a DB write, so this
+        // inspects the row from inside a live listener instead of faking.
+        $seenFinishedAt = [];
+        Event::listen(GraphRunProgressUpdated::class, function (GraphRunProgressUpdated $event) use (&$seenFinishedAt): void {
+            $seenFinishedAt[$event->runId] = DB::table('flow_runs')->where('id', $event->runId)->value('finished_at');
+        });
+        $this->app['config']->set('laravel-flow.broadcasting.enabled', true);
+
+        $syncResult = $this->app->make(FlowEngine::class)->runGraph($this->linearGraph(), []);
+        $queuedRunId = $this->app->make(FlowEngine::class)->dispatchGraph($this->linearGraph(), []);
+
+        $this->assertNotNull($seenFinishedAt[$syncResult->runId] ?? null, 'sync run row was durable before the broadcast fired');
+        $this->assertNotNull($seenFinishedAt[$queuedRunId] ?? null, 'queued run row was durable before the broadcast fired');
     }
 
     public function test_broadcasting_channel_is_private_and_run_scoped(): void

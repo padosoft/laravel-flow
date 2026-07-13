@@ -15,11 +15,14 @@ use Padosoft\LaravelFlow\Executor\State\RunState;
 /**
  * Aggregate progress snapshot for a graph run, broadcast on the SAME per-run
  * private channel as {@see NodeTransitioned}. Fired once a run settles into a
- * terminal or paused state (both the synchronous {@see GraphRunner}
- * and the queued {@see QueueGraphCoordinator}
- * compute the SAME counters via {@see RunRollup}
- * before dispatching this event, so the two paths can never disagree on the
- * snapshot). Never dispatched on a dry run or when
+ * terminal or paused state, ALWAYS after that state is durable: the
+ * synchronous {@see GraphRunner} computes counters via {@see RunRollup} and
+ * broadcasts right after its own persist write; the queued
+ * {@see QueueGraphCoordinator} never broadcasts while holding the `flow_runs`
+ * row lock — it re-reads the just-committed run row after the locked
+ * transaction closes and broadcasts from THAT (the same counters, sourced
+ * from the DB's own committed truth rather than recomputed outside the lock
+ * that produced them). Never dispatched on a dry run or when
  * `laravel-flow.broadcasting.enabled` is `false`.
  *
  * @api

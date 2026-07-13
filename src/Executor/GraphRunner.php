@@ -85,7 +85,7 @@ final class GraphRunner
 
             foreach ($decision->blocked as $id) {
                 $states[$id] = NodeState::Blocked;
-                $this->persistBlocked($store, $runId, $graph, $id, $sequenceOf[$id] ?? null);
+                $this->persistBlocked($store, $runId, $graph, $id, $sequenceOf[$id] ?? null, $dryRun);
                 $progressed = true;
             }
 
@@ -133,21 +133,23 @@ final class GraphRunner
 
         $runState = RunRollup::state($graph, $states);
 
-        // Aggregate progress snapshot: broadcast BEFORE any persistence write,
-        // same "decoupled from persistence" reasoning as node transitions — a
-        // dry run stays silent (zero externally-observable side effects), but
-        // a real run broadcasts its settle-point regardless of whether
-        // persistence is enabled.
-        if (! $dryRun && $this->progressBroadcaster !== null) {
-            $counters = RunRollup::counters($states);
-            $this->progressBroadcaster->runProgressUpdated($runId, $runState, $nodesTotal, $counters['completed'], $counters['failed']);
-        }
-
         // Persist the terminal state BEFORE compensation — v1's order, and the
         // same order as the queued coordinator's finalizeRun: finished_at /
         // duration_ms measure EXECUTION only (not rollback time), and a fatal
         // inside a user compensator can no longer strand the run row `running`.
         $this->persistRunFinished($store, $runId, $runState, $states, $outputs, $startedAt);
+
+        // Aggregate progress snapshot broadcasts AFTER the persist above — same
+        // "durable before observable" ordering as the queued coordinator (which
+        // re-reads its just-committed row rather than broadcast mid-transaction).
+        // Still decoupled from persistence.enabled: a subscriber-visible
+        // settle-point is announced regardless of whether $store is null, only
+        // ! $dryRun gates it (a dry run has zero externally-observable side
+        // effects).
+        if (! $dryRun && $this->progressBroadcaster !== null) {
+            $counters = RunRollup::counters($states);
+            $this->progressBroadcaster->runProgressUpdated($runId, $runState, $nodesTotal, $counters['completed'], $counters['failed']);
+        }
 
         // Graph saga: a failed run rolls back its COMPLETED nodes (reverse-
         // topological order / opt-in parallel; aggregate compensator last).
@@ -218,7 +220,7 @@ final class GraphRunner
         $store->runs()->create($attributes);
     }
 
-    private function persistBlocked(?FlowStore $store, string $runId, GraphDefinition $graph, string $nodeId, ?int $sequence): void
+    private function persistBlocked(?FlowStore $store, string $runId, GraphDefinition $graph, string $nodeId, ?int $sequence, bool $dryRun): void
     {
         $node = $graph->node($nodeId);
 
@@ -229,8 +231,10 @@ final class GraphRunner
         // Blocked nodes never reach NodeExecutor::persist() (poison propagation
         // marks them directly, no handler attempt) — broadcast here too, or a
         // live monitor would see the aggregate snapshot count them as failed
-        // with no per-node transition event to explain why.
-        if ($this->progressBroadcaster !== null) {
+        // with no per-node transition event to explain why. Gated on ! $dryRun
+        // like every other broadcast: a dry run is a simulation with zero
+        // externally-observable side effects.
+        if (! $dryRun && $this->progressBroadcaster !== null) {
             $this->progressBroadcaster->nodeTransitioned($runId, $nodeId, $node->type, NodeState::Blocked, $sequence ?? 0);
         }
 

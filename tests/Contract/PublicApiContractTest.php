@@ -68,6 +68,7 @@ final class PublicApiContractTest extends TestCase
         yield 'CurrentPayloadRedactorProvider contract' => ['Padosoft\\LaravelFlow\\Contracts\\CurrentPayloadRedactorProvider'];
         yield 'RedactorAwareFlowStore contract' => ['Padosoft\\LaravelFlow\\Contracts\\RedactorAwareFlowStore'];
         yield 'RedactorAwareApprovalRepository contract' => ['Padosoft\\LaravelFlow\\Contracts\\RedactorAwareApprovalRepository'];
+        yield 'FlowTrigger contract' => ['Padosoft\\LaravelFlow\\Contracts\\FlowTrigger'];
 
         yield 'FlowDashboardReadModel' => ['Padosoft\\LaravelFlow\\Dashboard\\FlowDashboardReadModel'];
         yield 'DashboardActionAuthorizer' => ['Padosoft\\LaravelFlow\\Dashboard\\Authorization\\DashboardActionAuthorizer'];
@@ -220,6 +221,32 @@ final class PublicApiContractTest extends TestCase
             'find',
             'put',
         ]);
+    }
+
+    public function test_flow_trigger_pins_fire_signature(): void
+    {
+        // Trigger contract added in Macro D D-PR2: lives in CORE (not the
+        // satellite laravel-flow-connect package) so it is a stable,
+        // SemVer-covered surface any trigger source can depend on.
+        $this->assertHasPublicMethods('Padosoft\\LaravelFlow\\Contracts\\FlowTrigger', [
+            'fire',
+        ]);
+
+        $method = (new ReflectionClass('Padosoft\\LaravelFlow\\Contracts\\FlowTrigger'))->getMethod('fire');
+        $parameters = $method->getParameters();
+
+        $this->assertCount(3, $parameters);
+        $this->assertSame('flowName', $parameters[0]->getName());
+        $this->assertFalse($parameters[0]->isOptional());
+        $this->assertSame('input', $parameters[1]->getName());
+        $this->assertTrue($parameters[1]->isOptional());
+        $this->assertSame('options', $parameters[2]->getName());
+        $this->assertTrue($parameters[2]->isOptional());
+        $this->assertNull($parameters[2]->getDefaultValue());
+
+        $returnType = $method->getReturnType();
+        $this->assertInstanceOf(\ReflectionNamedType::class, $returnType);
+        $this->assertSame('void', $returnType->getName());
     }
 
     public function test_internal_namespaces_are_marked_internal(): void

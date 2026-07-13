@@ -14,7 +14,7 @@ Per the master plan's G3 (Macro Gate) definition, there are 4 required items: (1
 - **G3.3 done**: this entry; `docs/LESSON.md` has a new 2026-07-13 entry on the stale-branch/`gh pr create`-defaults-to-current-branch gotcha.
 - Final local gate on `main` post-G3: **core** — Pint pass, PHPStan no errors, **829 tests** (727 Unit + 6 Contract + 96 Arch). **`laravel-flow-connect`** — Pint pass, PHPStan level 8 clean, **69 tests** (67 Unit + 2 Contract).
 - **Structural note for cold restarts**: Macro D's real trigger IMPLEMENTATIONS (`ScheduleTrigger`, `EventTrigger`, `WebhookTrigger`) live entirely in the separate `padosoft/laravel-flow-connect` repository (sibling checkout `../laravel-flow-connect`), not in this repo — this repo's contribution is broadcasting (D-PR1) and the shared `FlowTrigger` contract (`src/Contracts/FlowTrigger.php`, D-PR2) that connect's triggers implement against.
-- **Known gap, not blocking**: README (`padosoft/laravel-flow` core) `Comparison vs alternatives` does not yet have a row for the trigger capabilities (schedule/event/webhook) — broadcasting's row was already added during D-PR1, but the plan's housekeeping section calls for trigger rows too "once D-PR1/D-PR3/D-PR4/D-PR5 land." Deferred as a small follow-up (not part of G3's own gate criteria, which concern the macro merge + acceptance evidence, not README completeness).
+- **README updated** (round-2 review, Codex): added the "Declarative trigger sources" `Comparison vs alternatives` row and a matching "Features at a glance" bullet — competitor claims researched fresh via `WebSearch` against Temporal (native Schedules, no built-in inbound webhook), AWS Step Functions (EventBridge Scheduler/Rules integration, no built-in webhook), Symfony Workflow (no built-in trigger support at all, separate unwired Scheduler/Webhook components), and Durable Workflow (a built-in webhook command per its sample app, schedule support unconfirmed as a declarative package primitive) — conservative PARTIAL/NO ratings where the public documentation didn't clearly confirm a capability.
 - **Next step**: author the Macro F (AI Pack) detailed plan and get it **user-reviewed** before any Macro F work starts, per the master plan's Plan Authoring Rule (same gate that applied to Macro D) — reserved for the coordinating session, not started here.
 
 ## 2026-07-13 - Macro D / D-PR5 (webhook trigger) — all 5 subtask PRs complete
@@ -35,10 +35,10 @@ Work happened in the SIBLING repo `padosoft/laravel-flow-connect` (local checkou
 
 **All 5 Macro D subtask PRs are now merged**: D-PR1 (broadcasting, this repo's PR #70+#71), D-PR2 (connect bootstrap + `FlowTrigger` contract — corrected mid-flight to live in CORE not connect, this repo's PR #72/#73/#74 + connect's PR #1/#2), D-PR3 (schedule trigger, connect PR #3 + this repo's PR #75), D-PR4 (event trigger, connect PR #4 + this repo's PR #76), D-PR5 (webhook trigger, connect PR #5, this entry).
 
-**Next step — Macro D Gate (G3), NOT yet done, reserved for the coordinating session (do not start Macro F before this)**:
-1. Merge the macro branch `task/v2d-realtime-triggers` → `main` via a macro PR, full G2 review loop (mirrors Macro C's macro PR #66).
-2. Verify the Macro D acceptance checklist from `docs/superpowers/plans/2026-07-07-flow-v2-program-master-plan.md`'s Macro D section WITH EXECUTABLE EVIDENCE (re-read the exact wording there, don't rely on memory) — the "streams over Reverb in a testbench app" clause likely needs an explicit decision on whether a real Reverb integration test belongs in CI or only a `Broadcast`/`Event::fake()`-based test suffices; document whichever call is made rather than silently downgrading the bar.
-3. Author the Macro F (AI Pack) detailed plan and get it **user-reviewed** before any Macro F work starts — same Plan Authoring Rule that gated Macro D (`docs/superpowers/plans/2026-07-07-flow-v2-program-master-plan.md`'s "## Macro F — AI Pack" section is the source).
+**SUPERSEDED — see the "Macro D Gate G3.1-G3.3 DONE, G3.4 PENDING" entry at the top of this file for the current, authoritative Gate G3 status.** (Historical checklist, kept for the record of what was originally planned at this point:)
+1. ~~Merge the macro branch `task/v2d-realtime-triggers` → `main` via a macro PR~~ — done, macro PR #78, merge commit `c9532d7`.
+2. ~~Verify the Macro D acceptance checklist... WITH EXECUTABLE EVIDENCE~~ — done, see the top entry (the Reverb clause was flagged as fake-only coverage, not silently claimed).
+3. Author the Macro F (AI Pack) detailed plan and get it **user-reviewed** before any Macro F work starts — still outstanding, this is G3.4, reserved for the coordinating session.
 
 ## 2026-07-13 - Macro D / D-PR4 (event trigger)
 

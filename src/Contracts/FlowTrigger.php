@@ -12,19 +12,18 @@ use Padosoft\LaravelFlow\FlowExecutionOptions;
  * cron tick, a host application event, an inbound HTTP request. Concrete
  * trigger implementations (`ScheduleTrigger`, `EventTrigger`,
  * `WebhookTrigger`) live in the satellite `padosoft/laravel-flow-connect`
- * package and each own their OWN registration and input-mapping logic;
+ * package; each owns its own registration and input-mapping logic, and
  * `fire()` is the single shared seam that hands the already-mapped input
  * to this engine. The contract lives in CORE (not in the satellite
  * package) so it is a stable, SemVer-covered surface any trigger source —
  * first-party or third-party — can depend on and implement against.
  *
- * `fire()` mirrors {@see FlowEngine::dispatch()}'s own fire-and-forget
- * contract exactly: it queues a run and returns nothing. `dispatch()`
- * itself returns `mixed` — its underlying job is queue- and
- * after-commit-deferred, so what that return value actually resolves to
- * depends on the configured queue connection/driver and is NOT something
- * a caller should rely on as a run identifier. `fire()` deliberately
- * does not surface it. A trigger that needs the resulting run id must
+ * `fire()` is fire-and-forget: it queues a run and its OWN return type is
+ * `void`, deliberately not surfacing {@see FlowEngine::dispatch()}'s
+ * `mixed` return value — `dispatch()`'s underlying job is queue- and
+ * after-commit-deferred, so what that value actually resolves to depends
+ * on the configured queue connection/driver and must never be relied on
+ * as a run identifier. A trigger that needs the resulting run id must
  * read it back later (e.g. via `FlowDashboardReadModel`), not from
  * `fire()`.
  *

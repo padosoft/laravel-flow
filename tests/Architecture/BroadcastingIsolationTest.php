@@ -52,7 +52,12 @@ final class BroadcastingIsolationTest extends TestCase
                 continue;
             }
 
-            $contents = (string) file_get_contents($file->getPathname());
+            $contents = file_get_contents($file->getPathname());
+
+            // A read failure must FAIL the test, not silently become an empty
+            // string that trivially contains no forbidden substring — that
+            // would let an unreadable file bypass the isolation guarantee.
+            $this->assertNotFalse($contents, "Could not read {$file->getPathname()}");
 
             foreach (self::FORBIDDEN_SUBSTRINGS as $needle) {
                 if (str_contains($contents, $needle)) {

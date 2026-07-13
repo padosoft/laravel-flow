@@ -24,6 +24,15 @@ use Throwable;
  * `Illuminate\Support\Facades\Event::fake()` observe these dispatches in
  * tests without a real broadcast connection configured.
  *
+ * IMPORTANT consumer-facing guarantee: dispatch is wrapped in a broad
+ * `catch (Throwable)` (logged as a warning, never rethrown) so that a failing
+ * BROADCAST DRIVER can never abort node execution or its durable persistence.
+ * This catch is NOT scoped to the driver — it also swallows an exception
+ * thrown by ANY listener attached to {@see NodeTransitioned} or
+ * {@see GraphRunProgressUpdated} (host-app listeners included). Do not attach
+ * a listener whose failure must be surfaced/must abort the run; it will be
+ * logged, not propagated.
+ *
  * @internal
  */
 final class GraphProgressBroadcaster

@@ -27,6 +27,12 @@ use Padosoft\LaravelFlow\Executor\State\NodeState;
  * The package emits only — it ships NO channel authorization callback; the
  * host application's `routes/channels.php` decides who may subscribe.
  *
+ * CONSUMER WARNING: dispatch is wrapped in a broad catch (logged as a
+ * warning, never rethrown) so a broadcast-driver failure can never abort
+ * node execution — but that catch also swallows an exception thrown by ANY
+ * listener you attach to this event. Do not attach a listener whose failure
+ * must be surfaced or must abort the run; it will be logged, not propagated.
+ *
  * @api
  */
 final class NodeTransitioned implements ShouldBroadcastNow

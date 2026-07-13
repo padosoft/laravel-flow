@@ -25,6 +25,12 @@ use Padosoft\LaravelFlow\Executor\State\RunState;
  * that produced them). Never dispatched on a dry run or when
  * `laravel-flow.broadcasting.enabled` is `false`.
  *
+ * CONSUMER WARNING: dispatch is wrapped in a broad catch (logged as a
+ * warning, never rethrown) so a broadcast-driver failure can never abort a
+ * run — but that catch also swallows an exception thrown by ANY listener you
+ * attach to this event. Do not attach a listener whose failure must be
+ * surfaced or must abort the run; it will be logged, not propagated.
+ *
  * @api
  */
 final class GraphRunProgressUpdated implements ShouldBroadcastNow

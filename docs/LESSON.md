@@ -1,6 +1,6 @@
 # Lessons
 
-## 2026-07-14 (Macro F Gate G3 — laravel-flow-ai macro PR, first full-branch diff review)
+## 2026-07-14 (Macro F Gate G3 — laravel-flow-ai macro PR, its first full-branch diff review)
 
 - A per-subtask PR review (each F-PR diffed against the PREVIOUS subtask's head, not against `main`) only ever sees the code that PR itself touched — it cannot catch a bug that was introduced correctly-in-isolation in one PR and only becomes visible when read alongside code from a DIFFERENT, earlier PR (a test using a node-type string that a LATER PR silently renamed; a decode pattern copy-pasted between two files where only one got its later bugfix). This program's macro-gate PR (the WHOLE macro branch diffed against `main` in one shot) is not just a formality before merging — it is a genuinely DIFFERENT review surface that catches a genuinely different class of bug, and this session's own Macro F gate proved it: 4 real findings surfaced on the macro-level review that 8 rounds of per-subtask review across 8 separate PRs had all missed, including one bug (`LlmPromptNode::tryDecodeObject()`'s shallow-cast) that was the ORIGINAL of a pattern this program had ALREADY fixed once in a later PR's COPY of it (`BoundedAgentNode`, F-PR6) without ever circling back to fix the source it was copied from. Never skip or rubber-stamp the macro-gate full-diff review as "just re-checking what per-subtask review already covered" — budget real review time for it specifically.
 

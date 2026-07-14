@@ -109,6 +109,36 @@ final class FlowDashboardReadModelTest extends PersistenceTestCase
         $this->assertNull($this->reader()->findRun('does-not-exist'));
     }
 
+    public function test_step_counts_returns_counts_per_run_in_a_single_query(): void
+    {
+        $this->migrateFlowTables();
+        $engine = $this->engineWithPersistence();
+
+        $engine->define('flow.dashboard.step-counts-two')
+            ->step('one', AlwaysSucceedsHandler::class)
+            ->step('two', AlwaysSucceedsHandler::class)
+            ->register();
+        $engine->define('flow.dashboard.step-counts-one')
+            ->step('only', AlwaysSucceedsHandler::class)
+            ->register();
+
+        $twoStepRun = $engine->execute('flow.dashboard.step-counts-two', []);
+        $oneStepRun = $engine->execute('flow.dashboard.step-counts-one', []);
+
+        $counts = $this->reader()->stepCounts([$twoStepRun->id, $oneStepRun->id, 'does-not-exist']);
+
+        $this->assertSame(2, $counts[$twoStepRun->id]);
+        $this->assertSame(1, $counts[$oneStepRun->id]);
+        $this->assertArrayNotHasKey('does-not-exist', $counts);
+    }
+
+    public function test_step_counts_returns_empty_array_for_empty_input(): void
+    {
+        $this->migrateFlowTables();
+
+        $this->assertSame([], $this->reader()->stepCounts([]));
+    }
+
     public function test_step_summary_projection_is_preserved_after_persistence_unification(): void
     {
         // Golden projection: a fixed v1 flow persisted onto the unified

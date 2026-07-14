@@ -1,5 +1,13 @@
 # Progress
 
+## 2026-07-14 - Small core addition for Macro E / E-PR0: `FlowDashboardReadModel::stepCounts()`
+
+- **Why**: while rewriting `laravel-flow-admin`'s `EloquentReadModel` to route every read through core's `@api` `FlowDashboardReadModel` (E-PR0, in the `laravel-flow-admin` repo), a local Copilot CLI review round caught a real N+1: `listRuns()` was computing each row's step count via `findRun($runId)` — 5 queries + full run-detail hydration PER ROW on the runs list page (up to ~125 queries for a default 25-row page), where the old raw-SQL adapter did it in ONE batched `groupBy` query. Core's `@api` surface had no batch primitive to restore that, so this is a small, additive, well-tested core fix consumed by the admin PR.
+- Added `FlowDashboardReadModel::stepCounts(array $runIds): array<string, int>` — one `GROUP BY run_id` query over `flow_run_nodes`, missing run ids simply absent from the result (caller defaults to 0). Purely additive `@api` change: `tests/Contract/PublicApiContractTest.php` updated to pin the new method; `docs/UPGRADE.md`'s "Additive `@api` (non-breaking)" section for v2.0 gained a bullet.
+- Two new tests in `FlowDashboardReadModelTest` (real `$engine->execute()` runs, not raw table inserts, matching the file's existing convention): counts-per-run-in-one-query (two different flows, one 2-step and one 1-step, plus a nonexistent run id absent from the result) and empty-input returns `[]`.
+- Final local gate on `padosoft-laravel-flow`: Pint pass, PHPStan level 8 clean, **729 tests / 2427 assertions** (Contract suite: 96 tests / 560 assertions).
+- **Next step**: PR `task/v2core-dashboard-step-counts` → `main`, Copilot review + CI, merge; then finish wiring the new method into `laravel-flow-admin`'s `EloquentReadModel::listRuns()` (E-PR0) to actually eliminate the N+1 that motivated this.
+
 ## 2026-07-14 - Macro F Gate G3 FULLY CLOSED — Macro E starting
 
 All 4 required G3 items are done. **G3 is closed.**

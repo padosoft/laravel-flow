@@ -82,6 +82,38 @@ final class FlowDashboardReadModel
     }
 
     /**
+     * Step count per run, for a batch of run ids, in a single grouped
+     * query — for consumers (e.g. a runs list view) that need each row's
+     * step count without paying `findRun()`'s full detail cost (steps +
+     * audit + approvals + webhook outbox) once per row. Run ids absent
+     * from the result have zero steps; the caller should default missing
+     * keys to 0.
+     *
+     * @param  list<string>  $runIds
+     * @return array<string, int> keyed by run id
+     */
+    public function stepCounts(array $runIds): array
+    {
+        if ($runIds === []) {
+            return [];
+        }
+
+        $rows = $this->stepQuery()
+            ->whereIn('run_id', $runIds)
+            ->selectRaw('run_id, count(*) as step_count')
+            ->groupBy('run_id')
+            ->get();
+
+        $counts = [];
+        foreach ($rows as $row) {
+            /** @var FlowRunNodeRecord $row */
+            $counts[(string) $row->run_id] = (int) $row->getAttribute('step_count');
+        }
+
+        return $counts;
+    }
+
+    /**
      * @return list<ApprovalSummary>
      */
     public function pendingApprovals(?int $limit = null): array

@@ -168,6 +168,7 @@ final class PublicApiContractTest extends TestCase
         $this->assertHasPublicMethods('Padosoft\\LaravelFlow\\Dashboard\\FlowDashboardReadModel', [
             'listRuns',
             'findRun',
+            'stepCounts',
             'pendingApprovals',
             'listApprovals',
             'failedWebhookOutbox',

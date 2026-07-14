@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Padosoft\LaravelFlow\Tests\Unit\Dashboard;
 
 use Illuminate\Support\Facades\Date;
+use Illuminate\Support\Facades\DB;
 use Padosoft\LaravelFlow\Dashboard\ApprovalFilter;
 use Padosoft\LaravelFlow\Dashboard\FlowDashboardReadModel;
 use Padosoft\LaravelFlow\Dashboard\Pagination;
@@ -107,6 +108,42 @@ final class FlowDashboardReadModelTest extends PersistenceTestCase
         $this->migrateFlowTables();
 
         $this->assertNull($this->reader()->findRun('does-not-exist'));
+    }
+
+    public function test_step_counts_returns_counts_per_run_in_a_single_query(): void
+    {
+        $this->migrateFlowTables();
+        $engine = $this->engineWithPersistence();
+
+        $engine->define('flow.dashboard.step-counts-two')
+            ->step('one', AlwaysSucceedsHandler::class)
+            ->step('two', AlwaysSucceedsHandler::class)
+            ->register();
+        $engine->define('flow.dashboard.step-counts-one')
+            ->step('only', AlwaysSucceedsHandler::class)
+            ->register();
+
+        $twoStepRun = $engine->execute('flow.dashboard.step-counts-two', []);
+        $oneStepRun = $engine->execute('flow.dashboard.step-counts-one', []);
+
+        DB::connection()->enableQueryLog();
+
+        $counts = $this->reader()->stepCounts([$twoStepRun->id, $oneStepRun->id, 'does-not-exist']);
+
+        $queries = DB::connection()->getQueryLog();
+        DB::connection()->flushQueryLog();
+
+        $this->assertCount(1, $queries, 'stepCounts() must run exactly one grouped query regardless of how many run ids are requested.');
+        $this->assertSame(2, $counts[$twoStepRun->id]);
+        $this->assertSame(1, $counts[$oneStepRun->id]);
+        $this->assertArrayNotHasKey('does-not-exist', $counts);
+    }
+
+    public function test_step_counts_returns_empty_array_for_empty_input(): void
+    {
+        $this->migrateFlowTables();
+
+        $this->assertSame([], $this->reader()->stepCounts([]));
     }
 
     public function test_step_summary_projection_is_preserved_after_persistence_unification(): void

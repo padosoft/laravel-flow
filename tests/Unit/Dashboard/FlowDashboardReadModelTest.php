@@ -14,6 +14,7 @@ use Padosoft\LaravelFlow\Dashboard\WebhookOutboxFilter;
 use Padosoft\LaravelFlow\FlowEngine;
 use Padosoft\LaravelFlow\FlowRun;
 use Padosoft\LaravelFlow\Models\FlowApprovalRecord;
+use Padosoft\LaravelFlow\Models\FlowRunNodeRecord;
 use Padosoft\LaravelFlow\Models\FlowWebhookOutboxRecord;
 use Padosoft\LaravelFlow\Tests\Unit\Persistence\PersistenceTestCase;
 use Padosoft\LaravelFlow\Tests\Unit\Stubs\AlwaysFailsHandler;
@@ -182,6 +183,42 @@ final class FlowDashboardReadModelTest extends PersistenceTestCase
             ['name' => 'charge', 'sequence' => 2, 'status' => 'succeeded', 'handler' => AlwaysSucceedsHandler::class],
             ['name' => 'notify', 'sequence' => 3, 'status' => 'succeeded', 'handler' => AlwaysSucceedsHandler::class],
         ], $projection);
+
+        // A fresh (non-cached) run reports every step as a cache MISS.
+        foreach ($detail->steps as $step) {
+            $this->assertFalse($step->cacheHit);
+        }
+    }
+
+    public function test_step_summary_reports_a_cache_hit_from_the_stored_column(): void
+    {
+        $this->migrateFlowTables();
+        $engine = $this->engineWithPersistence();
+
+        $engine->define('flow.dashboard.cache-projection')
+            ->step('fetch', AlwaysSucceedsHandler::class)
+            ->step('render', AlwaysSucceedsHandler::class)
+            ->register();
+
+        $run = $engine->execute('flow.dashboard.cache-projection', []);
+
+        // Simulate the second node being served from the node cache: the
+        // engine records the cache content hash in flow_run_nodes.cache_hit.
+        FlowRunNodeRecord::query()
+            ->where('run_id', $run->id)
+            ->where('node_id', 'render')
+            ->update(['cache_hit' => 'c0ffee-content-hash']);
+
+        $detail = $this->reader()->findRun($run->id);
+        $this->assertNotNull($detail);
+
+        $byName = [];
+        foreach ($detail->steps as $step) {
+            $byName[$step->name] = $step->cacheHit;
+        }
+
+        $this->assertFalse($byName['fetch']);
+        $this->assertTrue($byName['render']);
     }
 
     public function test_pending_approvals_returns_only_pending_records(): void

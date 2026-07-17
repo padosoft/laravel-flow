@@ -393,10 +393,24 @@ class FlowEngine
      */
     public function redeliverWebhook(int $outboxId): bool
     {
+        // Guard persistence like every other DB-backed public method (e.g.
+        // dispatchGraph :307, approval resume/reject :1371): a fresh app with
+        // persistence disabled (the default) has no outbox table, so touching
+        // the repository would surface a raw QueryException/500 instead of this
+        // stable, typed failure.
+        if ($this->storeForExecution(false) === null) {
+            throw new FlowExecutionException('Webhook redelivery requires persistence to be enabled.');
+        }
+
         /** @var EloquentWebhookOutboxRepository $repository */
         $repository = $this->container->make(EloquentWebhookOutboxRepository::class);
 
-        return $repository->redeliver($outboxId);
+        try {
+            return $repository->redeliver($outboxId);
+        } catch (QueryException $e) {
+            // Never leak the low-level SQL/driver error to an @api caller.
+            throw new FlowExecutionException('Webhook redelivery failed.', previous: $e);
+        }
     }
 
     /**

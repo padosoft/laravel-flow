@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Padosoft\LaravelFlow\Tests\Unit\Persistence;
 
+use Padosoft\LaravelFlow\Exceptions\FlowExecutionException;
 use Padosoft\LaravelFlow\FlowEngine;
 use Padosoft\LaravelFlow\FlowRun;
 use Padosoft\LaravelFlow\Models\FlowApprovalRecord;
@@ -203,6 +204,19 @@ final class WebhookOutboxTest extends PersistenceTestCase
         $this->assertFalse($engine->redeliverWebhook((int) $delivered->id));
         $this->assertSame(FlowWebhookOutboxRecord::STATUS_DELIVERED, $delivered->fresh()?->status);
         $this->assertFalse($engine->redeliverWebhook(999999));
+    }
+
+    public function test_redeliver_requires_persistence_enabled(): void
+    {
+        $this->app['config']->set('laravel-flow.persistence.enabled', false);
+        $this->app->forgetInstance(FlowEngine::class);
+        /** @var FlowEngine $engine */
+        $engine = $this->app->make(FlowEngine::class);
+
+        // With persistence off there is no outbox table — the @api method must
+        // surface a stable typed failure, not a raw QueryException.
+        $this->expectException(FlowExecutionException::class);
+        $engine->redeliverWebhook(1);
     }
 
     private function engineWithPersistence(): FlowEngine

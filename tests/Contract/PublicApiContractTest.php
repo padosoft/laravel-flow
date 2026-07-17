@@ -121,6 +121,7 @@ final class PublicApiContractTest extends TestCase
             'resume',
             'reject',
             'redeliverWebhook',
+            'cancel',
         ]);
     }
 
@@ -235,6 +236,7 @@ final class PublicApiContractTest extends TestCase
             'states',
             'claim',
             'releaseClaim',
+            'terminate',
         ]);
     }
 

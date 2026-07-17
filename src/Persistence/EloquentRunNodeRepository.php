@@ -99,6 +99,24 @@ final class EloquentRunNodeRepository implements RunNodeRepository
         return $affected === 1;
     }
 
+    public function terminate(string $runId, string $nodeId, string $expectedStatus, string $newStatus, DateTimeInterface $finishedAt, ?int $durationMs, ?string $errorClass = null, ?string $errorMessage = null): bool
+    {
+        $affected = $this->newModel()->newQuery()
+            ->where('run_id', $runId)
+            ->where('node_id', $nodeId)
+            ->where('status', $expectedStatus)
+            ->update([
+                'status' => $newStatus,
+                'finished_at' => $finishedAt,
+                'duration_ms' => $durationMs,
+                'error_class' => $errorClass,
+                'error_message' => $errorMessage,
+                'updated_at' => $this->newModel()->freshTimestamp(),
+            ]);
+
+        return $affected === 1;
+    }
+
     private function newModel(): FlowRunNodeRecord
     {
         return (new FlowRunNodeRecord)->setConnection($this->connection);

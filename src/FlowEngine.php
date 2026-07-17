@@ -690,8 +690,17 @@ class FlowEngine
             $definitions = $this->container->make(DefinitionRepository::class);
             $stored = $definitions->find($name, $version);
         } catch (Throwable $e) {
-            // Covers a missing pinned version (DefinitionNotFoundException) and
-            // an unreachable persistence connection alike.
+            // A raw DB error (missing migrations / unreachable connection) gets
+            // the standard persistence-unavailable message; anything else (e.g.
+            // DefinitionNotFoundException) is a load failure for this version.
+            // NOTE: an `instanceof` inside the Throwable catch, not a separate
+            // `catch (QueryException)` — DefinitionRepository::find() isn't
+            // declared to throw QueryException, so a dedicated catch clause
+            // would be flagged as dead code.
+            if ($e instanceof QueryException) {
+                throw $this->flowPersistenceUnavailableException($e);
+            }
+
             throw new FlowExecutionException(sprintf('Stored graph version [%d] for definition [%s] could not be loaded for replay.', $version, $name), previous: $e);
         }
 

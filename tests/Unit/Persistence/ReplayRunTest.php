@@ -17,10 +17,11 @@ use Padosoft\LaravelFlow\Tests\Fixtures\GraphNodes\JsonEmitNode;
 use Padosoft\LaravelFlow\Tests\Unit\Stubs\AlwaysSucceedsHandler;
 
 /**
- * Covers the programmatic {@see FlowEngine::replay()} @api seam's legacy path
- * and its error contract. The pinned-graph replay path shares its logic with
- * the `flow:replay` command's pinned path (exercised by
- * {@see ReplayFlowRunCommandTest}).
+ * Covers the programmatic {@see FlowEngine::replay()} @api seam: the legacy and
+ * pinned-graph happy paths (each returning a new linked {@see FlowRun}) plus its
+ * error contract (non-terminal, unknown run, non-array input, unpinned graph
+ * run, persistence disabled). The `flow:replay` command's own path is exercised
+ * separately by {@see ReplayFlowRunCommandTest}.
  */
 final class ReplayRunTest extends PersistenceTestCase
 {

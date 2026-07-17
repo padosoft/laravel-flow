@@ -595,8 +595,9 @@ class FlowEngine
      * (or pinned) definition exactly as the command does.
      *
      * @throws FlowExecutionException for a missing / non-terminal / non-array-input
-     *                                run, an unregistered definition, or an
-     *                                unloadable stored graph version
+     *                                run, an UNPINNED graph run (engine `graph`
+     *                                with no stored version), an unregistered
+     *                                definition, or an unloadable stored graph version
      */
     public function replay(string $runId, ?FlowExecutionOptions $options = null): FlowRun
     {

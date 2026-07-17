@@ -204,10 +204,11 @@ final class FlowDashboardReadModelTest extends PersistenceTestCase
 
         // Simulate the second node being served from the node cache: the
         // engine records the cache content hash in flow_run_nodes.cache_hit.
+        // A realistic 64-hex content hash, matching what NodeCache stores.
         FlowRunNodeRecord::query()
             ->where('run_id', $run->id)
             ->where('node_id', 'render')
-            ->update(['cache_hit' => 'c0ffee-content-hash']);
+            ->update(['cache_hit' => str_repeat('a1b2c3d4e5f6a7b8', 4)]);
 
         $detail = $this->reader()->findRun($run->id);
         $this->assertNotNull($detail);

@@ -183,7 +183,9 @@ final class PublicApiContractTest extends TestCase
         $reflection = new ReflectionClass('Padosoft\\LaravelFlow\\Dashboard\\StepSummary');
         $properties = array_map(
             static fn (\ReflectionProperty $property): string => $property->getName(),
-            $reflection->getProperties(),
+            // PUBLIC only — the pinned surface is the readable DTO contract,
+            // so making any of these private/protected must fail this test.
+            $reflection->getProperties(\ReflectionProperty::IS_PUBLIC),
         );
 
         foreach ([

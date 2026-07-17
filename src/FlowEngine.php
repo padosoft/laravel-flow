@@ -368,7 +368,7 @@ class FlowEngine
      */
     public function resume(string $token, array $payload = [], array $actor = []): FlowRun
     {
-        return $this->decideApproval($token, FlowApprovalRecord::STATUS_APPROVED, $payload, $actor);
+        return $this->decideApproval($this->approvalTokenHash($token), FlowApprovalRecord::STATUS_APPROVED, $payload, $actor);
     }
 
     /**
@@ -379,7 +379,55 @@ class FlowEngine
      */
     public function reject(string $token, array $payload = [], array $actor = []): FlowRun
     {
-        return $this->decideApproval($token, FlowApprovalRecord::STATUS_REJECTED, $payload, $actor);
+        return $this->decideApproval($this->approvalTokenHash($token), FlowApprovalRecord::STATUS_REJECTED, $payload, $actor);
+    }
+
+    /**
+     * Resume a persisted approval gate by the stored token HASH — the form a
+     * companion dashboard holds (plain tokens are never recoverable from
+     * storage). Byte-for-byte equivalent to `resume(plainToken)` for the same
+     * approval. @see ApprovalTokenManager::hashToken()
+     *
+     * @param  array<string, mixed>  $payload
+     * @param  array<string, mixed>  $actor
+     */
+    public function resumeByHash(string $tokenHash, array $payload = [], array $actor = []): FlowRun
+    {
+        return $this->decideApproval($this->normalizeApprovalTokenHash($tokenHash), FlowApprovalRecord::STATUS_APPROVED, $payload, $actor);
+    }
+
+    /**
+     * Reject a persisted approval gate by the stored token HASH (dashboard
+     * counterpart of {@see self::reject()}).
+     *
+     * @param  array<string, mixed>  $payload
+     * @param  array<string, mixed>  $actor
+     */
+    public function rejectByHash(string $tokenHash, array $payload = [], array $actor = []): FlowRun
+    {
+        return $this->decideApproval($this->normalizeApprovalTokenHash($tokenHash), FlowApprovalRecord::STATUS_REJECTED, $payload, $actor);
+    }
+
+    private function approvalTokenHash(string $plainToken): string
+    {
+        $plainToken = trim($plainToken);
+
+        if ($plainToken === '') {
+            throw new FlowInputException('Approval token must not be blank.');
+        }
+
+        return ApprovalTokenManager::hashToken($plainToken);
+    }
+
+    private function normalizeApprovalTokenHash(string $tokenHash): string
+    {
+        $tokenHash = trim($tokenHash);
+
+        if ($tokenHash === '') {
+            throw new FlowInputException('Approval token hash must not be blank.');
+        }
+
+        return $tokenHash;
     }
 
     /**
@@ -1220,26 +1268,24 @@ class FlowEngine
      * @param  array<string, mixed>  $payload
      * @param  array<string, mixed>  $actor
      */
-    private function decideApproval(string $token, string $decision, array $payload, array $actor): FlowRun
+    private function decideApproval(string $tokenHash, string $decision, array $payload, array $actor): FlowRun
     {
-        $token = trim($token);
-
-        if ($token === '') {
-            throw new FlowInputException('Approval token must not be blank.');
-        }
-
+        // $tokenHash is the already-hashed approval token: resume()/reject()
+        // hash a trimmed plain token, resumeByHash()/rejectByHash() pass it in
+        // directly. Every lookup below is hash-keyed, and the decision lock is
+        // keyed by RUN id (not the token), so a hash flows through unchanged.
         [$store, $redactor] = $this->approvalDecisionStore();
-        $approval = $this->approvalDecisionRecord($token);
+        $approval = $this->approvalDecisionRecord($tokenHash);
 
-        return $this->withApprovalDecisionLock($token, $decision, $approval, $store, function () use ($token, $decision, $payload, $actor, $store, $redactor): FlowRun {
-            return $this->decideApprovalWithLock($token, $decision, $payload, $actor, $store, $redactor);
+        return $this->withApprovalDecisionLock($tokenHash, $decision, $approval, $store, function () use ($tokenHash, $decision, $payload, $actor, $store, $redactor): FlowRun {
+            return $this->decideApprovalWithLock($tokenHash, $decision, $payload, $actor, $store, $redactor);
         });
     }
 
-    private function approvalDecisionRecord(string $token): FlowApprovalRecord
+    private function approvalDecisionRecord(string $tokenHash): FlowApprovalRecord
     {
         try {
-            $approval = $this->approvalTokenManager()->find($token);
+            $approval = $this->approvalTokenManager()->findByHash($tokenHash);
         } catch (QueryException $e) {
             throw $this->approvalPersistenceUnavailableException($e);
         }
@@ -1730,7 +1776,7 @@ class FlowEngine
      * @return array{0: FlowApprovalRecord, 1: bool}
      */
     private function consumeApprovalDecisionForPausedRun(
-        string $token,
+        string $tokenHash,
         string $decision,
         array $payload,
         array $actor,
@@ -1740,8 +1786,8 @@ class FlowEngine
 
         try {
             $approval = $decision === FlowApprovalRecord::STATUS_APPROVED
-                ? $manager->approveForRunStatus($token, FlowRun::STATUS_PAUSED, $actor, $payload)
-                : $manager->rejectForRunStatus($token, FlowRun::STATUS_PAUSED, $actor, $payload);
+                ? $manager->approveForRunStatusByHash($tokenHash, FlowRun::STATUS_PAUSED, $actor, $payload)
+                : $manager->rejectForRunStatusByHash($tokenHash, FlowRun::STATUS_PAUSED, $actor, $payload);
         } catch (QueryException $e) {
             throw $this->approvalPersistenceUnavailableException($e);
         }
@@ -1751,7 +1797,7 @@ class FlowEngine
         }
 
         try {
-            $approval = $manager->find($token);
+            $approval = $manager->findByHash($tokenHash);
         } catch (QueryException $e) {
             throw $this->approvalPersistenceUnavailableException($e);
         }

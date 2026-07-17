@@ -1368,9 +1368,9 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
                         return $this->inner->releaseClaim($runId, $nodeId);
                     }
 
-                    public function terminate(string $runId, string $nodeId, string $expectedStatus, string $newStatus, DateTimeInterface $finishedAt, ?int $durationMs): bool
+                    public function terminate(string $runId, string $nodeId, string $expectedStatus, string $newStatus, DateTimeInterface $finishedAt, ?int $durationMs, ?string $errorClass = null, ?string $errorMessage = null): bool
                     {
-                        return $this->inner->terminate($runId, $nodeId, $expectedStatus, $newStatus, $finishedAt, $durationMs);
+                        return $this->inner->terminate($runId, $nodeId, $expectedStatus, $newStatus, $finishedAt, $durationMs, $errorClass, $errorMessage);
                     }
                 };
             }
@@ -2872,11 +2872,11 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
                             return $this->inner->releaseClaim($runId, $nodeId);
                         }
 
-                        public function terminate(string $runId, string $nodeId, string $expectedStatus, string $newStatus, DateTimeInterface $finishedAt, ?int $durationMs): bool
+                        public function terminate(string $runId, string $nodeId, string $expectedStatus, string $newStatus, DateTimeInterface $finishedAt, ?int $durationMs, ?string $errorClass = null, ?string $errorMessage = null): bool
                         {
                             $this->recordWrite();
 
-                            return $this->inner->terminate($runId, $nodeId, $expectedStatus, $newStatus, $finishedAt, $durationMs);
+                            return $this->inner->terminate($runId, $nodeId, $expectedStatus, $newStatus, $finishedAt, $durationMs, $errorClass, $errorMessage);
                         }
 
                         private function recordWrite(): void

@@ -74,6 +74,11 @@ final class CancelRunTest extends PersistenceTestCase
         $this->assertSame('failed', $nodes['stuck']);
         // The running node's elapsed time is recorded on cancellation.
         $this->assertNotNull($rows['stuck']->duration_ms);
+        // A cancelled node is stamped with a distinguishing reason so it reads
+        // back as an explained cancellation, not an anonymous handler failure.
+        $this->assertSame('FlowRunCancelled', $rows['stuck']->error_class);
+        $this->assertSame('Run was cancelled.', $rows['stuck']->error_message);
+        $this->assertSame('FlowRunCancelled', $rows['manager']->error_class);
 
         // The downstream `publish` step was never reached in this synchronous
         // run, so it has NO node row — cancel only terminates PERSISTED nodes

@@ -504,15 +504,23 @@ class FlowEngine
                 // running -> succeeded) between the read above and here, the
                 // update matches zero rows and we leave the real outcome
                 // intact rather than clobbering it back to failed/skipped.
-                // Record duration for a node that was actually running; a
-                // never-started (pending) node has no started_at.
+                // A running/paused node has no dedicated "cancelled" state, so
+                // it lands on `failed` — stamp a distinguishing reason so it
+                // reads back as an explained cancellation, not an anonymous
+                // handler failure. Record duration for a node that was actually
+                // running; a never-started (pending) node has no started_at.
+                $terminalStatus = $nodeState === NodeState::Pending ? NodeState::Skipped->value : NodeState::Failed->value;
+                $isFailure = $terminalStatus === NodeState::Failed->value;
+
                 $store->runNodes()->terminate(
                     $runId,
                     $node->node_id,
                     $node->status,
-                    $nodeState === NodeState::Pending ? NodeState::Skipped->value : NodeState::Failed->value,
+                    $terminalStatus,
                     $now,
                     $node->started_at !== null ? $this->durationMs($node->started_at, $now) : null,
+                    $isFailure ? 'FlowRunCancelled' : null,
+                    $isFailure ? 'Run was cancelled.' : null,
                 );
             }
         });

@@ -26,6 +26,7 @@ use Padosoft\LaravelFlow\FlowRun;
  * @method static FlowRun reject(string $token, array<string, mixed> $payload = [], array<string, mixed> $actor = [])
  * @method static bool redeliverWebhook(int $outboxId)
  * @method static FlowRun cancel(string $runId, array<string, mixed> $actor = [])
+ * @method static FlowRun replay(string $runId, ?\Padosoft\LaravelFlow\FlowExecutionOptions $options = null)
  * @method static array<string, FlowDefinition> definitions()
  * @method static FlowDefinition definition(string $name)
  * @method static void registerDefinition(FlowDefinition $definition)

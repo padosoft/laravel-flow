@@ -575,6 +575,145 @@ class FlowEngine
     }
 
     /**
+     * Replay a TERMINAL persisted run as a NEW linked run: re-executes the
+     * run's definition with its recorded input and returns the new {@see FlowRun}
+     * (linked to the source via `replayedFromRunId`). A pinned graph run
+     * re-executes its EXACT stored graph version (`DefinitionRepository::find`),
+     * regardless of the current `latest()`; a legacy run re-executes the
+     * currently-registered definition. Requires persistence enabled.
+     *
+     * `$options`: when null, links to the source run (its `correlationId` +
+     * `replayedFromRunId`). When supplied, `replayedFromRunId` is FORCED to the
+     * source run id (the linkage is the point of replay) while the caller's
+     * `correlationId`/`idempotencyKey` are honored.
+     *
+     * Unlike the `flow:replay` console command this does NOT emit definition
+     * drift warnings (there is no console) — the replay still uses the current
+     * (or pinned) definition exactly as the command does.
+     *
+     * @throws FlowExecutionException for a missing / non-terminal / non-array-input
+     *                                run, an unregistered definition, or an
+     *                                unloadable stored graph version
+     */
+    public function replay(string $runId, ?FlowExecutionOptions $options = null): FlowRun
+    {
+        $store = $this->storeForExecution(false);
+
+        if ($store === null) {
+            throw new FlowExecutionException('Replaying a run requires persistence to be enabled.');
+        }
+
+        $original = $this->cancelRunRecord($store, $runId);
+
+        $state = RunState::tryFrom($original->status);
+
+        if ($state === null || ! $state->isTerminal()) {
+            throw new FlowExecutionException(sprintf('Flow run [%s] is not terminal and cannot be replayed.', $runId));
+        }
+
+        $input = $original->input ?? [];
+
+        if (! is_array($input)) {
+            throw new FlowExecutionException(sprintf('Flow run [%s] does not have replayable array input.', $runId));
+        }
+
+        $replayOptions = $this->replayOptions($original, $options);
+
+        if ($this->isPinnedGraphRun($original)) {
+            return $this->replayPinnedGraph($store, $original, $input, $replayOptions);
+        }
+
+        try {
+            $definition = $this->definition($original->definition_name);
+        } catch (FlowNotRegisteredException $e) {
+            throw new FlowExecutionException(sprintf('Flow definition [%s] is not registered.', $original->definition_name), previous: $e);
+        }
+
+        try {
+            // execute() already wraps its own persistence QueryExceptions into
+            // typed exceptions, so only its FlowExecutionException (rethrown as
+            // is) and any other unexpected Throwable need handling here.
+            return $this->execute($definition->name, $input, $replayOptions);
+        } catch (FlowExecutionException $e) {
+            throw $e;
+        } catch (Throwable $e) {
+            throw new FlowExecutionException('Flow replay failed before a linked run could be completed.', previous: $e);
+        }
+    }
+
+    private function isPinnedGraphRun(FlowRunRecord $run): bool
+    {
+        return $run->engine === 'graph'
+            && $run->definition_version !== null
+            && $run->definition_checksum !== null;
+    }
+
+    private function replayOptions(FlowRunRecord $original, ?FlowExecutionOptions $options): FlowExecutionOptions
+    {
+        if ($options === null) {
+            return FlowExecutionOptions::make(
+                correlationId: $original->correlation_id,
+                replayedFromRunId: $original->id,
+            );
+        }
+
+        // Honor the caller's correlation/idempotency choices but force the
+        // replay linkage — the whole point of replay() is the source-run link.
+        return FlowExecutionOptions::make(
+            correlationId: $options->correlationId ?? $original->correlation_id,
+            idempotencyKey: $options->idempotencyKey,
+            replayedFromRunId: $original->id,
+        );
+    }
+
+    /**
+     * @param  array<string, mixed>  $input
+     */
+    private function replayPinnedGraph(FlowStore $store, FlowRunRecord $original, array $input, FlowExecutionOptions $options): FlowRun
+    {
+        $name = (string) $original->definition_name;
+        $version = (int) $original->definition_version;
+
+        try {
+            /** @var DefinitionRepository $definitions */
+            $definitions = $this->container->make(DefinitionRepository::class);
+            $stored = $definitions->find($name, $version);
+        } catch (Throwable $e) {
+            // Covers a missing pinned version (DefinitionNotFoundException) and
+            // an unreachable persistence connection alike.
+            throw new FlowExecutionException(sprintf('Stored graph version [%d] for definition [%s] could not be loaded for replay.', $version, $name), previous: $e);
+        }
+
+        try {
+            $graph = (new GraphSerializer)->fromArray($stored->graph);
+        } catch (InvalidGraphException|JsonException $e) {
+            throw new FlowExecutionException(sprintf('Stored graph version [%d] for definition [%s] could not be rebuilt for replay.', $version, $name), previous: $e);
+        }
+
+        try {
+            // runGraph() already wraps its own persistence QueryExceptions.
+            $result = $this->runGraph($graph, $input, $options, $name);
+        } catch (Throwable $e) {
+            throw new FlowExecutionException('Flow graph replay failed before a linked run could be completed.', previous: $e);
+        }
+
+        // runGraph() returns a GraphRunResult; re-read the just-created run row
+        // (it persisted synchronously before returning) to satisfy the : FlowRun
+        // contract shared with the legacy path.
+        try {
+            $record = $store->runs()->find($result->runId);
+        } catch (QueryException $e) {
+            throw $this->flowPersistenceUnavailableException($e);
+        }
+
+        if (! ($record instanceof FlowRunRecord)) {
+            throw new FlowExecutionException(sprintf('Replayed graph run [%s] could not be reloaded.', $result->runId));
+        }
+
+        return $this->flowRunFromRecord($record, $store);
+    }
+
+    /**
      * @param  array<string, mixed>  $input
      */
     private function run(string $name, array $input, bool $dryRun, ?FlowExecutionOptions $options = null): FlowRun

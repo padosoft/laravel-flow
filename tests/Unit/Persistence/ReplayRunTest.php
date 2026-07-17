@@ -80,6 +80,41 @@ final class ReplayRunTest extends PersistenceTestCase
         $this->assertSame(['a'], $nodeIds);
     }
 
+    public function test_replay_of_a_pinned_graph_that_repauses_carries_the_fresh_approval_token(): void
+    {
+        $this->migrateFlowTables();
+        $engine = $this->engineWithPersistence();
+
+        /** @var DefinitionRepository $definitions */
+        $definitions = $this->app->make(DefinitionRepository::class);
+        // A graph whose single node is a built-in approval gate — running it
+        // pauses and issues a one-time token.
+        $definitions->createDraft('flow.gated', new GraphDefinition([new GraphNode('gate', 'flow.approval')], []));
+        $v1 = $definitions->publish('flow.gated', 1);
+
+        // A terminal, pinned run of that graph to replay.
+        DB::table('flow_runs')->insert([
+            'id' => 'gated-run',
+            'definition_name' => 'flow.gated',
+            'engine' => 'graph',
+            'definition_version' => 1,
+            'definition_checksum' => $v1->checksum,
+            'dry_run' => false,
+            'input' => json_encode([]),
+            'status' => 'succeeded',
+            'finished_at' => Carbon::parse('2026-05-03 10:00:00'),
+        ]);
+
+        // Replaying re-runs the graph, which pauses at the gate. The returned
+        // FlowRun MUST carry the fresh plain token (it lives only in the
+        // GraphRunResult) so the newly paused run is actually resumable.
+        $replayed = $engine->replay('gated-run');
+
+        $this->assertSame('gated-run', $replayed->replayedFromRunId);
+        $this->assertNotEmpty($replayed->approvalTokens);
+        $this->assertArrayHasKey('gate', $replayed->approvalTokens);
+    }
+
     public function test_replay_reexecutes_a_terminal_run_as_a_new_linked_run(): void
     {
         $this->migrateFlowTables();

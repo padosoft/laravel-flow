@@ -4,9 +4,16 @@ declare(strict_types=1);
 
 namespace Padosoft\LaravelFlow\Tests\Unit\Persistence;
 
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
+use Padosoft\LaravelFlow\Contracts\DefinitionRepository;
 use Padosoft\LaravelFlow\Exceptions\FlowExecutionException;
 use Padosoft\LaravelFlow\FlowEngine;
 use Padosoft\LaravelFlow\FlowRun;
+use Padosoft\LaravelFlow\Graph\GraphDefinition;
+use Padosoft\LaravelFlow\Graph\GraphNode;
+use Padosoft\LaravelFlow\Models\FlowRunNodeRecord;
+use Padosoft\LaravelFlow\Tests\Fixtures\GraphNodes\JsonEmitNode;
 use Padosoft\LaravelFlow\Tests\Unit\Stubs\AlwaysSucceedsHandler;
 
 /**
@@ -17,11 +24,59 @@ use Padosoft\LaravelFlow\Tests\Unit\Stubs\AlwaysSucceedsHandler;
  */
 final class ReplayRunTest extends PersistenceTestCase
 {
+    protected function defineEnvironment($app): void
+    {
+        parent::defineEnvironment($app);
+        // Register the graph node used by the pinned-graph replay test.
+        $app['config']->set('laravel-flow.nodes.handlers', [JsonEmitNode::class]);
+    }
+
     protected function setUp(): void
     {
         parent::setUp();
 
         AlwaysSucceedsHandler::$callCount = 0;
+    }
+
+    public function test_replay_reexecutes_a_pinned_graph_run_at_its_stored_version(): void
+    {
+        $this->migrateFlowTables();
+        $engine = $this->engineWithPersistence();
+
+        /** @var DefinitionRepository $definitions */
+        $definitions = $this->app->make(DefinitionRepository::class);
+
+        // v1 = one node; v2 = two nodes. A pinned replay must re-run v1's set.
+        $definitions->createDraft('flow.graph', new GraphDefinition([new GraphNode('a', 'test.jsonemit')], []));
+        $v1 = $definitions->publish('flow.graph', 1);
+        $definitions->createDraft('flow.graph', new GraphDefinition([
+            new GraphNode('a', 'test.jsonemit'),
+            new GraphNode('b', 'test.jsonemit'),
+        ], []));
+        $definitions->publish('flow.graph', 2);
+
+        DB::table('flow_runs')->insert([
+            'id' => 'graph-run-1',
+            'definition_name' => 'flow.graph',
+            'engine' => 'graph',
+            'definition_version' => 1,
+            'definition_checksum' => $v1->checksum,
+            'dry_run' => false,
+            'input' => json_encode(['tenant' => 'acme']),
+            'status' => 'succeeded',
+            'finished_at' => Carbon::parse('2026-05-03 10:00:00'),
+        ]);
+
+        // The programmatic seam returns a FlowRun (converted from the graph
+        // engine's GraphRunResult), linked to the source run.
+        $replayed = $engine->replay('graph-run-1');
+
+        $this->assertNotSame('graph-run-1', $replayed->id);
+        $this->assertSame('graph-run-1', $replayed->replayedFromRunId);
+
+        // Re-ran the PINNED v1 node set exactly (only 'a'), never latest v2.
+        $nodeIds = FlowRunNodeRecord::query()->where('run_id', $replayed->id)->pluck('node_id')->all();
+        $this->assertSame(['a'], $nodeIds);
     }
 
     public function test_replay_reexecutes_a_terminal_run_as_a_new_linked_run(): void

@@ -466,7 +466,7 @@ class FlowEngine
         // (idempotent no-op), never silently fail because the run merely flipped
         // running<->paused. Bounded so a pathological flap can't spin forever.
         for ($attempt = 0; $attempt < self::CANCEL_MAX_ATTEMPTS; $attempt++) {
-            $record = $this->cancelRunRecord($store, $runId);
+            $record = $this->findRunRecordOrFail($store, $runId);
 
             $currentState = RunState::tryFrom($record->status);
 
@@ -541,7 +541,7 @@ class FlowEngine
         // meantime (a concurrent completion won), that's the idempotent result;
         // otherwise the status kept flapping under us and we could not cancel —
         // fail loudly rather than return a non-terminal run that looks cancelled.
-        $final = $this->cancelRunRecord($store, $runId);
+        $final = $this->findRunRecordOrFail($store, $runId);
         $finalState = RunState::tryFrom($final->status);
 
         if ($finalState !== null && $finalState->isTerminal()) {
@@ -556,10 +556,11 @@ class FlowEngine
     }
 
     /**
-     * Load a run record for {@see self::cancel()}, translating a persistence
-     * failure and a missing run into typed engine exceptions.
+     * Load a run record by id (used by {@see self::cancel()} and
+     * {@see self::replay()}), translating a persistence failure and a missing
+     * run into typed engine exceptions. Pure lookup — no mutation.
      */
-    private function cancelRunRecord(FlowStore $store, string $runId): FlowRunRecord
+    private function findRunRecordOrFail(FlowStore $store, string $runId): FlowRunRecord
     {
         try {
             $record = $store->runs()->find($runId);
@@ -583,9 +584,13 @@ class FlowEngine
      * currently-registered definition. Requires persistence enabled.
      *
      * `$options`: when null, links to the source run (its `correlationId` +
-     * `replayedFromRunId`). When supplied, `replayedFromRunId` is FORCED to the
+     * `replayedFromRunId`). When supplied, `replayedFromRunId` is forced to the
      * source run id (the linkage is the point of replay) while the caller's
-     * `correlationId`/`idempotencyKey` are honored.
+     * `correlationId`/`idempotencyKey` are honored. CAVEAT: if the caller passes
+     * an `idempotencyKey` already tied to an existing run, the legacy path
+     * inherits `execute()`'s idempotency short-circuit and returns that EXISTING
+     * run unchanged — so its `replayedFromRunId` reflects how it was originally
+     * created, not necessarily this source run. Omit the key to always replay.
      *
      * Unlike the `flow:replay` console command this does NOT emit definition
      * drift warnings (there is no console) — the replay still uses the current
@@ -603,7 +608,7 @@ class FlowEngine
             throw new FlowExecutionException('Replaying a run requires persistence to be enabled.');
         }
 
-        $original = $this->cancelRunRecord($store, $runId);
+        $original = $this->findRunRecordOrFail($store, $runId);
 
         $state = RunState::tryFrom($original->status);
 
@@ -693,6 +698,8 @@ class FlowEngine
         try {
             // runGraph() already wraps its own persistence QueryExceptions.
             $result = $this->runGraph($graph, $input, $options, $name);
+        } catch (FlowExecutionException $e) {
+            throw $e; // preserve the specific message, matching the legacy path
         } catch (Throwable $e) {
             throw new FlowExecutionException('Flow graph replay failed before a linked run could be completed.', previous: $e);
         }
@@ -710,7 +717,18 @@ class FlowEngine
             throw new FlowExecutionException(sprintf('Replayed graph run [%s] could not be reloaded.', $result->runId));
         }
 
-        return $this->flowRunFromRecord($record, $store);
+        $run = $this->flowRunFromRecord($record, $store);
+
+        // A replayed graph that lands back on an approval gate issues a fresh
+        // one-time token; it lives ONLY in the GraphRunResult (storage keeps the
+        // hash only), so carry it onto the returned FlowRun — otherwise the
+        // caller could never resume/reject the newly paused run (parity with the
+        // legacy path, whose execute()-built FlowRun already holds its tokens).
+        foreach ($result->approvalTokens as $token) {
+            $run->recordApprovalToken($token);
+        }
+
+        return $run;
     }
 
     /**

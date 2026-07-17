@@ -38,6 +38,7 @@ use Padosoft\LaravelFlow\Executor\GraphRunResult;
 use Padosoft\LaravelFlow\Executor\Jobs\CoordinatorJob;
 use Padosoft\LaravelFlow\Executor\QueueGraphCoordinator;
 use Padosoft\LaravelFlow\Executor\State\NodeState;
+use Padosoft\LaravelFlow\Executor\State\RunState;
 use Padosoft\LaravelFlow\Graph\Exceptions\DefinitionSignatureException;
 use Padosoft\LaravelFlow\Graph\Exceptions\InvalidGraphException;
 use Padosoft\LaravelFlow\Graph\GraphDefinition;
@@ -413,6 +414,97 @@ class FlowEngine
             // Never leak the low-level SQL/driver error to an @api caller.
             throw new FlowExecutionException('Webhook redelivery failed.', previous: $e);
         }
+    }
+
+    /**
+     * Cancel a non-terminal run: atomically transition the run to `aborted`
+     * and move every still-active node to a terminal state (a `pending` node
+     * becomes `skipped`, a `running`/`paused` node becomes `failed` — the
+     * `NodeState` enum has no dedicated "cancelled" case, and these are the
+     * transition-legal terminal targets). Idempotent: cancelling an
+     * already-terminal run (or losing the compare-and-set race to a concurrent
+     * completion) returns the run's CURRENT state unchanged rather than
+     * forcing it. Requires persistence enabled — an in-memory run has no
+     * cancellable persisted state.
+     *
+     * Best-effort against a queued run: a node job already in flight may still
+     * write its own row after this returns, but the run itself stays terminal
+     * (the CAS pins `flow_runs.status` to `aborted`).
+     *
+     * @param  array<string, mixed>  $actor  reserved for parity with resume()/reject()
+     *                                       and future audit attribution; the current
+     *                                       implementation records no actor-scoped row
+     */
+    public function cancel(string $runId, array $actor = []): FlowRun
+    {
+        $store = $this->storeForExecution(false);
+
+        if ($store === null) {
+            throw new FlowExecutionException('Cancelling a run requires persistence to be enabled.');
+        }
+
+        try {
+            $record = $store->runs()->find($runId);
+        } catch (QueryException $e) {
+            throw $this->flowPersistenceUnavailableException($e);
+        }
+
+        if (! ($record instanceof FlowRunRecord)) {
+            throw new FlowExecutionException(sprintf('Flow run [%s] was not found.', $runId));
+        }
+
+        $currentState = RunState::tryFrom($record->status);
+
+        if ($currentState !== null && $currentState->isTerminal()) {
+            return $this->flowRunFromRecord($record, $store);
+        }
+
+        $now = $this->now();
+        $claimedRunRecord = null;
+
+        $this->persistAtomically($store, function () use ($store, $runId, $record, $now, &$claimedRunRecord): void {
+            $claimedRunRecord = $this->conditionalRuns($store)->updateWhereStatus($runId, $record->status, [
+                'status' => RunState::Aborted->value,
+                'finished_at' => $now,
+                'duration_ms' => $this->durationMs($record->started_at ?? $now, $now),
+            ]);
+
+            if (! ($claimedRunRecord instanceof FlowRunRecord)) {
+                return; // lost the CAS race to a concurrent transition
+            }
+
+            foreach ($this->stepRecordsForRun($store, $runId) as $node) {
+                $nodeState = NodeState::tryFrom($node->status);
+
+                if ($nodeState === null || $nodeState->isTerminal()) {
+                    continue;
+                }
+
+                $store->runNodes()->createOrUpdate($runId, $node->node_id, [
+                    // node_type is NOT NULL on upsert — re-supply the row's own.
+                    'node_type' => $node->node_type,
+                    'status' => $nodeState === NodeState::Pending ? NodeState::Skipped->value : NodeState::Failed->value,
+                    'finished_at' => $now,
+                ]);
+            }
+        });
+
+        if (! ($claimedRunRecord instanceof FlowRunRecord)) {
+            // Lost the race — report whatever terminal state actually won.
+            try {
+                $current = $store->runs()->find($runId);
+            } catch (QueryException $e) {
+                throw $this->flowPersistenceUnavailableException($e);
+            }
+
+            if ($current instanceof FlowRunRecord) {
+                return $this->flowRunFromRecord($current, $store);
+            }
+
+            throw new FlowExecutionException(sprintf('Flow run [%s] was not found while cancelling.', $runId));
+        }
+
+        return $this->flowRunFromRecord($claimedRunRecord, $store);
     }
 
     /**

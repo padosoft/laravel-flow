@@ -12,7 +12,7 @@ use DateTimeImmutable;
  * Plain approval tokens are never stored or exposed here — but the stored
  * token HASH is (`$tokenHash`), so a companion dashboard can gate on
  * `DashboardActionAuthorizer::canApproveByToken($tokenHash, …)` and act via
- * `Flow::resumeByHash($tokenHash)`/`rejectByHash($tokenHash)` without ever
+ * `Flow::resumeByHash($tokenHash)`/`Flow::rejectByHash($tokenHash)` without ever
  * touching a plain token. Otherwise only the actor metadata, decision payload,
  * status, and timestamps are surfaced. Like
  * {@see RunDetail}, the JSON payloads (`actor`, `decisionPayload`) are

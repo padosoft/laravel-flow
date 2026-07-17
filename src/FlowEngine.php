@@ -2043,7 +2043,7 @@ class FlowEngine
 
         if (! ($runs instanceof ConditionalRunRepository)) {
             throw new FlowExecutionException(sprintf(
-                'Approval resume/reject requires the run repository to implement %s.',
+                'This operation requires the run repository to implement %s.',
                 ConditionalRunRepository::class,
             ));
         }

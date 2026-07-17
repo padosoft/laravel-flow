@@ -200,9 +200,26 @@ final class WebhookOutboxTest extends PersistenceTestCase
             'max_attempts' => 3,
         ]);
 
+        // An IN-FLIGHT lease (`delivering`) must never be disturbed — the CAS
+        // is scoped to `status = 'failed'` precisely to protect an active
+        // delivery attempt from being reset out from under it.
+        $delivering = FlowWebhookOutboxRecord::query()->create([
+            'event' => 'flow.completed',
+            'status' => FlowWebhookOutboxRecord::STATUS_DELIVERING,
+            'attempts' => 1,
+            'max_attempts' => 3,
+            'available_at' => now()->addSeconds(30),
+        ]);
+
         // A delivered row must not be disturbed, and an unknown id is a no-op.
         $this->assertFalse($engine->redeliverWebhook((int) $delivered->id));
         $this->assertSame(FlowWebhookOutboxRecord::STATUS_DELIVERED, $delivered->fresh()?->status);
+
+        $this->assertFalse($engine->redeliverWebhook((int) $delivering->id));
+        $fresh = $delivering->fresh();
+        $this->assertSame(FlowWebhookOutboxRecord::STATUS_DELIVERING, $fresh?->status);
+        $this->assertSame(1, $fresh?->attempts);
+
         $this->assertFalse($engine->redeliverWebhook(999999));
     }
 

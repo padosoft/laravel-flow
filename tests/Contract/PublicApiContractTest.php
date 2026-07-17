@@ -118,6 +118,8 @@ final class PublicApiContractTest extends TestCase
             'dryRun',
             'resume',
             'reject',
+            'resumeByHash',
+            'rejectByHash',
             'redeliverWebhook',
             'cancel',
             'replay',
@@ -219,9 +221,12 @@ final class PublicApiContractTest extends TestCase
             'hashToken',
             'issue',
             'find',
+            'findByHash',
             'pending',
             'approve',
             'reject',
+            'approveForRunStatusByHash',
+            'rejectForRunStatusByHash',
         ]);
     }
 

@@ -6,6 +6,7 @@ namespace Padosoft\LaravelFlow\Tests\Unit\Dashboard;
 
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
+use Padosoft\LaravelFlow\ApprovalTokenManager;
 use Padosoft\LaravelFlow\Dashboard\ApprovalFilter;
 use Padosoft\LaravelFlow\Dashboard\FlowDashboardReadModel;
 use Padosoft\LaravelFlow\Dashboard\Pagination;
@@ -239,6 +240,12 @@ final class FlowDashboardReadModelTest extends PersistenceTestCase
         $this->assertSame($paused->id, $pending[0]->runId);
         $this->assertSame('manager', $pending[0]->stepName);
         $this->assertSame(FlowApprovalRecord::STATUS_PENDING, $pending[0]->status);
+        // The stored token HASH is surfaced (never the plain token) so a
+        // dashboard can drive Flow::resumeByHash()/rejectByHash().
+        $this->assertSame(
+            ApprovalTokenManager::hashToken($paused->approvalTokens['manager']->plainTextToken),
+            $pending[0]->tokenHash,
+        );
 
         $approved = $engine->resume($paused->approvalTokens['manager']->plainTextToken);
         $this->assertSame(FlowRun::STATUS_SUCCEEDED, $approved->status);

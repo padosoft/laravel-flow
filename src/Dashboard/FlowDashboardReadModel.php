@@ -537,6 +537,7 @@ final class FlowDashboardReadModel
             consumedAt: $this->immutable($record->consumed_at),
             actor: $this->castNullableArray($record->actor),
             decisionPayload: $this->castNullableArray($record->payload),
+            tokenHash: (string) $record->token_hash,
         );
     }
 

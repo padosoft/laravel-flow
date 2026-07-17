@@ -120,6 +120,7 @@ final class PublicApiContractTest extends TestCase
             'dryRun',
             'resume',
             'reject',
+            'redeliverWebhook',
         ]);
     }
 

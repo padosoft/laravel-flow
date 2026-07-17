@@ -22,6 +22,7 @@ use Padosoft\LaravelFlow\Contracts\DefinitionRepository;
 use Padosoft\LaravelFlow\Contracts\FlowStore;
 use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
 use Padosoft\LaravelFlow\Contracts\RedactorAwareFlowStore;
+use Padosoft\LaravelFlow\Dashboard\FlowDashboardReadModel;
 use Padosoft\LaravelFlow\Events\FlowCompensated;
 use Padosoft\LaravelFlow\Events\FlowPaused;
 use Padosoft\LaravelFlow\Events\FlowStepCompleted;
@@ -376,6 +377,26 @@ class FlowEngine
     public function reject(string $token, array $payload = [], array $actor = []): FlowRun
     {
         return $this->decideApproval($token, FlowApprovalRecord::STATUS_REJECTED, $payload, $actor);
+    }
+
+    /**
+     * Requeue ONE failed webhook-outbox row (by its integer id) for delivery:
+     * it is reset to `pending` with `attempts` cleared so the next
+     * `flow:deliver-webhooks` pass re-attempts it. Intended for a dashboard
+     * "redeliver" action driven by {@see FlowDashboardReadModel::failedWebhookOutbox()},
+     * which surfaces the id.
+     *
+     * Returns true only when a row with that id existed AND was in the `failed`
+     * state (so an unknown id, an in-flight `delivering` lease, an already
+     * `delivered` row, or an already `pending` row all return false — nothing
+     * to redeliver, no state disturbed).
+     */
+    public function redeliverWebhook(int $outboxId): bool
+    {
+        /** @var EloquentWebhookOutboxRepository $repository */
+        $repository = $this->container->make(EloquentWebhookOutboxRepository::class);
+
+        return $repository->redeliver($outboxId);
     }
 
     /**

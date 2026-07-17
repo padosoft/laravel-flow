@@ -1367,6 +1367,11 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
                     {
                         return $this->inner->releaseClaim($runId, $nodeId);
                     }
+
+                    public function terminate(string $runId, string $nodeId, string $expectedStatus, string $newStatus, DateTimeInterface $finishedAt, ?int $durationMs): bool
+                    {
+                        return $this->inner->terminate($runId, $nodeId, $expectedStatus, $newStatus, $finishedAt, $durationMs);
+                    }
                 };
             }
 
@@ -2865,6 +2870,13 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
                         public function releaseClaim(string $runId, string $nodeId): bool
                         {
                             return $this->inner->releaseClaim($runId, $nodeId);
+                        }
+
+                        public function terminate(string $runId, string $nodeId, string $expectedStatus, string $newStatus, DateTimeInterface $finishedAt, ?int $durationMs): bool
+                        {
+                            $this->recordWrite();
+
+                            return $this->inner->terminate($runId, $nodeId, $expectedStatus, $newStatus, $finishedAt, $durationMs);
                         }
 
                         private function recordWrite(): void

@@ -68,4 +68,15 @@ interface RunNodeRepository
      * it instead of leaving the run stuck. Returns true iff the reset happened.
      */
     public function releaseClaim(string $runId, string $nodeId): bool;
+
+    /**
+     * Atomically move a still-active node to a terminal state: a compare-and-set
+     * that writes `$newStatus` (+ `finished_at`/`duration_ms`) ONLY when the row
+     * is still in `$expectedStatus`. Returns true iff the row was in that status
+     * and moved. `cancel()` uses this so a node a concurrent queued job just
+     * completed (e.g. `running` -> `succeeded`) is left untouched rather than
+     * clobbered back to `failed`/`skipped` — a node whose status has already
+     * moved on matches zero rows and returns false.
+     */
+    public function terminate(string $runId, string $nodeId, string $expectedStatus, string $newStatus, DateTimeInterface $finishedAt, ?int $durationMs): bool;
 }

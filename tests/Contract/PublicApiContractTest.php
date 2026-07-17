@@ -236,6 +236,7 @@ final class PublicApiContractTest extends TestCase
             'states',
             'claim',
             'releaseClaim',
+            'terminate',
         ]);
     }
 

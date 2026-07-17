@@ -499,16 +499,21 @@ class FlowEngine
                     continue;
                 }
 
-                $store->runNodes()->createOrUpdate($runId, $node->node_id, [
-                    // node_type is NOT NULL on upsert — re-supply the row's own.
-                    'node_type' => $node->node_type,
-                    'status' => $nodeState === NodeState::Pending ? NodeState::Skipped->value : NodeState::Failed->value,
-                    'finished_at' => $now,
-                    // Record duration for a node that was actually running when
-                    // cancelled; a never-started (pending) node has no
-                    // started_at, so its duration stays null.
-                    'duration_ms' => $node->started_at !== null ? $this->durationMs($node->started_at, $now) : null,
-                ]);
+                // CAS on the just-read status (not an unconditional upsert): if
+                // a concurrent queued node job moved this node on (e.g.
+                // running -> succeeded) between the read above and here, the
+                // update matches zero rows and we leave the real outcome
+                // intact rather than clobbering it back to failed/skipped.
+                // Record duration for a node that was actually running; a
+                // never-started (pending) node has no started_at.
+                $store->runNodes()->terminate(
+                    $runId,
+                    $node->node_id,
+                    $node->status,
+                    $nodeState === NodeState::Pending ? NodeState::Skipped->value : NodeState::Failed->value,
+                    $now,
+                    $node->started_at !== null ? $this->durationMs($node->started_at, $now) : null,
+                );
             }
         });
 

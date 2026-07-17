@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Padosoft\LaravelFlow\Tests\Unit\Persistence;
 
+use Padosoft\LaravelFlow\Contracts\RunNodeRepository;
 use Padosoft\LaravelFlow\Exceptions\FlowExecutionException;
 use Padosoft\LaravelFlow\FlowEngine;
 use Padosoft\LaravelFlow\FlowRun;
@@ -96,6 +97,36 @@ final class CancelRunTest extends PersistenceTestCase
         $cancelled = $engine->cancel($run->id);
         $this->assertSame(FlowRun::STATUS_SUCCEEDED, $cancelled->status);
         $this->assertSame('succeeded', FlowRunRecord::query()->findOrFail($run->id)->status);
+    }
+
+    public function test_terminate_is_a_compare_and_set_that_never_clobbers_a_moved_node(): void
+    {
+        $this->migrateFlowTables();
+        $engine = $this->engineWithPersistence();
+
+        // A real run to satisfy the flow_run_nodes → flow_runs foreign key.
+        $engine->define('flow.cas')->step('s', AlwaysSucceedsHandler::class)->register();
+        $run = $engine->execute('flow.cas', []);
+
+        $repo = $this->app->make(RunNodeRepository::class);
+
+        FlowRunNodeRecord::query()->create([
+            'run_id' => $run->id,
+            'node_id' => 'n',
+            'node_type' => 'legacy.step',
+            'status' => 'running',
+            'attempts' => 1,
+            'started_at' => now()->subMinute(),
+        ]);
+
+        // The first CAS (expected = running) wins.
+        $this->assertTrue($repo->terminate($run->id, 'n', 'running', 'failed', now(), 1000));
+        $this->assertSame('failed', FlowRunNodeRecord::query()->where('run_id', $run->id)->where('node_id', 'n')->value('status'));
+
+        // A second attempt against the now-stale expected status is a no-op —
+        // a node that has moved on is never clobbered (the cancel() race guard).
+        $this->assertFalse($repo->terminate($run->id, 'n', 'running', 'skipped', now(), null));
+        $this->assertSame('failed', FlowRunNodeRecord::query()->where('run_id', $run->id)->where('node_id', 'n')->value('status'));
     }
 
     public function test_cancel_throws_for_an_unknown_run(): void

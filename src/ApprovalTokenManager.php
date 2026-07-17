@@ -92,8 +92,18 @@ final class ApprovalTokenManager
 
     public function find(string $plainTextToken): ?FlowApprovalRecord
     {
+        return $this->findByHash(self::hashToken($plainTextToken));
+    }
+
+    /**
+     * Hash-native counterpart of {@see self::find()}: look up an approval by its
+     * stored token HASH (what a dashboard holds — the plain token is never
+     * recoverable). Preserves find()'s expire-on-read side effect for a lapsed
+     * pending row.
+     */
+    public function findByHash(string $tokenHash): ?FlowApprovalRecord
+    {
         $now = $this->now();
-        $tokenHash = self::hashToken($plainTextToken);
         $record = $this->approvalDecisions()->findByTokenHash($tokenHash);
 
         if (! ($record instanceof FlowApprovalRecord)) {
@@ -196,6 +206,37 @@ final class ApprovalTokenManager
         return $this->consume($plainTextToken, FlowApprovalRecord::STATUS_REJECTED, $actor, $payload, $runStatus);
     }
 
+    /**
+     * Hash-native counterpart of {@see self::approveForRunStatus()} — consumes a
+     * pending approval by its stored token HASH (what a dashboard holds).
+     *
+     * @param  array<string, mixed>  $actor
+     * @param  array<string, mixed>  $payload
+     */
+    public function approveForRunStatusByHash(
+        string $tokenHash,
+        string $runStatus,
+        array $actor = [],
+        array $payload = [],
+    ): ?FlowApprovalRecord {
+        return $this->consumeByHash($tokenHash, FlowApprovalRecord::STATUS_APPROVED, $actor, $payload, $runStatus);
+    }
+
+    /**
+     * Hash-native counterpart of {@see self::rejectForRunStatus()}.
+     *
+     * @param  array<string, mixed>  $actor
+     * @param  array<string, mixed>  $payload
+     */
+    public function rejectForRunStatusByHash(
+        string $tokenHash,
+        string $runStatus,
+        array $actor = [],
+        array $payload = [],
+    ): ?FlowApprovalRecord {
+        return $this->consumeByHash($tokenHash, FlowApprovalRecord::STATUS_REJECTED, $actor, $payload, $runStatus);
+    }
+
     public function expireIssued(IssuedApprovalToken $token, ?DateTimeInterface $decidedAt = null): ?FlowApprovalRecord
     {
         return $this->approvals->expirePending($token->tokenHash, $this->immutableDate($decidedAt) ?? $this->now());
@@ -226,11 +267,27 @@ final class ApprovalTokenManager
         array $payload,
         ?string $runStatus = null,
     ): ?FlowApprovalRecord {
+        return $this->consumeByHash(self::hashToken($plainTextToken), $status, $actor, $payload, $runStatus);
+    }
+
+    /**
+     * Hash-native counterpart of {@see self::consume()} — the whole consume path
+     * below the top-level hash is already keyed by token hash.
+     *
+     * @param  array<string, mixed>  $actor
+     * @param  array<string, mixed>  $payload
+     */
+    private function consumeByHash(
+        string $tokenHash,
+        string $status,
+        array $actor,
+        array $payload,
+        ?string $runStatus = null,
+    ): ?FlowApprovalRecord {
         if (! in_array($status, [FlowApprovalRecord::STATUS_APPROVED, FlowApprovalRecord::STATUS_REJECTED], true)) {
             throw new InvalidArgumentException(sprintf('Unsupported approval decision status [%s].', $status));
         }
 
-        $tokenHash = self::hashToken($plainTextToken);
         $now = $this->now();
 
         if (! $this->pendingByHash($tokenHash, $now) instanceof FlowApprovalRecord) {

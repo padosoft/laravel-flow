@@ -586,11 +586,14 @@ class FlowEngine
      * `$options`: when null, links to the source run (its `correlationId` +
      * `replayedFromRunId`). When supplied, `replayedFromRunId` is forced to the
      * source run id (the linkage is the point of replay) while the caller's
-     * `correlationId`/`idempotencyKey` are honored. CAVEAT: if the caller passes
-     * an `idempotencyKey` already tied to an existing run, the legacy path
-     * inherits `execute()`'s idempotency short-circuit and returns that EXISTING
-     * run unchanged — so its `replayedFromRunId` reflects how it was originally
-     * created, not necessarily this source run. Omit the key to always replay.
+     * `correlationId`/`idempotencyKey` are honored. CAVEAT: passing an
+     * `idempotencyKey` already tied to an existing run behaves DIFFERENTLY per
+     * path — the LEGACY path inherits `execute()`'s idempotency short-circuit
+     * and returns that EXISTING run unchanged (its `replayedFromRunId` reflects
+     * its original creation, not this source run); the PINNED-GRAPH path has no
+     * such short-circuit and instead throws `FlowExecutionException` (the
+     * `flow_runs.idempotency_key` unique constraint fails). Omit the key to
+     * always replay cleanly.
      *
      * Unlike the `flow:replay` console command this does NOT emit definition
      * drift warnings (there is no console) — the replay still uses the current

@@ -379,6 +379,43 @@ class FlowEngine
     }
 
     /**
+     * Requeue ONE failed webhook-outbox row (by its integer id) for delivery:
+     * it is reset to `pending` with `attempts` cleared so the next
+     * `flow:deliver-webhooks` pass re-attempts it. Intended for a dashboard
+     * "redeliver" action driven by the dashboard read model's
+     * `failedWebhookOutbox()` listing, which surfaces the integer id.
+     *
+     * Returns true only when a row with that id existed AND was in the `failed`
+     * state (so an unknown id, an in-flight `delivering` lease, an already
+     * `delivered` row, or an already `pending` row all return false — nothing
+     * to redeliver, no state disturbed).
+     */
+    public function redeliverWebhook(int $outboxId): bool
+    {
+        // Guard persistence like every other DB-backed public method
+        // (dispatchGraph(), the approval resume/reject path): a fresh app with
+        // persistence disabled (the default) has no outbox table, so touching
+        // the repository would surface a raw QueryException/500 instead of this
+        // stable, typed failure. NOTE: intentionally NOT gated on
+        // webhook.enabled — that flag governs whether NEW outbox rows are
+        // recorded on flow events, not whether an already-failed row may be
+        // redelivered.
+        if ($this->storeForExecution(false) === null) {
+            throw new FlowExecutionException('Webhook redelivery requires persistence to be enabled.');
+        }
+
+        /** @var EloquentWebhookOutboxRepository $repository */
+        $repository = $this->container->make(EloquentWebhookOutboxRepository::class);
+
+        try {
+            return $repository->redeliver($outboxId);
+        } catch (QueryException $e) {
+            // Never leak the low-level SQL/driver error to an @api caller.
+            throw new FlowExecutionException('Webhook redelivery failed.', previous: $e);
+        }
+    }
+
+    /**
      * @param  array<string, mixed>  $input
      */
     private function run(string $name, array $input, bool $dryRun, ?FlowExecutionOptions $options = null): FlowRun

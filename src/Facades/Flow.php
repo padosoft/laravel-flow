@@ -24,6 +24,7 @@ use Padosoft\LaravelFlow\FlowRun;
  * @method static string dispatchGraph(\Padosoft\LaravelFlow\Graph\GraphDefinition $graph, array<string, mixed> $input, ?\Padosoft\LaravelFlow\FlowExecutionOptions $options = null, string $definitionName = 'graph')
  * @method static FlowRun resume(string $token, array<string, mixed> $payload = [], array<string, mixed> $actor = [])
  * @method static FlowRun reject(string $token, array<string, mixed> $payload = [], array<string, mixed> $actor = [])
+ * @method static bool redeliverWebhook(int $outboxId)
  * @method static array<string, FlowDefinition> definitions()
  * @method static FlowDefinition definition(string $name)
  * @method static void registerDefinition(FlowDefinition $definition)

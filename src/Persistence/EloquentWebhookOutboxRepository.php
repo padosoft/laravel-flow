@@ -151,6 +151,34 @@ final class EloquentWebhookOutboxRepository
     }
 
     /**
+     * Resets ONE failed outbox row back to `pending` so the existing delivery
+     * path ({@see self::claimNextPending()}) re-attempts it. Resets `attempts`
+     * to 0 too: a failed row is typically at `attempts == max_attempts`, which
+     * the claim query's `attempts < max_attempts` guard would otherwise skip
+     * forever. CAS on `status = failed` so an in-flight `delivering` lease or an
+     * already-`delivered` row is never disturbed. Returns whether a row changed
+     * (false for an unknown id or a non-failed row — nothing to redeliver).
+     */
+    public function redeliver(int $outboxId): bool
+    {
+        $now = $this->newModel()->freshTimestamp();
+
+        $updated = $this->newQuery()
+            ->where('id', $outboxId)
+            ->where('status', self::STATUS_FAILED)
+            ->update([
+                'status' => self::STATUS_PENDING,
+                'attempts' => 0,
+                'available_at' => $now,
+                'failed_at' => null,
+                'last_error' => null,
+                'updated_at' => $now,
+            ]);
+
+        return $updated === 1;
+    }
+
+    /**
      * @param  Builder<FlowWebhookOutboxRecord>  $query
      */
     private function availableClause(Builder $query, DateTimeInterface $now, bool $requireNotNullAvailableAt): void

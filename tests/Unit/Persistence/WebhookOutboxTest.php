@@ -4,10 +4,12 @@ declare(strict_types=1);
 
 namespace Padosoft\LaravelFlow\Tests\Unit\Persistence;
 
+use Padosoft\LaravelFlow\Exceptions\FlowExecutionException;
 use Padosoft\LaravelFlow\FlowEngine;
 use Padosoft\LaravelFlow\FlowRun;
 use Padosoft\LaravelFlow\Models\FlowApprovalRecord;
 use Padosoft\LaravelFlow\Models\FlowWebhookOutboxRecord;
+use Padosoft\LaravelFlow\Persistence\EloquentWebhookOutboxRepository;
 use Padosoft\LaravelFlow\Tests\Unit\Stubs\AlwaysFailsHandler;
 use Padosoft\LaravelFlow\Tests\Unit\Stubs\AlwaysSucceedsHandler;
 
@@ -149,6 +151,89 @@ final class WebhookOutboxTest extends PersistenceTestCase
         $this->assertSame($approvalRecord->id, $failedRecord->approval_id);
         $this->assertSame(FlowWebhookOutboxRecord::STATUS_PENDING, $failedRecord->status);
         $this->assertSame(FlowRun::STATUS_FAILED, $rejectedRun->status);
+    }
+
+    public function test_redeliver_resets_a_failed_outbox_row_and_makes_it_claimable_again(): void
+    {
+        $this->migrateFlowTables();
+        $engine = $this->engineWithPersistence();
+
+        // A row that has exhausted its attempts and is parked at `failed`.
+        $record = FlowWebhookOutboxRecord::query()->create([
+            'event' => 'flow.failed',
+            'status' => FlowWebhookOutboxRecord::STATUS_FAILED,
+            'attempts' => 3,
+            'max_attempts' => 3,
+            'available_at' => null,
+            'failed_at' => now(),
+            'last_error' => 'HTTP 500 from the receiver',
+            'payload' => ['flow_run_id' => 'run-redeliver'],
+        ]);
+
+        $this->assertTrue($engine->redeliverWebhook((int) $record->id));
+
+        $fresh = $record->fresh();
+        $this->assertNotNull($fresh);
+        $this->assertSame(FlowWebhookOutboxRecord::STATUS_PENDING, $fresh->status);
+        $this->assertSame(0, $fresh->attempts);
+        $this->assertNull($fresh->failed_at);
+        $this->assertNull($fresh->last_error);
+        $this->assertNotNull($fresh->available_at);
+
+        // Resetting attempts to 0 re-opens the `attempts < max_attempts` gate,
+        // so the existing delivery path (claimNextPending) picks it up again.
+        $repository = $this->app->make(EloquentWebhookOutboxRepository::class);
+        $claimed = $repository->claimNextPending(now());
+        $this->assertNotNull($claimed);
+        $this->assertSame((int) $record->id, (int) $claimed->id);
+    }
+
+    public function test_redeliver_is_a_noop_for_a_non_failed_or_unknown_row(): void
+    {
+        $this->migrateFlowTables();
+        $engine = $this->engineWithPersistence();
+
+        $delivered = FlowWebhookOutboxRecord::query()->create([
+            'event' => 'flow.completed',
+            'status' => FlowWebhookOutboxRecord::STATUS_DELIVERED,
+            'attempts' => 1,
+            'max_attempts' => 3,
+        ]);
+
+        // An IN-FLIGHT lease (`delivering`) must never be disturbed — the CAS
+        // is scoped to `status = 'failed'` precisely to protect an active
+        // delivery attempt from being reset out from under it.
+        $delivering = FlowWebhookOutboxRecord::query()->create([
+            'event' => 'flow.completed',
+            'status' => FlowWebhookOutboxRecord::STATUS_DELIVERING,
+            'attempts' => 1,
+            'max_attempts' => 3,
+            'available_at' => now()->addSeconds(30),
+        ]);
+
+        // A delivered row must not be disturbed, and an unknown id is a no-op.
+        $this->assertFalse($engine->redeliverWebhook((int) $delivered->id));
+        $this->assertSame(FlowWebhookOutboxRecord::STATUS_DELIVERED, $delivered->fresh()?->status);
+
+        $this->assertFalse($engine->redeliverWebhook((int) $delivering->id));
+        $fresh = $delivering->fresh();
+        $this->assertSame(FlowWebhookOutboxRecord::STATUS_DELIVERING, $fresh?->status);
+        $this->assertSame(1, $fresh?->attempts);
+
+        $this->assertFalse($engine->redeliverWebhook(999999));
+    }
+
+    public function test_redeliver_requires_persistence_enabled(): void
+    {
+        $this->app['config']->set('laravel-flow.persistence.enabled', false);
+        $this->app->forgetInstance(FlowEngine::class);
+        /** @var FlowEngine $engine */
+        $engine = $this->app->make(FlowEngine::class);
+
+        // With persistence off there is no outbox table — the @api method must
+        // surface a stable typed failure, not a raw QueryException.
+        $this->expectException(FlowExecutionException::class);
+        $engine->redeliverWebhook(1);
     }
 
     private function engineWithPersistence(): FlowEngine

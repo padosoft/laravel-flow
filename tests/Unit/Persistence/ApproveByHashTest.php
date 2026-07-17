@@ -83,6 +83,24 @@ final class ApproveByHashTest extends PersistenceTestCase
         $engine->resumeByHash(ApprovalTokenManager::hashToken('never-issued'));
     }
 
+    public function test_reject_by_hash_rejects_a_blank_hash(): void
+    {
+        $this->migrateFlowTables();
+        $engine = $this->engineWithPersistence();
+
+        $this->expectException(FlowInputException::class);
+        $engine->rejectByHash('   ');
+    }
+
+    public function test_reject_by_hash_rejects_an_unknown_hash(): void
+    {
+        $this->migrateFlowTables();
+        $engine = $this->engineWithPersistence();
+
+        $this->expectException(FlowExecutionException::class);
+        $engine->rejectByHash(ApprovalTokenManager::hashToken('never-issued'));
+    }
+
     private function engineWithPersistence(): FlowEngine
     {
         $this->app['config']->set('laravel-flow.persistence.enabled', true);

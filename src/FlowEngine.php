@@ -386,10 +386,12 @@ class FlowEngine
      * Resume a persisted approval gate by the stored token HASH — the form a
      * companion dashboard holds (plain tokens are never recoverable from
      * storage). Byte-for-byte equivalent to `resume(plainToken)` for the same
-     * approval. @see ApprovalTokenManager::hashToken()
+     * approval.
      *
      * @param  array<string, mixed>  $payload
      * @param  array<string, mixed>  $actor
+     *
+     * @see ApprovalTokenManager::hashToken()
      */
     public function resumeByHash(string $tokenHash, array $payload = [], array $actor = []): FlowRun
     {

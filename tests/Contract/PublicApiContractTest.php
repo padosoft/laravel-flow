@@ -178,6 +178,28 @@ final class PublicApiContractTest extends TestCase
         ]);
     }
 
+    public function test_step_summary_pins_read_properties(): void
+    {
+        $reflection = new ReflectionClass('Padosoft\\LaravelFlow\\Dashboard\\StepSummary');
+        $properties = array_map(
+            static fn (\ReflectionProperty $property): string => $property->getName(),
+            // PUBLIC only — the pinned surface is the readable DTO contract,
+            // so making any of these private/protected must fail this test.
+            $reflection->getProperties(\ReflectionProperty::IS_PUBLIC),
+        );
+
+        foreach ([
+            'id', 'runId', 'name', 'handler', 'sequence', 'status',
+            'errorClass', 'errorMessage', 'durationMs', 'startedAt', 'finishedAt', 'cacheHit',
+        ] as $expected) {
+            $this->assertContains(
+                $expected,
+                $properties,
+                sprintf('StepSummary must expose the [%s] read property (@api).', $expected),
+            );
+        }
+    }
+
     public function test_dashboard_authorizer_pins_documented_methods(): void
     {
         $this->assertHasPublicMethods('Padosoft\\LaravelFlow\\Dashboard\\Authorization\\DashboardActionAuthorizer', [

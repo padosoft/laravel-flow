@@ -25,5 +25,16 @@ final readonly class StepSummary
         public ?int $durationMs,
         public ?DateTimeImmutable $startedAt,
         public ?DateTimeImmutable $finishedAt,
+        /**
+         * True when this step's result was served from the node cache
+         * (`#[Cacheable]`/`NodeCache`) rather than re-executed. A cache hit
+         * is metadata ON an otherwise-`succeeded` step, not a distinct
+         * lifecycle status — dashboards render it as a badge/overlay on a
+         * succeeded node, not as a separate state. The underlying column
+         * stores the cache content hash (or null when not cached); this
+         * boolean deliberately exposes only the hit/miss fact, never the
+         * hash itself.
+         */
+        public bool $cacheHit = false,
     ) {}
 }

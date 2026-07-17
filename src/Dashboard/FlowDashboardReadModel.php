@@ -413,6 +413,9 @@ final class FlowDashboardReadModel
                 durationMs: $record->duration_ms,
                 startedAt: $this->immutable($record->started_at),
                 finishedAt: $this->immutable($record->finished_at),
+                // The column stores the cache content hash (or null); expose
+                // only the hit/miss fact, never the hash itself.
+                cacheHit: $record->cache_hit !== null,
             );
         }
 

@@ -51,7 +51,7 @@ Thread `$tokenHash` (not the plain token) through the private chain; the plain t
 
 ## Seam 4 — redeliver webhook (`Flow::redeliverWebhook(int): bool`)
 - `EloquentWebhookOutboxRepository::redeliver(int $outboxId): bool` — CAS `UPDATE ... SET status='pending', attempts=0, available_at=now, last_error=NULL, failed_at=NULL WHERE id=? AND status='failed'`; return whether 1 row changed. Resetting `attempts=0` re-opens the `attempts<max_attempts` gate so `claimNextPending` re-picks it.
-- `FlowEngine::redeliverWebhook(int $outboxId): bool` resolves the internal repo + guards webhook.enabled/persistence; `Flow::redeliverWebhook` `@method`. Contract pin (`redeliverWebhook`) + UPGRADE.
+- `FlowEngine::redeliverWebhook(int $outboxId): bool` resolves the internal repo + guards ONLY persistence-enabled (throws `FlowExecutionException` when off, wraps `QueryException`); it is intentionally NOT gated on `webhook.enabled` (that flag governs recording NEW rows, not redelivering an already-failed one). `Flow::redeliverWebhook` `@method`. Contract pin (`redeliverWebhook`) + UPGRADE. **Shipped in PR #93.**
 - Tests: seed a `failed` row → redeliver → pending/attempts=0/available<=now/cleared → `flow:deliver-webhooks` claims+delivers; non-failed → false; missing id → false.
 
 ## Then: admin E-PR6 (separate, in laravel-flow-admin, after the 4 core PRs merge + core dev-main updates)

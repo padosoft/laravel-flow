@@ -393,11 +393,14 @@ class FlowEngine
      */
     public function redeliverWebhook(int $outboxId): bool
     {
-        // Guard persistence like every other DB-backed public method (e.g.
-        // dispatchGraph :307, approval resume/reject :1371): a fresh app with
+        // Guard persistence like every other DB-backed public method
+        // (dispatchGraph(), the approval resume/reject path): a fresh app with
         // persistence disabled (the default) has no outbox table, so touching
         // the repository would surface a raw QueryException/500 instead of this
-        // stable, typed failure.
+        // stable, typed failure. NOTE: intentionally NOT gated on
+        // webhook.enabled — that flag governs whether NEW outbox rows are
+        // recorded on flow events, not whether an already-failed row may be
+        // redelivered.
         if ($this->storeForExecution(false) === null) {
             throw new FlowExecutionException('Webhook redelivery requires persistence to be enabled.');
         }

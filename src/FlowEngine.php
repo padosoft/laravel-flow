@@ -596,8 +596,9 @@ class FlowEngine
      *
      * @throws FlowExecutionException for a missing / non-terminal / non-array-input
      *                                run, an UNPINNED graph run (engine `graph`
-     *                                with no stored version), an unregistered
-     *                                definition, or an unloadable stored graph version
+     *                                missing its stored version and/or checksum),
+     *                                an unregistered definition, or an unloadable
+     *                                stored graph version
      */
     public function replay(string $runId, ?FlowExecutionOptions $options = null): FlowRun
     {
@@ -631,7 +632,7 @@ class FlowEngine
         // fall through to the legacy path — that would mis-report "definition
         // not registered", or worse, replay a same-named LEGACY definition.
         if ($original->engine === 'graph') {
-            throw new FlowExecutionException(sprintf('Flow run [%s] is an unpinned graph run and cannot be replayed (no stored definition version to re-execute).', $runId));
+            throw new FlowExecutionException(sprintf('Flow run [%s] is an unpinned graph run and cannot be replayed (its stored definition version/checksum pin is missing).', $runId));
         }
 
         try {

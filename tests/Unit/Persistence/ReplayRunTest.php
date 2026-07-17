@@ -116,6 +116,47 @@ final class ReplayRunTest extends PersistenceTestCase
         $engine->replay($paused->id);
     }
 
+    public function test_replay_throws_when_the_stored_input_is_not_an_array(): void
+    {
+        $this->migrateFlowTables();
+        $engine = $this->engineWithPersistence();
+
+        $engine->define('flow.replay.badinput')
+            ->step('s', AlwaysSucceedsHandler::class)
+            ->register();
+
+        $run = $engine->execute('flow.replay.badinput', []);
+
+        // Corrupt the persisted input to a scalar JSON value.
+        DB::table('flow_runs')->where('id', $run->id)->update(['input' => json_encode('not-an-array')]);
+
+        $this->expectException(FlowExecutionException::class);
+        $engine->replay($run->id);
+    }
+
+    public function test_replay_throws_for_an_unpinned_graph_run(): void
+    {
+        $this->migrateFlowTables();
+        $engine = $this->engineWithPersistence();
+
+        // A graph run with no pinned version/checksum must NOT fall through to
+        // the legacy path — replay rejects it explicitly.
+        DB::table('flow_runs')->insert([
+            'id' => 'graph-unpinned',
+            'definition_name' => 'flow.graph',
+            'engine' => 'graph',
+            'definition_version' => null,
+            'definition_checksum' => null,
+            'dry_run' => false,
+            'input' => json_encode([]),
+            'status' => 'succeeded',
+            'finished_at' => Carbon::parse('2026-05-03 10:00:00'),
+        ]);
+
+        $this->expectException(FlowExecutionException::class);
+        $engine->replay('graph-unpinned');
+    }
+
     public function test_replay_throws_for_an_unknown_run(): void
     {
         $this->migrateFlowTables();

@@ -583,17 +583,12 @@ class FlowEngine
      * regardless of the current `latest()`; a legacy run re-executes the
      * currently-registered definition. Requires persistence enabled.
      *
-     * `$options`: when null, links to the source run (its `correlationId` +
-     * `replayedFromRunId`). When supplied, `replayedFromRunId` is forced to the
-     * source run id (the linkage is the point of replay) while the caller's
-     * `correlationId`/`idempotencyKey` are honored. CAVEAT: passing an
-     * `idempotencyKey` already tied to an existing run behaves DIFFERENTLY per
-     * path — the LEGACY path inherits `execute()`'s idempotency short-circuit
-     * and returns that EXISTING run unchanged (its `replayedFromRunId` reflects
-     * its original creation, not this source run); the PINNED-GRAPH path has no
-     * such short-circuit and instead throws `FlowExecutionException` (the
-     * `flow_runs.idempotency_key` unique constraint fails). Omit the key to
-     * always replay cleanly.
+     * `$options`: `replayedFromRunId` is always forced to the source run id (the
+     * linkage is the point of replay), and the caller's `correlationId` (or the
+     * source run's) is used. A caller-supplied `idempotencyKey` is deliberately
+     * IGNORED — a replay is inherently a NEW linked run, and honoring the key
+     * would let it resolve to a differently-linked existing run (legacy path) or
+     * hit the `flow_runs.idempotency_key` unique constraint (pinned-graph path).
      *
      * Unlike the `flow:replay` console command this does NOT emit definition
      * drift warnings (there is no console) — the replay still uses the current
@@ -631,6 +626,13 @@ class FlowEngine
             return $this->replayPinnedGraph($store, $original, $input, $replayOptions);
         }
 
+        // A graph run that is NOT pinned (missing version/checksum) must not
+        // fall through to the legacy path — that would mis-report "definition
+        // not registered", or worse, replay a same-named LEGACY definition.
+        if ($original->engine === 'graph') {
+            throw new FlowExecutionException(sprintf('Flow run [%s] is an unpinned graph run and cannot be replayed (no stored definition version to re-execute).', $runId));
+        }
+
         try {
             $definition = $this->definition($original->definition_name);
         } catch (FlowNotRegisteredException $e) {
@@ -658,18 +660,18 @@ class FlowEngine
 
     private function replayOptions(FlowRunRecord $original, ?FlowExecutionOptions $options): FlowExecutionOptions
     {
-        if ($options === null) {
-            return FlowExecutionOptions::make(
-                correlationId: $original->correlation_id,
-                replayedFromRunId: $original->id,
-            );
-        }
+        // A replay is inherently a NEW linked run, so an idempotencyKey is
+        // deliberately NOT forwarded: honoring the caller's key would let
+        // execute()'s idempotency short-circuit return an OLD, differently-
+        // linked run (legacy path) or hit the flow_runs.idempotency_key unique
+        // constraint (pinned-graph path). We keep the caller's correlationId
+        // (or the source run's) and always force the source-run linkage.
+        $correlationId = $options !== null && $options->correlationId !== null
+            ? $options->correlationId
+            : $original->correlation_id;
 
-        // Honor the caller's correlation/idempotency choices but force the
-        // replay linkage — the whole point of replay() is the source-run link.
         return FlowExecutionOptions::make(
-            correlationId: $options->correlationId ?? $original->correlation_id,
-            idempotencyKey: $options->idempotencyKey,
+            correlationId: $correlationId,
             replayedFromRunId: $original->id,
         );
     }

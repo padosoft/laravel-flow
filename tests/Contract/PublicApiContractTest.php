@@ -108,8 +108,6 @@ final class PublicApiContractTest extends TestCase
 
     public function test_flow_engine_pins_documented_public_methods(): void
     {
-        // Replay is exposed as the flow:replay Artisan command rather than a
-        // FlowEngine method; pin only the methods that v1.0 callers depend on.
         $this->assertHasPublicMethods('Padosoft\\LaravelFlow\\FlowEngine', [
             'define',
             'registerDefinition',
@@ -122,6 +120,7 @@ final class PublicApiContractTest extends TestCase
             'reject',
             'redeliverWebhook',
             'cancel',
+            'replay',
         ]);
     }
 

@@ -11,6 +11,17 @@ use Padosoft\LaravelFlow\Models\FlowRunNodeRecord;
 use Padosoft\LaravelFlow\Models\FlowRunRecord;
 use Padosoft\LaravelFlow\Tests\Unit\Stubs\AlwaysSucceedsHandler;
 
+/**
+ * NOTE on the lost-CAS-race branch in {@see FlowEngine::cancel()}: when the run
+ * transitions to a terminal state concurrently between the initial `find()` and
+ * the compare-and-set, `updateWhereStatus` returns null and cancel() re-reads
+ * and returns the ACTUAL winning terminal state. That branch is not directly
+ * unit-tested here (these tests run single-threaded against SQLite, with no
+ * injection point inside `persistAtomically`); its observable contract —
+ * "return the current terminal state, never force `aborted`" — is the same one
+ * `test_cancel_is_idempotent_for_an_already_terminal_run` pins for the
+ * already-terminal case.
+ */
 final class CancelRunTest extends PersistenceTestCase
 {
     protected function setUp(): void
@@ -34,20 +45,39 @@ final class CancelRunTest extends PersistenceTestCase
         $paused = $engine->execute('flow.cancel.paused', []);
         $this->assertSame(FlowRun::STATUS_PAUSED, $paused->status);
 
+        // Seed a node genuinely stuck in `running` (with a real start time) to
+        // exercise the running → failed branch AND the duration_ms recording;
+        // a synchronous run never leaves a node `running`, so seed it directly.
+        FlowRunNodeRecord::query()->create([
+            'run_id' => $paused->id,
+            'node_id' => 'stuck',
+            'node_type' => 'legacy.step',
+            'status' => 'running',
+            'attempts' => 1,
+            'started_at' => now()->subMinute(),
+        ]);
+
         $cancelled = $engine->cancel($paused->id);
 
         // The returned run and the persisted row are both `aborted`.
         $this->assertSame(FlowRun::STATUS_ABORTED, $cancelled->status);
         $this->assertSame('aborted', FlowRunRecord::query()->findOrFail($paused->id)->status);
 
-        $nodes = FlowRunNodeRecord::query()
-            ->where('run_id', $paused->id)
-            ->pluck('status', 'node_id');
+        $rows = FlowRunNodeRecord::query()->where('run_id', $paused->id)->get()->keyBy('node_id');
+        $nodes = $rows->map(fn ($row) => $row->status);
 
-        // The already-completed step is untouched; the paused approval node
-        // (running/paused → failed) is terminated.
+        // The already-completed step is untouched; the paused approval node and
+        // the running node are both terminated (paused/running → failed).
         $this->assertSame('succeeded', $nodes['create']);
         $this->assertSame('failed', $nodes['manager']);
+        $this->assertSame('failed', $nodes['stuck']);
+        // The running node's elapsed time is recorded on cancellation.
+        $this->assertNotNull($rows['stuck']->duration_ms);
+
+        // The downstream `publish` step was never reached in this synchronous
+        // run, so it has NO node row — cancel only terminates PERSISTED nodes
+        // (documented sync-vs-queued behavior on cancel()).
+        $this->assertArrayNotHasKey('publish', $nodes->all());
     }
 
     public function test_cancel_is_idempotent_for_an_already_terminal_run(): void

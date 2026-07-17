@@ -418,18 +418,29 @@ class FlowEngine
 
     /**
      * Cancel a non-terminal run: atomically transition the run to `aborted`
-     * and move every still-active node to a terminal state (a `pending` node
-     * becomes `skipped`, a `running`/`paused` node becomes `failed` — the
-     * `NodeState` enum has no dedicated "cancelled" case, and these are the
-     * transition-legal terminal targets). Idempotent: cancelling an
-     * already-terminal run (or losing the compare-and-set race to a concurrent
-     * completion) returns the run's CURRENT state unchanged rather than
-     * forcing it. Requires persistence enabled — an in-memory run has no
+     * and move every still-active PERSISTED node to a terminal state (a
+     * `pending` node becomes `skipped`, a `running`/`paused` node becomes
+     * `failed` — the `NodeState` enum has no dedicated "cancelled" case, and
+     * these are the transition-legal terminal targets). Idempotent: cancelling
+     * an already-terminal run (or losing the compare-and-set race to a
+     * concurrent completion) returns the run's CURRENT state unchanged rather
+     * than forcing it. Requires persistence enabled — an in-memory run has no
      * cancellable persisted state.
+     *
+     * SYNC vs QUEUED node coverage: only nodes that ALREADY have a
+     * `flow_run_nodes` row are terminated. A QUEUED graph run pre-seeds a
+     * `pending` row for every node up front, so all not-yet-run nodes flip to
+     * `skipped`. A SYNCHRONOUSLY-executed run only writes a node row once that
+     * node is reached, so a node downstream of the pause point has NO row and
+     * is left un-rowed after cancel (it was never going to run once the run is
+     * aborted). The run itself is terminal either way.
      *
      * Best-effort against a queued run: a node job already in flight may still
      * write its own row after this returns, but the run itself stays terminal
-     * (the CAS pins `flow_runs.status` to `aborted`).
+     * (the CAS pins `flow_runs.status` to `aborted`). NOTE: cancel does NOT
+     * recompute the `flow_runs` node-count columns nor emit a broadcast
+     * settle-point snapshot — a subscribed dashboard learns of the abort on
+     * its next poll, and the counters reflect pre-cancel progress.
      *
      * @param  array<string, mixed>  $actor  reserved for parity with resume()/reject()
      *                                       and future audit attribution; the current
@@ -463,6 +474,14 @@ class FlowEngine
         $claimedRunRecord = null;
 
         $this->persistAtomically($store, function () use ($store, $runId, $record, $now, &$claimedRunRecord): void {
+            // CAS on the run's own current status. The expected status is
+            // always transition-legal to Aborted in practice: the only
+            // persisted NON-terminal run statuses are `running` and `paused`
+            // (both `RunState::canTransitionTo(Aborted)`), because every
+            // run-creation path writes `running` up front — a `pending` row is
+            // never persisted. If a future "scheduled" state ever persists a
+            // `pending` run, revisit this so it doesn't force an enum-illegal
+            // pending → aborted transition.
             $claimedRunRecord = $this->conditionalRuns($store)->updateWhereStatus($runId, $record->status, [
                 'status' => RunState::Aborted->value,
                 'finished_at' => $now,
@@ -485,6 +504,10 @@ class FlowEngine
                     'node_type' => $node->node_type,
                     'status' => $nodeState === NodeState::Pending ? NodeState::Skipped->value : NodeState::Failed->value,
                     'finished_at' => $now,
+                    // Record duration for a node that was actually running when
+                    // cancelled; a never-started (pending) node has no
+                    // started_at, so its duration stays null.
+                    'duration_ms' => $node->started_at !== null ? $this->durationMs($node->started_at, $now) : null,
                 ]);
             }
         });

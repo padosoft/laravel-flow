@@ -65,6 +65,9 @@ use Throwable;
  */
 class FlowEngine
 {
+    /** Bounded retries for cancel()'s abort CAS against a flapping non-terminal status. */
+    private const CANCEL_MAX_ATTEMPTS = 5;
+
     private const COMPENSATION_STRATEGY_REVERSE_ORDER = 'reverse-order';
 
     private const COMPENSATION_STRATEGY_PARALLEL = 'parallel';
@@ -454,6 +457,87 @@ class FlowEngine
             throw new FlowExecutionException('Cancelling a run requires persistence to be enabled.');
         }
 
+        // Retry against a BENIGN non-terminal transition (e.g. running -> paused
+        // at an approval gate) that lands between our read and the CAS. Cancel
+        // must only "lose" to a concurrent transition to a TERMINAL state
+        // (idempotent no-op), never silently fail because the run merely flipped
+        // running<->paused. Bounded so a pathological flap can't spin forever.
+        for ($attempt = 0; $attempt < self::CANCEL_MAX_ATTEMPTS; $attempt++) {
+            $record = $this->cancelRunRecord($store, $runId);
+
+            $currentState = RunState::tryFrom($record->status);
+
+            if ($currentState !== null && $currentState->isTerminal()) {
+                return $this->flowRunFromRecord($record, $store); // already terminal — idempotent
+            }
+
+            $now = $this->now();
+            $claimedRunRecord = null;
+
+            $this->persistAtomically($store, function () use ($store, $runId, $record, $now, &$claimedRunRecord): void {
+                // CAS on the run's own current status.
+                $claimedRunRecord = $this->conditionalRuns($store)->updateWhereStatus($runId, $record->status, [
+                    'status' => RunState::Aborted->value,
+                    'finished_at' => $now,
+                    'duration_ms' => $this->durationMs($record->started_at ?? $now, $now),
+                ]);
+
+                if (! ($claimedRunRecord instanceof FlowRunRecord)) {
+                    return; // status changed under us — the outer loop re-reads and retries
+                }
+
+                foreach ($this->stepRecordsForRun($store, $runId) as $node) {
+                    $nodeState = NodeState::tryFrom($node->status);
+
+                    if ($nodeState === null || $nodeState->isTerminal()) {
+                        continue;
+                    }
+
+                    // CAS on the just-read status (not an unconditional upsert):
+                    // if a concurrent queued node job moved this node on (e.g.
+                    // running -> succeeded) between the read above and here, the
+                    // update matches zero rows and we leave the real outcome
+                    // intact rather than clobbering it back to failed/skipped. A
+                    // running/paused node has no dedicated "cancelled" state, so
+                    // it lands on `failed` — stamp a distinguishing reason so it
+                    // reads back as an explained cancellation, not an anonymous
+                    // handler failure. Record duration for a node that was
+                    // actually running; a never-started node has no started_at.
+                    $terminalStatus = $nodeState === NodeState::Pending ? NodeState::Skipped->value : NodeState::Failed->value;
+                    $isFailure = $terminalStatus === NodeState::Failed->value;
+
+                    $store->runNodes()->terminate(
+                        $runId,
+                        $node->node_id,
+                        $node->status,
+                        $terminalStatus,
+                        $now,
+                        $node->started_at !== null ? $this->durationMs($node->started_at, $now) : null,
+                        $isFailure ? 'FlowRunCancelled' : null,
+                        $isFailure ? 'Run was cancelled.' : null,
+                    );
+                }
+            });
+
+            if ($claimedRunRecord instanceof FlowRunRecord) {
+                return $this->flowRunFromRecord($claimedRunRecord, $store);
+            }
+
+            // CAS missed — the run's status changed. Loop to re-read the new
+            // status and retry the abort against it.
+        }
+
+        // Exhausted retries against a flapping non-terminal status — report the
+        // current persisted state rather than forcing an abort.
+        return $this->flowRunFromRecord($this->cancelRunRecord($store, $runId), $store);
+    }
+
+    /**
+     * Load a run record for {@see self::cancel()}, translating a persistence
+     * failure and a missing run into typed engine exceptions.
+     */
+    private function cancelRunRecord(FlowStore $store, string $runId): FlowRunRecord
+    {
         try {
             $record = $store->runs()->find($runId);
         } catch (QueryException $e) {
@@ -464,83 +548,7 @@ class FlowEngine
             throw new FlowExecutionException(sprintf('Flow run [%s] was not found.', $runId));
         }
 
-        $currentState = RunState::tryFrom($record->status);
-
-        if ($currentState !== null && $currentState->isTerminal()) {
-            return $this->flowRunFromRecord($record, $store);
-        }
-
-        $now = $this->now();
-        $claimedRunRecord = null;
-
-        $this->persistAtomically($store, function () use ($store, $runId, $record, $now, &$claimedRunRecord): void {
-            // CAS on the run's own current status. The expected status is
-            // always transition-legal to Aborted in practice: the only
-            // persisted NON-terminal run statuses are `running` and `paused`
-            // (both `RunState::canTransitionTo(Aborted)`), because every
-            // run-creation path writes `running` up front — a `pending` row is
-            // never persisted. If a future "scheduled" state ever persists a
-            // `pending` run, revisit this so it doesn't force an enum-illegal
-            // pending → aborted transition.
-            $claimedRunRecord = $this->conditionalRuns($store)->updateWhereStatus($runId, $record->status, [
-                'status' => RunState::Aborted->value,
-                'finished_at' => $now,
-                'duration_ms' => $this->durationMs($record->started_at ?? $now, $now),
-            ]);
-
-            if (! ($claimedRunRecord instanceof FlowRunRecord)) {
-                return; // lost the CAS race to a concurrent transition
-            }
-
-            foreach ($this->stepRecordsForRun($store, $runId) as $node) {
-                $nodeState = NodeState::tryFrom($node->status);
-
-                if ($nodeState === null || $nodeState->isTerminal()) {
-                    continue;
-                }
-
-                // CAS on the just-read status (not an unconditional upsert): if
-                // a concurrent queued node job moved this node on (e.g.
-                // running -> succeeded) between the read above and here, the
-                // update matches zero rows and we leave the real outcome
-                // intact rather than clobbering it back to failed/skipped.
-                // A running/paused node has no dedicated "cancelled" state, so
-                // it lands on `failed` — stamp a distinguishing reason so it
-                // reads back as an explained cancellation, not an anonymous
-                // handler failure. Record duration for a node that was actually
-                // running; a never-started (pending) node has no started_at.
-                $terminalStatus = $nodeState === NodeState::Pending ? NodeState::Skipped->value : NodeState::Failed->value;
-                $isFailure = $terminalStatus === NodeState::Failed->value;
-
-                $store->runNodes()->terminate(
-                    $runId,
-                    $node->node_id,
-                    $node->status,
-                    $terminalStatus,
-                    $now,
-                    $node->started_at !== null ? $this->durationMs($node->started_at, $now) : null,
-                    $isFailure ? 'FlowRunCancelled' : null,
-                    $isFailure ? 'Run was cancelled.' : null,
-                );
-            }
-        });
-
-        if (! ($claimedRunRecord instanceof FlowRunRecord)) {
-            // Lost the race — report whatever terminal state actually won.
-            try {
-                $current = $store->runs()->find($runId);
-            } catch (QueryException $e) {
-                throw $this->flowPersistenceUnavailableException($e);
-            }
-
-            if ($current instanceof FlowRunRecord) {
-                return $this->flowRunFromRecord($current, $store);
-            }
-
-            throw new FlowExecutionException(sprintf('Flow run [%s] was not found while cancelling.', $runId));
-        }
-
-        return $this->flowRunFromRecord($claimedRunRecord, $store);
+        return $record;
     }
 
     /**

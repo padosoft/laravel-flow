@@ -21,7 +21,11 @@ use Padosoft\LaravelFlow\Tests\Unit\Stubs\AlwaysSucceedsHandler;
  * injection point inside `persistAtomically`); its observable contract —
  * "return the current terminal state, never force `aborted`" — is the same one
  * `test_cancel_is_idempotent_for_an_already_terminal_run` pins for the
- * already-terminal case.
+ * already-terminal case. Likewise, cancel() RETRIES its abort CAS against a
+ * benign non-terminal flip (running <-> paused) so it never silently no-ops on
+ * one — that retry path is also not directly injectable single-threaded; the
+ * "abort a paused (non-terminal) run" leg it depends on is pinned by
+ * {@see self::test_cancel_aborts_a_paused_run_and_terminates_its_active_nodes()}.
  */
 final class CancelRunTest extends PersistenceTestCase
 {

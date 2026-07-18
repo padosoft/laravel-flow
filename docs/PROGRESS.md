@@ -1,5 +1,25 @@
 # Progress
 
+## 2026-07-18 - 🏁 FLOW 2.0 PROGRAM COMPLETE — all three packages released
+
+The Flow 2.0 super-package program (Macros A→G) is **done and published**. Verified live on Packagist + GitHub Releases:
+
+- **`padosoft/laravel-flow` v2.0.0** — graph execution engine + dashboard mutation seams. (Tag `v2.0.0`; CHANGELOG `[2.0.0]` + `docs/UPGRADE.md` finalized in core PR #100.)
+- **`padosoft/laravel-flow-ai` v1.0.0** — agentic AI layer; requires core `^2.0`. (ai PR #10: composer `dev-main`→`^2.0` + path-repo removed + CHANGELOG; tag `v1.0.0`.)
+- **`padosoft/laravel-flow-admin` v2.0.0** — Flow Studio operator console; requires core `^2.0` + ai `^1.0` (optional). (admin PR #46: composer conversion `dev-main`→`^2.0`/`^1.0` + both path repos removed + dead CI sibling-checkouts dropped + CHANGELOG; tag `v2.0.0`.)
+
+Macro G execution, in order:
+
+- Core follow-up #97 — expire a cancelled run's pending approvals in the abort transaction (`ApprovalRepository::expirePendingForRun`).
+- Core follow-up #98 — `Exceptions\PersistenceUnavailableException` (parent of `ApprovalPersistenceException`), so `cancel`/`replay`/`redeliver`/approvals distinguish an infra outage from a state conflict.
+- Admin #44 — maps `PersistenceUnavailableException` to HTTP 503 (closing the 409-vs-503 gap).
+- Knowhow consolidation — folded into the workflow rule (core #99) and admin `AGENTS.md` (#45).
+- Release-prep docs (core #100), then the three tags/GitHub releases + composer conversions (`dev-main`/path-repos → tagged `^2.0`/`^1.0`) — ai #10, admin #46.
+- The `flow:replay` de-dup was evaluated and **decided against** (the command is a tested superset of `FlowEngine::replay()`, not a duplicate).
+- Post-release, two pre-existing quality items were fixed in the admin repo (admin #47): E2E `PHP_CLI_SERVER_WORKERS` + `--no-reload` concurrency, and a deterministic injectable-clock for the KPI window.
+
+**Nothing remains on the roadmap.** Every dated entry below this one is the historical Macro E / Macro G execution log — their forward-looking "Next step" notes are all now completed.
+
 ## 2026-07-18 - Macro E COMPLETE (Gate G3 merged) — program now at Macro G (release)
 
 - **`laravel-flow-admin` Gate G3 merged**: macro branch `task/v2e-studio` → admin `main` via **admin PR #43** (squash `0416ac7`). This closes **Macro E (Flow Studio UI)** end to end: E-PR0…E-PR8 + E-PR6 (working mutations) all shipped. Final admin gate **229 tests / 1043 assertions**, 33 Playwright scenarios / 99 runs.

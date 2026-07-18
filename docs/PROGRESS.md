@@ -8,7 +8,17 @@ The Flow 2.0 super-package program (Macros A→G) is **done and published**. Ver
 - **`padosoft/laravel-flow-ai` v1.0.0** — agentic AI layer; requires core `^2.0`. (ai PR #10: composer `dev-main`→`^2.0` + path-repo removed + CHANGELOG; tag `v1.0.0`.)
 - **`padosoft/laravel-flow-admin` v2.0.0** — Flow Studio operator console; requires core `^2.0` + ai `^1.0` (optional). (admin PR #46: composer conversion `dev-main`→`^2.0`/`^1.0` + both path repos removed + dead CI sibling-checkouts dropped + CHANGELOG; tag `v2.0.0`.)
 
-Macro G execution: core follow-ups #97 (expire pending approvals on cancel — `ApprovalRepository::expirePendingForRun`) + #98 (`Exceptions\PersistenceUnavailableException`, parent of `ApprovalPersistenceException`, so `cancel`/`replay`/`redeliver`/approvals distinguish an infra outage from a state conflict) → admin #44 maps it to HTTP 503 → knowhow consolidation folded into the workflow rule (core #99) and admin `AGENTS.md` (#45) → release-prep docs (core #100) → the three tags/releases + composer conversions. The `flow:replay` de-dup was evaluated and DECIDED against (the command is a tested superset of `FlowEngine::replay()`, not a duplicate). Two pre-existing quality items were also fixed post-release in the admin repo (E2E `PHP_CLI_SERVER_WORKERS` concurrency; deterministic KPI-window clock). **Nothing remains on the roadmap.**
+Macro G execution, in order:
+
+- Core follow-up #97 — expire a cancelled run's pending approvals in the abort transaction (`ApprovalRepository::expirePendingForRun`).
+- Core follow-up #98 — `Exceptions\PersistenceUnavailableException` (parent of `ApprovalPersistenceException`), so `cancel`/`replay`/`redeliver`/approvals distinguish an infra outage from a state conflict.
+- Admin #44 — maps `PersistenceUnavailableException` to HTTP 503 (closing the 409-vs-503 gap).
+- Knowhow consolidation — folded into the workflow rule (core #99) and admin `AGENTS.md` (#45).
+- Release-prep docs (core #100), then the three tags/GitHub releases + composer conversions (`dev-main`/path-repos → tagged `^2.0`/`^1.0`) — ai #10, admin #46.
+- The `flow:replay` de-dup was evaluated and **decided against** (the command is a tested superset of `FlowEngine::replay()`, not a duplicate).
+- Post-release, two pre-existing quality items were fixed in the admin repo (admin #47): E2E `PHP_CLI_SERVER_WORKERS` + `--no-reload` concurrency, and a deterministic injectable-clock for the KPI window.
+
+**Nothing remains on the roadmap.** Every dated entry below this one is the historical Macro E / Macro G execution log — their forward-looking "Next step" notes are all now completed.
 
 ## 2026-07-18 - Macro E COMPLETE (Gate G3 merged) — program now at Macro G (release)
 

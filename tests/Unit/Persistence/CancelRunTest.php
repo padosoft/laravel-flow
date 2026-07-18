@@ -119,6 +119,8 @@ final class CancelRunTest extends PersistenceTestCase
         $after = FlowApprovalRecord::query()->where('run_id', $paused->id)->firstOrFail();
         $this->assertSame(FlowApprovalRecord::STATUS_EXPIRED, $after->status);
         $this->assertNotNull($after->decided_at);
+        // updated_at is aligned with decided_at (a bulk update doesn't auto-touch it).
+        $this->assertSame($after->decided_at?->timestamp, $after->updated_at?->timestamp);
 
         // And the (now expired) token can no longer resume the aborted run.
         $this->expectException(FlowExecutionException::class);

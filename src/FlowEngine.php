@@ -17,6 +17,7 @@ use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Database\QueryException;
 use InvalidArgumentException;
 use JsonException;
+use Padosoft\LaravelFlow\Contracts\ApprovalRepository;
 use Padosoft\LaravelFlow\Contracts\ConditionalRunRepository;
 use Padosoft\LaravelFlow\Contracts\DefinitionRepository;
 use Padosoft\LaravelFlow\Contracts\FlowStore;
@@ -571,6 +572,13 @@ class FlowEngine
                             $isFailure ? 'Run was cancelled.' : null,
                         );
                     }
+
+                    // The run is now terminal (Aborted) and can never resume, so
+                    // expire its still-PENDING approvals in the SAME transaction.
+                    // Otherwise a later resume/reject by a leaked or retried token
+                    // hash would find a live approval attached to a dead run. Bulk
+                    // + idempotent (0 rows when there are none to expire).
+                    $this->container->make(ApprovalRepository::class)->expirePendingForRun($runId, $now);
                 });
             } catch (QueryException $e) {
                 // The transactional CAS/terminate can throw a raw driver error;

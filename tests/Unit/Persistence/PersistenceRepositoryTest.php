@@ -399,6 +399,11 @@ final class PersistenceRepositoryTest extends PersistenceTestCase
             {
                 return null;
             }
+
+            public function expirePendingForRun(string $runId, DateTimeInterface $decidedAt): int
+            {
+                return 0;
+            }
         };
 
         $manager = new ApprovalTokenManager(

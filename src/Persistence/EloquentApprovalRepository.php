@@ -124,6 +124,25 @@ final class EloquentApprovalRepository implements ApprovalDecisionRepository, Ap
         ]);
     }
 
+    public function expirePendingForRun(string $runId, DateTimeInterface $decidedAt): int
+    {
+        // Bulk CAS on status: only rows STILL pending flip to expired, so a
+        // concurrently-decided approval (already approved/rejected/expired) is
+        // left intact. No payload/actor is written, so no redaction is needed.
+        return $this->newModel()->newQuery()
+            ->where('run_id', $runId)
+            ->where('status', FlowApprovalRecord::STATUS_PENDING)
+            ->update([
+                'decided_at' => $decidedAt,
+                'status' => FlowApprovalRecord::STATUS_EXPIRED,
+                // A query-builder bulk update does NOT auto-touch updated_at,
+                // so align it with decided_at explicitly — matching how the
+                // single-row expirePending() (via updatePending) keeps them
+                // consistent for ordering/diagnostics.
+                'updated_at' => $decidedAt,
+            ]);
+    }
+
     public function reissuePendingTokenForStep(
         string $runId,
         string $stepName,

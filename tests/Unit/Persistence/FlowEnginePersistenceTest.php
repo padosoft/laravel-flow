@@ -1912,6 +1912,11 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
             {
                 return null;
             }
+
+            public function expirePendingForRun(string $runId, DateTimeInterface $decidedAt): int
+            {
+                return 0;
+            }
         };
         /** @var array<string, mixed> $config */
         $config = $this->app['config']->get('laravel-flow');
@@ -2043,6 +2048,11 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
             public function expirePending(string $tokenHash, DateTimeInterface $decidedAt): ?FlowApprovalRecord
             {
                 return null;
+            }
+
+            public function expirePendingForRun(string $runId, DateTimeInterface $decidedAt): int
+            {
+                return 0;
             }
         };
 

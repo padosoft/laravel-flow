@@ -33,6 +33,7 @@ use Padosoft\LaravelFlow\Exceptions\FlowCompensationException;
 use Padosoft\LaravelFlow\Exceptions\FlowExecutionException;
 use Padosoft\LaravelFlow\Exceptions\FlowInputException;
 use Padosoft\LaravelFlow\Exceptions\FlowNotRegisteredException;
+use Padosoft\LaravelFlow\Exceptions\PersistenceUnavailableException;
 use Padosoft\LaravelFlow\Executor\GraphApprovalCoordinator;
 use Padosoft\LaravelFlow\Executor\GraphRunner;
 use Padosoft\LaravelFlow\Executor\GraphRunResult;
@@ -465,8 +466,11 @@ class FlowEngine
         try {
             return $repository->redeliver($outboxId);
         } catch (QueryException $e) {
-            // Never leak the low-level SQL/driver error to an @api caller.
-            throw new FlowExecutionException('Webhook redelivery failed.', previous: $e);
+            // Never leak the low-level SQL/driver error to an @api caller. A
+            // driver error here is a persistence outage (missing table /
+            // unreachable connection), so raise the distinct typed subclass a
+            // caller can map to a retryable 503 rather than a 409 state conflict.
+            throw new PersistenceUnavailableException('Webhook redelivery failed.', previous: $e);
         }
     }
 
@@ -2481,9 +2485,9 @@ class FlowEngine
         }
     }
 
-    private function flowPersistenceUnavailableException(QueryException $e): FlowExecutionException
+    private function flowPersistenceUnavailableException(QueryException $e): PersistenceUnavailableException
     {
-        return new FlowExecutionException(
+        return new PersistenceUnavailableException(
             'Laravel Flow persistence requires published laravel-flow persistence tables and a reachable persistence connection. Run the package migrations and verify the persistence connection.',
             previous: $e,
         );

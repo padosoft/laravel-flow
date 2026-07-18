@@ -55,6 +55,7 @@ final class PublicApiContractTest extends TestCase
         yield 'FlowCompensationException' => ['Padosoft\\LaravelFlow\\Exceptions\\FlowCompensationException'];
         yield 'FlowNotRegisteredException' => ['Padosoft\\LaravelFlow\\Exceptions\\FlowNotRegisteredException'];
         yield 'ApprovalPersistenceException' => ['Padosoft\\LaravelFlow\\Exceptions\\ApprovalPersistenceException'];
+        yield 'PersistenceUnavailableException' => ['Padosoft\\LaravelFlow\\Exceptions\\PersistenceUnavailableException'];
 
         yield 'FlowStore contract' => ['Padosoft\\LaravelFlow\\Contracts\\FlowStore'];
         yield 'RunRepository contract' => ['Padosoft\\LaravelFlow\\Contracts\\RunRepository'];

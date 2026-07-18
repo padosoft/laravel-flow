@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Padosoft\LaravelFlow\Tests\Unit\Persistence;
 
+use Padosoft\LaravelFlow\Exceptions\ApprovalPersistenceException;
 use Padosoft\LaravelFlow\Exceptions\FlowExecutionException;
+use Padosoft\LaravelFlow\Exceptions\PersistenceUnavailableException;
 use Padosoft\LaravelFlow\FlowEngine;
 use Padosoft\LaravelFlow\FlowRun;
 use Padosoft\LaravelFlow\Models\FlowApprovalRecord;
@@ -234,6 +236,27 @@ final class WebhookOutboxTest extends PersistenceTestCase
         // surface a stable typed failure, not a raw QueryException.
         $this->expectException(FlowExecutionException::class);
         $engine->redeliverWebhook(1);
+    }
+
+    public function test_redeliver_raises_a_persistence_unavailable_exception_when_the_table_is_missing(): void
+    {
+        // Persistence ENABLED but migrations NOT run: the redeliver query hits a
+        // missing table, which must surface as the distinct persistence-outage
+        // type (a caller can map it to a retryable 503) — not an ordinary
+        // FlowExecutionException a caller would read as a 409 state conflict.
+        $engine = $this->engineWithPersistence();
+
+        $this->expectException(PersistenceUnavailableException::class);
+        $engine->redeliverWebhook(1);
+    }
+
+    public function test_persistence_unavailable_exception_hierarchy_stays_backward_compatible(): void
+    {
+        // Still IS-A FlowExecutionException (existing catches keep working), and
+        // the approval-decision persistence failure is a specialization of it,
+        // so a caller can catch the one parent to cover every persistence outage.
+        $this->assertTrue(is_subclass_of(PersistenceUnavailableException::class, FlowExecutionException::class));
+        $this->assertTrue(is_subclass_of(ApprovalPersistenceException::class, PersistenceUnavailableException::class));
     }
 
     private function engineWithPersistence(): FlowEngine

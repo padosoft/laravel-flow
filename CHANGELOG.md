@@ -4,6 +4,41 @@ All notable changes to `padosoft/laravel-flow` are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). From v1.0.0 onward, SemVer applies to source classes annotated with `@api`. Classes annotated `@internal` are not covered by the SemVer guarantee; see [`docs/UPGRADE.md`](docs/UPGRADE.md) for the full policy.
 
+## [2.0.0] — 2026-07-18
+
+Flow 2.0 unifies step and node persistence and adds a full graph execution engine alongside the unchanged v1 linear engine. **The v1 authoring and execution API is observably identical** — the fluent builder (`Flow::define()->step()->…->register()`), the engine methods (`execute`/`dryRun`/`dispatch`/`resume`/`reject`), and v1 semantics (step ordering, compensation order, approval resume) are preserved. See [`docs/UPGRADE.md`](docs/UPGRADE.md) for the complete, line-by-line breaking + additive `@api` reference and the migration steps.
+
+### Added
+
+- **Graph execution engine (`@api`)**: `Node\*` node contract (typed ports, `#[Cost]`/`#[Retry]`/`#[Cacheable]` attributes), `Graph\*` authoring/serialization (`GraphDefinition`, `GraphValidator`, `GraphSerializer`, `StoredDefinition`, `DefinitionSigner`, `GraphTransfer`), and `Contracts\DefinitionRepository` for stored, versioned, publishable flow definitions. A synchronous `GraphRunner` and a queued `QueueGraphCoordinator` execute graphs; version-exact **replay** re-executes a pinned graph run at its exact stored version; a built-in approval-gate node pauses/resumes a run.
+- **Dashboard mutation seams (`@api`)** for a companion operator UI: `FlowEngine::redeliverWebhook(int): bool`, `cancel(string $runId, array $actor = []): FlowRun`, `replay(string $runId, ?FlowExecutionOptions): FlowRun`, `resumeByHash`/`rejectByHash($tokenHash)` (decide an approval by its stored SHA-256 hash — the plaintext token is never recoverable from storage), each mirrored on the `Flow` facade.
+- **Approval lifecycle (`@api`)**: `ApprovalRepository::expirePendingForRun()` (a cancelled run's pending approvals are expired in the abort transaction); `Dashboard\ApprovalSummary::$tokenHash`; hash-native `ApprovalTokenManager` methods (`findByHash`/`consumeByHash`/`approveForRunStatusByHash`/`rejectForRunStatusByHash`).
+- **Read model (`@api`)**: `FlowDashboardReadModel::stepCounts()` (batched, N+1-free), `Dashboard\StepSummary::$cacheHit`, `RunNodeRepository::terminate()` (compare-and-set node termination).
+- **Distinct persistence-outage exception (`@api`)**: `Exceptions\PersistenceUnavailableException` (a subtype of `FlowExecutionException`, and now parent of `ApprovalPersistenceException`), raised by `cancel`/`replay`/`redeliverWebhook`/approvals on a DB outage so consumers can distinguish an infrastructure failure (retryable / HTTP 503) from a state conflict (HTTP 409).
+- **Opt-in graph run/node broadcasting (`@api`)**: `laravel-flow.broadcasting.enabled` + `NodeTransitioned` / `GraphRunProgressUpdated` events on a private per-run channel (emit-only; the host authorizes the channel). Disabled by default.
+- **Static dry-run planner (`@api`)**: `Executor\DryRun\DryRunPlanner` returns a Kahn-wave execution plan + cost estimate, executing no handler and writing zero rows.
+
+### Changed / Breaking (internal persistence surface only)
+
+- `flow_steps` is retired and replaced by `flow_run_nodes` (a superset with graph/retry/cache columns; a v1 step is a `node_type = 'legacy.step'` row). `Contracts\StepRunRepository` → `Contracts\RunNodeRepository`; `FlowStore::steps()` → `FlowStore::runNodes()`; `Models\FlowStepRecord`/`Persistence\EloquentStepRunRepository` removed in favor of the run-node equivalents. Applications that only use the fluent builder + facade are unaffected; only custom `FlowStore` implementers must migrate. The `Dashboard\*` read contract and every `FlowDashboardReadModel` signature are unchanged.
+
+## [1.1.1] — 2026-06-21
+
+### Fixed
+
+- Laravel concurrency-driver CI compatibility.
+
+### Changed
+
+- Optimized documentation/site images (ImgBot).
+
+## [1.1.0] — 2026-06-20
+
+### Added
+
+- docmd documentation site (`docs-site/`) with an enterprise "wow" intro — banner, problem/solution framing, moats, and a competitor matrix.
+- README banner and a "web admin UI" section; comparison-table rows for webhook delivery, the dashboard, and the stable `@api` surface.
+
 ## [1.0.0] — 2026-05-05
 
 ### Added

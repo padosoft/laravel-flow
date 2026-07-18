@@ -4,10 +4,12 @@ declare(strict_types=1);
 
 namespace Padosoft\LaravelFlow\Tests\Unit\Persistence;
 
+use Padosoft\LaravelFlow\ApprovalTokenManager;
 use Padosoft\LaravelFlow\Contracts\RunNodeRepository;
 use Padosoft\LaravelFlow\Exceptions\FlowExecutionException;
 use Padosoft\LaravelFlow\FlowEngine;
 use Padosoft\LaravelFlow\FlowRun;
+use Padosoft\LaravelFlow\Models\FlowApprovalRecord;
 use Padosoft\LaravelFlow\Models\FlowRunNodeRecord;
 use Padosoft\LaravelFlow\Models\FlowRunRecord;
 use Padosoft\LaravelFlow\Tests\Unit\Stubs\AlwaysSucceedsHandler;
@@ -88,6 +90,39 @@ final class CancelRunTest extends PersistenceTestCase
         // run, so it has NO node row — cancel only terminates PERSISTED nodes
         // (documented sync-vs-queued behavior on cancel()).
         $this->assertArrayNotHasKey('publish', $nodes->all());
+    }
+
+    public function test_cancel_expires_the_runs_pending_approvals(): void
+    {
+        $this->migrateFlowTables();
+        $engine = $this->engineWithPersistence();
+
+        $engine->define('flow.cancel.approvals')
+            ->step('create', AlwaysSucceedsHandler::class)
+            ->approvalGate('manager')
+            ->step('publish', AlwaysSucceedsHandler::class)
+            ->register();
+
+        $paused = $engine->execute('flow.cancel.approvals', []);
+        $this->assertSame(FlowRun::STATUS_PAUSED, $paused->status);
+
+        $plain = $paused->approvalTokens['manager']->plainTextToken;
+
+        // The approval is genuinely pending before the cancel.
+        $before = FlowApprovalRecord::query()->where('run_id', $paused->id)->firstOrFail();
+        $this->assertSame(FlowApprovalRecord::STATUS_PENDING, $before->status);
+
+        $engine->cancel($paused->id);
+
+        // Cancelling the run expires its still-pending approval in the same
+        // transaction (a dead run can never legitimately decide an approval).
+        $after = FlowApprovalRecord::query()->where('run_id', $paused->id)->firstOrFail();
+        $this->assertSame(FlowApprovalRecord::STATUS_EXPIRED, $after->status);
+        $this->assertNotNull($after->decided_at);
+
+        // And the (now expired) token can no longer resume the aborted run.
+        $this->expectException(FlowExecutionException::class);
+        $engine->resumeByHash(ApprovalTokenManager::hashToken($plain));
     }
 
     public function test_cancel_is_idempotent_for_an_already_terminal_run(): void

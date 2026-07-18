@@ -1,5 +1,15 @@
 # Progress
 
+## 2026-07-18 - 🏁 FLOW 2.0 PROGRAM COMPLETE — all three packages released
+
+The Flow 2.0 super-package program (Macros A→G) is **done and published**. Verified live on Packagist + GitHub Releases:
+
+- **`padosoft/laravel-flow` v2.0.0** — graph execution engine + dashboard mutation seams. (Tag `v2.0.0`; CHANGELOG `[2.0.0]` + `docs/UPGRADE.md` finalized in core PR #100.)
+- **`padosoft/laravel-flow-ai` v1.0.0** — agentic AI layer; requires core `^2.0`. (ai PR #10: composer `dev-main`→`^2.0` + path-repo removed + CHANGELOG; tag `v1.0.0`.)
+- **`padosoft/laravel-flow-admin` v2.0.0** — Flow Studio operator console; requires core `^2.0` + ai `^1.0` (optional). (admin PR #46: composer conversion `dev-main`→`^2.0`/`^1.0` + both path repos removed + dead CI sibling-checkouts dropped + CHANGELOG; tag `v2.0.0`.)
+
+Macro G execution: core follow-ups #97 (expire pending approvals on cancel — `ApprovalRepository::expirePendingForRun`) + #98 (`Exceptions\PersistenceUnavailableException`, parent of `ApprovalPersistenceException`, so `cancel`/`replay`/`redeliver`/approvals distinguish an infra outage from a state conflict) → admin #44 maps it to HTTP 503 → knowhow consolidation folded into the workflow rule (core #99) and admin `AGENTS.md` (#45) → release-prep docs (core #100) → the three tags/releases + composer conversions. The `flow:replay` de-dup was evaluated and DECIDED against (the command is a tested superset of `FlowEngine::replay()`, not a duplicate). Two pre-existing quality items were also fixed post-release in the admin repo (E2E `PHP_CLI_SERVER_WORKERS` concurrency; deterministic KPI-window clock). **Nothing remains on the roadmap.**
+
 ## 2026-07-18 - Macro E COMPLETE (Gate G3 merged) — program now at Macro G (release)
 
 - **`laravel-flow-admin` Gate G3 merged**: macro branch `task/v2e-studio` → admin `main` via **admin PR #43** (squash `0416ac7`). This closes **Macro E (Flow Studio UI)** end to end: E-PR0…E-PR8 + E-PR6 (working mutations) all shipped. Final admin gate **229 tests / 1043 assertions**, 33 Playwright scenarios / 99 runs.

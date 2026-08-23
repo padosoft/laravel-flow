@@ -33,6 +33,8 @@ final class ReplayFlowRunCommandTest extends PersistenceTestCase
         $this->insertRunGraph('original-failed', FlowRun::STATUS_FAILED, [
             'tenant' => 'acme',
         ]);
+        // The command must forward WHO the source run acted for onto the new run.
+        DB::table('flow_runs')->where('id', 'original-failed')->update(['subject' => 'user:42']);
 
         Flow::define('flow.replay')
             ->withInput(['tenant'])
@@ -55,6 +57,7 @@ final class ReplayFlowRunCommandTest extends PersistenceTestCase
         $this->assertSame('flow.replay', $replay->definition_name);
         $this->assertSame(FlowRun::STATUS_SUCCEEDED, $replay->status);
         $this->assertSame(['tenant' => 'acme'], $replay->input);
+        $this->assertSame('user:42', $replay->subject);
         $this->assertNull($replay->idempotency_key);
         $this->assertSame(1, AlwaysSucceedsHandler::$callCount);
     }

@@ -21,6 +21,7 @@ use Padosoft\LaravelFlow\FlowRun;
  * @property bool $compensated
  * @property string|null $compensation_status
  * @property string|null $correlation_id
+ * @property string|null $subject
  * @property string|null $idempotency_key
  * @property string|null $replayed_from_run_id
  * @property int|null $definition_version

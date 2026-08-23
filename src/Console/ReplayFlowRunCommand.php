@@ -119,6 +119,7 @@ final class ReplayFlowRunCommand extends Command
                 FlowExecutionOptions::make(
                     correlationId: $original->correlation_id,
                     replayedFromRunId: $original->id,
+                    subject: $original->subject,
                 ),
             );
         } catch (QueryException $e) {
@@ -216,6 +217,7 @@ final class ReplayFlowRunCommand extends Command
                 FlowExecutionOptions::make(
                     correlationId: $original->correlation_id,
                     replayedFromRunId: $original->id,
+                    subject: $original->subject,
                 ),
                 $name,
             );

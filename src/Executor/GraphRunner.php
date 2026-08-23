@@ -212,6 +212,7 @@ final class GraphRunner
             'nodes_total' => $nodesTotal,
             'started_at' => $startedAt,
             'status' => RunState::Running->value,
+            'subject' => $options->subject,
         ];
 
         // Store the canonical graph (unredacted structure) on EVERY graph run,

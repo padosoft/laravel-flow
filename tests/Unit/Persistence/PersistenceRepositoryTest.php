@@ -1032,6 +1032,7 @@ final class PersistenceRepositoryTest extends PersistenceTestCase
             'input' => ['original' => true],
             'started_at' => $startedAt,
             'status' => FlowRun::STATUS_PENDING,
+            'subject' => 'user:original',
         ]);
 
         $updated = $runs->update($run->id, [
@@ -1043,6 +1044,7 @@ final class PersistenceRepositoryTest extends PersistenceTestCase
             'input' => ['mutated' => true],
             'started_at' => new DateTimeImmutable('2026-05-02 09:00:00'),
             'status' => FlowRun::STATUS_RUNNING,
+            'subject' => 'user:mutated',
         ]);
 
         $this->assertSame($run->id, $updated->id);
@@ -1051,6 +1053,7 @@ final class PersistenceRepositoryTest extends PersistenceTestCase
         $this->assertSame(['original' => true], $updated->input);
         $this->assertSame('corr-original', $updated->correlation_id);
         $this->assertSame('identity-original', $updated->idempotency_key);
+        $this->assertSame('user:original', $updated->subject);
         $this->assertSame($startedAt->getTimestamp(), $updated->started_at->getTimestamp());
         $this->assertSame(FlowRun::STATUS_RUNNING, $updated->status);
         $this->assertNull($runs->find('00000000-0000-4000-8000-000000009999'));

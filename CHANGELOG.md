@@ -8,7 +8,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Added
 
-- **Run subject (`@api`)**: `FlowExecutionOptions` (and `FlowRun`) gain an optional `subject` — the identity the run acts FOR (e.g. an IAM subject reference like `user:42`) when a run is started on behalf of someone, such as an agent-initiated or delegated execution. Persisted on `flow_runs.subject` (new nullable, indexed column via the `2026_08_23_000001_add_subject_to_flow_runs_table` migration), immutable after the run row is created, inherited by replays (both `FlowEngine::replay()` and `flow:replay`) unless the caller re-states it. This is the sanctioned home for run identity: `flow_runs.input` is persisted unredacted, so identity and tokens must never travel through the run input.
+- **Run subject (`@api`)**: `FlowExecutionOptions` (and `FlowRun`) gain an optional `subject` — the identity the run acts FOR (e.g. an IAM subject reference like `user:42`) when a run is started on behalf of someone, such as an agent-initiated or delegated execution. Persisted on `flow_runs.subject` (new nullable, indexed column via the `2026_08_23_000001_add_subject_to_flow_runs_table` migration), immutable after the run row is created, inherited by replays (both `FlowEngine::replay()` and `flow:replay`) unless the caller re-states it. This is the sanctioned home for run identity: `flow_runs.input` is persisted unredacted, so identity and tokens must never travel through the run input. Exposed on the dashboard read contract too: `Dashboard\RunSummary::$subject` and a `Dashboard\RunFilter::$subject` exact-match filter, so a companion dashboard (laravel-flow-admin) can show and filter WHO each run acted for.
 
 ## [2.0.0] — 2026-07-18
 

@@ -27,6 +27,7 @@ final readonly class RunSummary
         public ?string $correlationId,
         public ?string $idempotencyKey,
         public ?string $replayedFromRunId,
+        public ?string $subject,
         public ?int $durationMs,
         public ?DateTimeImmutable $startedAt,
         public ?DateTimeImmutable $finishedAt,

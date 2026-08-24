@@ -4,6 +4,12 @@ All notable changes to `padosoft/laravel-flow` are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). From v1.0.0 onward, SemVer applies to source classes annotated with `@api`. Classes annotated `@internal` are not covered by the SemVer guarantee; see [`docs/UPGRADE.md`](docs/UPGRADE.md) for the full policy.
 
+## [2.2.1] — 2026-08-24
+
+### Fixed
+
+- **BC of the v2.2.0 dashboard DTOs**: `Dashboard\RunSummary::$subject` was added mid-constructor without a default, breaking every positional pre-2.2 construction (`ArgumentCountError` in consumers such as flow-ai's Advisor tests and flow-admin's read model). `subject` is now the TRAILING constructor parameter with a `null` default on both `RunSummary` and `RunFilter`; a contract regression test pins that the pre-2.2 positional arity keeps constructing. No behavior change for named-argument callers.
+
 ## [2.2.0] — 2026-08-24
 
 ### Added

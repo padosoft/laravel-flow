@@ -27,9 +27,12 @@ final readonly class RunSummary
         public ?string $correlationId,
         public ?string $idempotencyKey,
         public ?string $replayedFromRunId,
-        public ?string $subject,
         public ?int $durationMs,
         public ?DateTimeImmutable $startedAt,
         public ?DateTimeImmutable $finishedAt,
+        // Trailing WITH a default — a new DTO param must never break positional
+        // 13-arg constructions shipped before v2.2 (BC: flow-ai Advisor tests,
+        // flow-admin read model).
+        public ?string $subject = null,
     ) {}
 }

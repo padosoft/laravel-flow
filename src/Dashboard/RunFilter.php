@@ -20,9 +20,10 @@ final readonly class RunFilter
         public ?string $status = null,
         public ?string $correlationId = null,
         public ?string $idempotencyKey = null,
-        public ?string $subject = null,
         public ?bool $compensated = null,
         public ?DateTimeInterface $startedSince = null,
         public ?DateTimeInterface $startedUntil = null,
+        // Trailing: keeps pre-v2.2 positional constructions working unchanged.
+        public ?string $subject = null,
     ) {}
 }

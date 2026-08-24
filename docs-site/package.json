@@ -14,5 +14,10 @@
     "check": "node scripts/check-no-raw-html.mjs",
     "build": "docmd build",
     "dev": "docmd dev"
+  },
+  "overrides": {
+    "adm-zip": "^0.6.0",
+    "sharp": "^0.35.3",
+    "protobufjs": "^7.6.5"
   }
 }

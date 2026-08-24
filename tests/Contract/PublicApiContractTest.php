@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Padosoft\LaravelFlow\Tests\Contract;
 
+use Padosoft\LaravelFlow\Dashboard\RunSummary;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
@@ -228,6 +229,22 @@ final class PublicApiContractTest extends TestCase
                 );
             }
         }
+    }
+
+    public function test_run_summary_pre_subject_positional_arity_still_constructs(): void
+    {
+        // BC guard for v2.2.1: `subject` was FIRST added mid-constructor without a
+        // default, breaking every positional 13-arg construction shipped before
+        // v2.2 (flow-ai's Advisor tests, flow-admin's read model). New DTO params
+        // must be TRAILING with a default — this pins that a pre-2.2 positional
+        // construction keeps working.
+        $summary = new RunSummary(
+            'run-1', 'flow.def', 'succeeded', false, null, false, null,
+            'corr-1', 'idem-1', null, 12, null, null,
+        );
+
+        $this->assertNull($summary->subject);
+        $this->assertSame('corr-1', $summary->correlationId);
     }
 
     public function test_dashboard_authorizer_pins_documented_methods(): void

@@ -13,6 +13,7 @@ use Padosoft\LaravelFlow\Dashboard\Pagination;
 use Padosoft\LaravelFlow\Dashboard\RunFilter;
 use Padosoft\LaravelFlow\Dashboard\WebhookOutboxFilter;
 use Padosoft\LaravelFlow\FlowEngine;
+use Padosoft\LaravelFlow\FlowExecutionOptions;
 use Padosoft\LaravelFlow\FlowRun;
 use Padosoft\LaravelFlow\Models\FlowApprovalRecord;
 use Padosoft\LaravelFlow\Models\FlowRunNodeRecord;
@@ -80,6 +81,30 @@ final class FlowDashboardReadModelTest extends PersistenceTestCase
 
         $byCompensated = $reader->listRuns(new RunFilter(compensated: false), new Pagination(1, 10));
         $this->assertSame(2, $byCompensated->total);
+    }
+
+    public function test_list_runs_exposes_and_filters_by_the_run_subject(): void
+    {
+        $this->migrateFlowTables();
+        $engine = $this->engineWithPersistence();
+
+        $engine->define('flow.dashboard.subject')
+            ->step('one', AlwaysSucceedsHandler::class)
+            ->register();
+
+        $engine->execute('flow.dashboard.subject', [], FlowExecutionOptions::make(subject: 'user:42'));
+        $engine->execute('flow.dashboard.subject', []);
+
+        $reader = $this->reader();
+
+        // The subject rides the read DTO — the dashboard shows WHO a run acted for
+        // without touching the (unredacted) input payload.
+        $bySubject = $reader->listRuns(new RunFilter(subject: 'user:42'), new Pagination(1, 10));
+        $this->assertSame(1, $bySubject->total);
+        $this->assertSame('user:42', $bySubject->items[0]->subject);
+
+        $all = $reader->listRuns(new RunFilter(definitionName: 'flow.dashboard.subject'), new Pagination(1, 10));
+        $this->assertSame(2, $all->total);
     }
 
     public function test_find_run_returns_detail_with_steps_audit_and_redacted_payloads(): void

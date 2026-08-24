@@ -204,6 +204,32 @@ final class PublicApiContractTest extends TestCase
         }
     }
 
+    public function test_run_subject_surface_pins_read_properties(): void
+    {
+        // The run-subject feature (v2.2): WHO a run acts for, as first-class
+        // @api surface — options in, run out, dashboard DTO through.
+        foreach ([
+            'Padosoft\\LaravelFlow\\FlowExecutionOptions' => ['correlationId', 'idempotencyKey', 'replayedFromRunId', 'subject'],
+            'Padosoft\\LaravelFlow\\FlowRun' => ['subject'],
+            'Padosoft\\LaravelFlow\\Dashboard\\RunSummary' => ['subject'],
+            'Padosoft\\LaravelFlow\\Dashboard\\RunFilter' => ['subject'],
+        ] as $class => $expectedProperties) {
+            $reflection = new ReflectionClass($class);
+            $properties = array_map(
+                static fn (\ReflectionProperty $property): string => $property->getName(),
+                $reflection->getProperties(\ReflectionProperty::IS_PUBLIC),
+            );
+
+            foreach ($expectedProperties as $expected) {
+                $this->assertContains(
+                    $expected,
+                    $properties,
+                    sprintf('%s must expose the [%s] read property (@api).', $class, $expected),
+                );
+            }
+        }
+    }
+
     public function test_dashboard_authorizer_pins_documented_methods(): void
     {
         $this->assertHasPublicMethods('Padosoft\\LaravelFlow\\Dashboard\\Authorization\\DashboardActionAuthorizer', [

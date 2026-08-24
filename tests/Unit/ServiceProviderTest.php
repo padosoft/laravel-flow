@@ -153,6 +153,10 @@ final class ServiceProviderTest extends TestCase
             realpath($packageRoot.'/database/migrations/2026_07_09_000012_create_flow_node_cache_table.php'),
             $migrationSources,
         );
+        $this->assertContains(
+            realpath($packageRoot.'/database/migrations/2026_08_23_000001_add_subject_to_flow_runs_table.php'),
+            $migrationSources,
+        );
     }
 
     public function test_deliver_webhook_outbox_command_is_registered(): void

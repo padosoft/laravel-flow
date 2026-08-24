@@ -268,7 +268,7 @@ if ($run->status === \Padosoft\LaravelFlow\FlowRun::STATUS_SUCCEEDED) {
 
 ## Usage examples
 
-### Correlation and idempotency
+### Correlation, idempotency, and the subject a run acts for
 
 ```php
 use Padosoft\LaravelFlow\FlowExecutionOptions;
@@ -279,11 +279,14 @@ $run = Flow::execute(
     FlowExecutionOptions::make(
         correlationId: 'checkout-2026-0001',
         idempotencyKey: 'tenant-42:promotion-abc',
+        subject: 'user:42', // who the run acts FOR (optional)
     ),
 );
 ```
 
-When persistence is enabled, `correlationId` and `idempotencyKey` are stored on `flow_runs`. Both values are trimmed, empty strings become `null`, and non-empty values are limited to 255 characters to match the published migrations. A later persisted execution with the same idempotency key returns the existing run state without executing handlers again. Dry-runs still avoid persistence writes.
+When persistence is enabled, `correlationId`, `idempotencyKey`, and `subject` are stored on `flow_runs`. All values are trimmed, empty strings become `null`, and non-empty values are limited to 255 characters to match the published migrations. A later persisted execution with the same idempotency key returns the existing run state without executing handlers again. Dry-runs still avoid persistence writes.
+
+`subject` records **who the run acts for** (e.g. an IAM subject reference like `user:42`) when a run is started on behalf of someone — an agent-initiated run, a delegated tool call. It is the sanctioned place for that identity: `flow_runs.input` is persisted unredacted, so never smuggle identity (or tokens) through the run input. Replays inherit the source run's subject unless the caller explicitly re-states it, and — like the other identity fields — the stored value is immutable once the run row exists.
 
 ### Queue dispatch foundation
 

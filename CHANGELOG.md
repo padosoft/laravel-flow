@@ -4,6 +4,12 @@ All notable changes to `padosoft/laravel-flow` are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). From v1.0.0 onward, SemVer applies to source classes annotated with `@api`. Classes annotated `@internal` are not covered by the SemVer guarantee; see [`docs/UPGRADE.md`](docs/UPGRADE.md) for the full policy.
 
+## [2.2.0] — 2026-08-24
+
+### Added
+
+- **Run subject (`@api`)**: `FlowExecutionOptions` (and `FlowRun`) gain an optional `subject` — the identity the run acts FOR (e.g. an IAM subject reference like `user:42`) when a run is started on behalf of someone, such as an agent-initiated or delegated execution. Persisted on `flow_runs.subject` (new nullable, indexed column via the `2026_08_23_000001_add_subject_to_flow_runs_table` migration), immutable after the run row is created, inherited by replays (both `FlowEngine::replay()` and `flow:replay`) unless the caller re-states it. This is the sanctioned home for run identity: `flow_runs.input` is persisted unredacted, so identity and tokens must never travel through the run input. Exposed on the dashboard read contract too: `Dashboard\RunSummary::$subject` and a `Dashboard\RunFilter::$subject` exact-match filter, so a companion dashboard (laravel-flow-admin) can show and filter WHO each run acted for.
+
 ## [2.0.0] — 2026-07-18
 
 Flow 2.0 unifies step and node persistence and adds a full graph execution engine alongside the unchanged v1 linear engine. **The v1 authoring and execution API is observably identical** — the fluent builder (`Flow::define()->step()->…->register()`), the engine methods (`execute`/`dryRun`/`dispatch`/`resume`/`reject`), and v1 semantics (step ordering, compensation order, approval resume) are preserved. See [`docs/UPGRADE.md`](docs/UPGRADE.md) for the complete, line-by-line breaking + additive `@api` reference and the migration steps.

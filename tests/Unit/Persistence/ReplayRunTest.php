@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\DB;
 use Padosoft\LaravelFlow\Contracts\DefinitionRepository;
 use Padosoft\LaravelFlow\Exceptions\FlowExecutionException;
 use Padosoft\LaravelFlow\FlowEngine;
+use Padosoft\LaravelFlow\FlowExecutionOptions;
 use Padosoft\LaravelFlow\FlowRun;
 use Padosoft\LaravelFlow\Graph\GraphDefinition;
 use Padosoft\LaravelFlow\Graph\GraphNode;
@@ -133,6 +134,30 @@ final class ReplayRunTest extends PersistenceTestCase
         $this->assertNotSame($original->id, $replayed->id);
         // The new run is linked back to the source run.
         $this->assertSame($original->id, $replayed->replayedFromRunId);
+    }
+
+    public function test_replay_inherits_the_source_run_subject_unless_restated(): void
+    {
+        $this->migrateFlowTables();
+        $engine = $this->engineWithPersistence();
+
+        $engine->define('flow.replay.subject')
+            ->step('s', AlwaysSucceedsHandler::class)
+            ->register();
+
+        $original = $engine->execute(
+            'flow.replay.subject',
+            [],
+            FlowExecutionOptions::make(subject: 'user:42'),
+        );
+
+        // The replay acts for the same person by default...
+        $inherited = $engine->replay($original->id);
+        $this->assertSame('user:42', $inherited->subject);
+
+        // ...unless the caller explicitly re-states who it acts for.
+        $restated = $engine->replay($original->id, FlowExecutionOptions::make(subject: 'user:7'));
+        $this->assertSame('user:7', $restated->subject);
     }
 
     public function test_replay_throws_for_a_non_terminal_run(): void

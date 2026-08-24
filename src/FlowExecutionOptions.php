@@ -21,10 +21,20 @@ final readonly class FlowExecutionOptions
 
     public ?string $replayedFromRunId;
 
+    /**
+     * The subject the run acts FOR (e.g. an IAM SubjectRef string like "user:42").
+     * Set it when a run is started on behalf of a user — an agent-initiated run,
+     * a delegated tool call — so downstream nodes (and audit) know who the work
+     * is for WITHOUT smuggling identity through the run input (flow_runs.input
+     * is persisted unredacted: never put tokens or identity there).
+     */
+    public ?string $subject;
+
     public function __construct(
         ?string $correlationId = null,
         ?string $idempotencyKey = null,
         ?string $replayedFromRunId = null,
+        ?string $subject = null,
     ) {
         $this->correlationId = $this->normalize($correlationId, 'correlation id');
         $this->idempotencyKey = $this->normalize($idempotencyKey, 'idempotency key');
@@ -33,14 +43,16 @@ final readonly class FlowExecutionOptions
             'replayed-from run id',
             self::MAX_RUN_ID_LENGTH,
         );
+        $this->subject = $this->normalize($subject, 'subject');
     }
 
     public static function make(
         ?string $correlationId = null,
         ?string $idempotencyKey = null,
         ?string $replayedFromRunId = null,
+        ?string $subject = null,
     ): self {
-        return new self($correlationId, $idempotencyKey, $replayedFromRunId);
+        return new self($correlationId, $idempotencyKey, $replayedFromRunId, $subject);
     }
 
     private function normalize(?string $value, string $field, int $maxLength = self::MAX_IDENTIFIER_LENGTH): ?string

@@ -80,6 +80,7 @@ final class QueueGraphCoordinator
                 'id' => $runId,
                 'definition_name' => $definitionName,
                 'correlation_id' => $options->correlationId,
+                'subject' => $options->subject,
                 'idempotency_key' => $options->idempotencyKey,
                 'dry_run' => false,
                 'engine' => 'graph',

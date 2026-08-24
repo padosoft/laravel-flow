@@ -733,10 +733,16 @@ class FlowEngine
         $correlationId = $options !== null && $options->correlationId !== null
             ? $options->correlationId
             : $original->correlation_id;
+        // Same precedence for the subject: the replay acts for the same person
+        // unless the caller explicitly re-states it.
+        $subject = $options !== null && $options->subject !== null
+            ? $options->subject
+            : $original->subject;
 
         return FlowExecutionOptions::make(
             correlationId: $correlationId,
             replayedFromRunId: $original->id,
+            subject: $subject,
         );
     }
 
@@ -838,6 +844,7 @@ class FlowEngine
             correlationId: $options->correlationId,
             idempotencyKey: $options->idempotencyKey,
             replayedFromRunId: $options->replayedFromRunId,
+            subject: $options->subject,
         );
         $run->markRunning();
 
@@ -3379,6 +3386,7 @@ class FlowEngine
             'input' => $input,
             'started_at' => $run->startedAt,
             'status' => $run->status,
+            'subject' => $run->subject,
         ];
 
         if ($run->replayedFromRunId !== null) {
@@ -3444,6 +3452,7 @@ class FlowEngine
             correlationId: $record->correlation_id,
             idempotencyKey: $record->idempotency_key,
             replayedFromRunId: $record->replayed_from_run_id,
+            subject: $record->subject,
         );
         $run->status = $record->status;
         $run->failedStep = $record->failed_step;

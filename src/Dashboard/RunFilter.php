@@ -20,6 +20,7 @@ final readonly class RunFilter
         public ?string $status = null,
         public ?string $correlationId = null,
         public ?string $idempotencyKey = null,
+        public ?string $subject = null,
         public ?bool $compensated = null,
         public ?DateTimeInterface $startedSince = null,
         public ?DateTimeInterface $startedUntil = null,

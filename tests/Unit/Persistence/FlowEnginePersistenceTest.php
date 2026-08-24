@@ -154,6 +154,28 @@ final class FlowEnginePersistenceTest extends PersistenceTestCase
         $this->assertSame('identity-123', $runRecord->idempotency_key);
     }
 
+    public function test_execution_options_persist_the_subject_the_run_acts_for(): void
+    {
+        $this->migrateFlowTables();
+        $engine = $this->engineWithPersistence();
+
+        $engine->define('flow.persist.subject')
+            ->step('create', AlwaysSucceedsHandler::class)
+            ->register();
+
+        $run = $engine->execute(
+            'flow.persist.subject',
+            ['safe' => 'visible'],
+            FlowExecutionOptions::make(subject: 'user:42'),
+        );
+
+        $runRecord = FlowRunRecord::query()->find($run->id);
+
+        $this->assertInstanceOf(FlowRunRecord::class, $runRecord);
+        $this->assertSame('user:42', $run->subject);
+        $this->assertSame('user:42', $runRecord->subject);
+    }
+
     public function test_idempotency_key_returns_existing_persisted_run_without_reexecuting_steps(): void
     {
         $this->migrateFlowTables();

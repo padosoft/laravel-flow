@@ -304,6 +304,10 @@ final class FlowDashboardReadModel
             $query->where('correlation_id', $filter->correlationId);
         }
 
+        if ($filter->subject !== null) {
+            $query->where('subject', $filter->subject);
+        }
+
         if ($filter->idempotencyKey !== null) {
             $query->where('idempotency_key', $filter->idempotencyKey);
         }
@@ -518,6 +522,7 @@ final class FlowDashboardReadModel
             correlationId: $record->correlation_id,
             idempotencyKey: $record->idempotency_key,
             replayedFromRunId: $record->replayed_from_run_id,
+            subject: $record->subject,
             durationMs: $record->duration_ms,
             startedAt: $this->immutable($record->started_at),
             finishedAt: $this->immutable($record->finished_at),

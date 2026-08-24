@@ -497,3 +497,10 @@
 
 - Test doubles that implement Laravel framework contracts must include newly added optional parameters, such as `Illuminate\Contracts\Concurrency\Driver::run($tasks, $timeout = null)`, otherwise CI can fatal before PHPUnit executes assertions after dependency updates.
 - PHP 8.5 is now part of the hard CI matrix alongside PHP 8.3 and 8.4 for Laravel 13.
+
+## 2026-08-23 - Run Subject (delegated identity)
+
+- An additive `flow_runs` migration has THREE registration points that must move together: `LaravelFlowServiceProvider::publishesMigrations()`, the `ServiceProviderTest` publish smoke test, and the hardcoded `require` list in `tests/Unit/Persistence/PersistenceTestCase::setUp()` — miss the third and the entire persistence suite fails with "table flow_runs has no column named X" because tests migrate from that list, not from the provider.
+- Column-add migrations in this repo guard both directions (`hasTable`/`hasColumn` early-return in `up()` AND `down()`, plus explicit `dropIndex` before `dropColumn`) because `PersistenceTestCase::dropFlowTables()` runs `down()` in setUp against a possibly-empty in-memory SQLite database.
+- Identity-like run fields (correlation_id, idempotency_key, now subject) are immutable after insert by construction: `EloquentRunRepository::UPDATABLE_COLUMNS` is an allow-list, so a new identity field is protected by NOT adding it there — assert the invariant in `test_repositories_do_not_mutate_identity_fields_from_attribute_payloads` instead of trusting it.
+- `FlowEngine::replay()` is not the only replay entrypoint: `flow:replay` (ReplayFlowRunCommand) builds its own `FlowExecutionOptions` at TWO sites (legacy + pinned-graph). Any new option that must survive a replay has to be forwarded there too, or the CLI silently drops it while the programmatic API keeps it.

@@ -16,20 +16,24 @@ final class FlowExecutionOptionsTest extends TestCase
             correlationId: '  corr-123  ',
             idempotencyKey: "\tidentity-123\n",
             replayedFromRunId: ' replay-123 ',
+            subject: '  user:42  ',
         );
 
         $blankOptions = FlowExecutionOptions::make(
             correlationId: '   ',
             idempotencyKey: "\t\n",
             replayedFromRunId: ' ',
+            subject: "\t ",
         );
 
         $this->assertSame('corr-123', $options->correlationId);
         $this->assertSame('identity-123', $options->idempotencyKey);
         $this->assertSame('replay-123', $options->replayedFromRunId);
+        $this->assertSame('user:42', $options->subject);
         $this->assertNull($blankOptions->correlationId);
         $this->assertNull($blankOptions->idempotencyKey);
         $this->assertNull($blankOptions->replayedFromRunId);
+        $this->assertNull($blankOptions->subject);
     }
 
     public function test_accepts_multibyte_identifiers_up_to_schema_character_limit(): void
@@ -70,5 +74,13 @@ final class FlowExecutionOptionsTest extends TestCase
         $this->expectExceptionMessage('Flow execution replayed-from run id may not exceed 36 characters.');
 
         FlowExecutionOptions::make(replayedFromRunId: str_repeat('r', FlowExecutionOptions::MAX_RUN_ID_LENGTH + 1));
+    }
+
+    public function test_rejects_oversized_subject(): void
+    {
+        $this->expectException(FlowInputException::class);
+        $this->expectExceptionMessage('Flow execution subject may not exceed 255 characters.');
+
+        FlowExecutionOptions::make(subject: str_repeat('s', FlowExecutionOptions::MAX_IDENTIFIER_LENGTH + 1));
     }
 }

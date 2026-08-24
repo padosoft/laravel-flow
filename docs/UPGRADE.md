@@ -25,6 +25,17 @@ If you currently depend on internal classes, switch to the matching public contr
 
 ---
 
+## v2.x → v2.2
+
+### Additive `@api` (non-breaking)
+
+- **Run subject** — `FlowExecutionOptions` (and `FlowRun`) gain an optional trailing `subject`: the identity the run acts FOR (e.g. an IAM subject reference like `user:42`) when a run is started on behalf of someone — an agent-initiated run, a delegated tool call. Persisted on the new nullable, indexed `flow_runs.subject` column (publish + run the `2026_08_23_000001_add_subject_to_flow_runs_table` migration), normalized like the sibling identifiers (trim, blank → null, 255-char cap), and **immutable after insert** (not in the run repository's updatable-column allow-list). Replays inherit the source run's subject unless the caller re-states it — on BOTH entrypoints, `FlowEngine::replay()` and `flow:replay`. This is the sanctioned home for run identity: `flow_runs.input` is persisted unredacted, so identity and tokens must never travel through the run input.
+- **Dashboard read contract** — `Dashboard\RunSummary::$subject` and an exact-match `Dashboard\RunFilter::$subject`, so a companion dashboard can show and filter WHO each run acted for. `PublicApiContractTest` pins the new surface.
+
+### Required migration
+
+Publish/run the new migration (`php artisan vendor:publish --tag=laravel-flow-migrations && php artisan migrate`). Hosts that never set a subject are unaffected: the column stays null and every existing call site compiles unchanged (trailing optional parameter).
+
 ## v1.x → v2.0 (Flow 2.0)
 
 The v2.0 major unifies step and node persistence into a single table written by both the v1 linear engine and the new graph executor. **The v1 authoring and execution API is unchanged** — the fluent builder (`Flow::define()->step()->…->register()`), the engine's execution methods (`execute` / `dryRun` / `dispatch` / `resume` / `reject`), and v1 execution semantics (step ordering, compensation order, approval resume) are observably identical. The persistence *extension contracts* used by custom-store implementers (`FlowStore`, the step repository) **do** change — see the breaking changes below; applications that only use the fluent builder and facade are unaffected, while anyone who implemented a custom `FlowStore` must migrate.

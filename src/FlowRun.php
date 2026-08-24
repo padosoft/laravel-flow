@@ -62,6 +62,7 @@ final class FlowRun
         public readonly ?string $correlationId = null,
         public readonly ?string $idempotencyKey = null,
         public readonly ?string $replayedFromRunId = null,
+        public readonly ?string $subject = null,
     ) {}
 
     public function recordStepResult(string $stepName, FlowStepResult $result): void

@@ -11,6 +11,8 @@ use Padosoft\LaravelFlow\Node\Attributes\Output;
 use Padosoft\LaravelFlow\Node\Exceptions\InvalidNodeDefinitionException;
 use Padosoft\LaravelFlow\Node\NodeDefinitionFactory;
 use Padosoft\LaravelFlow\Node\PortType;
+use Padosoft\LaravelFlow\Tests\Fixtures\GraphNodes\TrustedSinkNode;
+use Padosoft\LaravelFlow\Tests\Fixtures\GraphNodes\UntrustedSourceNode;
 use Padosoft\LaravelFlow\Tests\Fixtures\Nodes\EmptyTypeNode;
 use Padosoft\LaravelFlow\Tests\Fixtures\Nodes\GreetNode;
 use PHPUnit\Framework\TestCase;
@@ -181,13 +183,48 @@ final class NodeDefinitionFactoryTest extends TestCase
         $this->assertSame(GreetNode::class, $definition->handlerClass);
     }
 
+    public function test_catalog_projection_carries_taint_declarations(): void
+    {
+        // The catalog is what a visual editor renders from, so it has to
+        // carry enough for the editor to warn BEFORE the author wires the
+        // graph and hits the validator. Defaults appearing on every port
+        // is the point: the shape is uniform, so a consumer never has to
+        // treat a missing key as "probably fine".
+        $source = $this->factory->fromClass(UntrustedSourceNode::class)->toArray();
+        $sink = $this->factory->fromClass(TrustedSinkNode::class)->toArray();
+
+        $text = $this->portNamed($source['outputs'], 'text');
+        $this->assertSame('untrusted', $text['provenance']);
+
+        $command = $this->portNamed($sink['inputs'], 'command');
+        $this->assertTrue($command['requires_trusted']);
+
+        $note = $this->portNamed($sink['inputs'], 'note');
+        $this->assertFalse($note['requires_trusted']);
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $ports
+     * @return array<string, mixed>
+     */
+    private function portNamed(array $ports, string $key): array
+    {
+        foreach ($ports as $port) {
+            if ($port['key'] === $key) {
+                return $port;
+            }
+        }
+
+        self::fail("No port named [{$key}] in the catalog projection.");
+    }
+
     public function test_to_array_exposes_catalog_shape(): void
     {
         $array = $this->factory->fromClass(GreetNode::class)->toArray();
 
         $this->assertSame('test.greet', $array['type']);
         $this->assertSame(
-            [['key' => 'name', 'type' => 'text', 'required' => true, 'label' => 'name', 'multiple' => false]],
+            [['key' => 'name', 'type' => 'text', 'required' => true, 'label' => 'name', 'multiple' => false, 'provenance' => 'derived', 'requires_trusted' => false]],
             $array['inputs'],
         );
         $this->assertArrayHasKey('outputs', $array);

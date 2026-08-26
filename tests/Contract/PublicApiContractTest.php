@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Padosoft\LaravelFlow\Tests\Contract;
 
 use Padosoft\LaravelFlow\Dashboard\RunSummary;
+use Padosoft\LaravelFlow\Node\PortProvenance;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
@@ -95,6 +96,12 @@ final class PublicApiContractTest extends TestCase
         yield 'ForensicReport' => ['Padosoft\\LaravelFlow\\Forensics\\ForensicReport'];
         yield 'ForensicFinding' => ['Padosoft\\LaravelFlow\\Forensics\\ForensicFinding'];
         yield 'RunNotExportableException' => ['Padosoft\\LaravelFlow\\Forensics\\RunNotExportableException'];
+
+        yield 'PortProvenance' => ['Padosoft\\LaravelFlow\\Node\\PortProvenance'];
+        yield 'TaintAnalyzer' => ['Padosoft\\LaravelFlow\\Provenance\\TaintAnalyzer'];
+        yield 'TaintMap' => ['Padosoft\\LaravelFlow\\Provenance\\TaintMap'];
+        yield 'TaintPath' => ['Padosoft\\LaravelFlow\\Provenance\\TaintPath'];
+        yield 'TaintViolation' => ['Padosoft\\LaravelFlow\\Provenance\\TaintViolation'];
     }
 
     /**
@@ -353,6 +360,7 @@ final class PublicApiContractTest extends TestCase
             'Padosoft\\LaravelFlow\\Console\\RejectFlowCommand',
             'Padosoft\\LaravelFlow\\Console\\DeliverWebhookOutboxCommand',
             'Padosoft\\LaravelFlow\\Console\\ForensicsCommand',
+            'Padosoft\\LaravelFlow\\Console\\TaintCommand',
             'Padosoft\\LaravelFlow\\Forensics\\ForensicCanonicalJson',
         ];
 
@@ -412,6 +420,50 @@ final class PublicApiContractTest extends TestCase
             'FAILED',
             'UNVERIFIABLE',
         ]);
+    }
+
+    public function test_taint_analysis_pins_documented_surface(): void
+    {
+        $this->assertHasPublicMethods('Padosoft\\LaravelFlow\\Provenance\\TaintAnalyzer', [
+            'analyze',
+            'violations',
+        ]);
+
+        $this->assertHasPublicMethods('Padosoft\\LaravelFlow\\Provenance\\TaintMap', [
+            'inputIsUntrusted',
+            'outputIsUntrusted',
+            'pathToInput',
+            'pathToOutput',
+            'untrustedPorts',
+            'toArray',
+        ]);
+
+        $this->assertHasPublicMethods('Padosoft\\LaravelFlow\\Provenance\\TaintPath', [
+            'source',
+            'then',
+            'origin',
+            'render',
+        ]);
+
+        $this->assertHasPublicMethods('Padosoft\\LaravelFlow\\Provenance\\TaintViolation', [
+            'message',
+            'toArray',
+        ]);
+    }
+
+    public function test_port_provenance_pins_its_three_cases(): void
+    {
+        // A graph author writes these names in a node attribute, and a
+        // stored catalog projection serialises their values. Renaming one
+        // silently reclassifies data that was already labelled.
+        $cases = array_map(
+            static fn (PortProvenance $case): string => $case->value,
+            PortProvenance::cases(),
+        );
+
+        sort($cases);
+
+        $this->assertSame(['derived', 'trusted', 'untrusted'], $cases);
     }
 
     /**

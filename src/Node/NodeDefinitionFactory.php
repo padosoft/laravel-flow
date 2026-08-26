@@ -196,7 +196,7 @@ final class NodeDefinitionFactory
                 $this->assertPropertyTypeCompatible($property, $input->type, $class, 'Input', $input->multiple);
 
                 try {
-                    $port = new PortDefinition($key, $input->type, $input->required, $input->label, $property->getName(), $input->multiple);
+                    $port = new PortDefinition($key, $input->type, $input->required, $input->label, $property->getName(), $input->multiple, requiresTrusted: $input->requiresTrusted);
                 } catch (InvalidArgumentException $e) {
                     throw new InvalidNodeDefinitionException("Invalid input port on [{$class}::\${$property->getName()}]: {$e->getMessage()}", previous: $e);
                 }
@@ -232,7 +232,7 @@ final class NodeDefinitionFactory
                 $this->assertPropertyTypeCompatible($property, $output->type, $class, 'Output');
 
                 try {
-                    $outputs[$key] = new PortDefinition($key, $output->type, false, $output->label, $property->getName());
+                    $outputs[$key] = new PortDefinition($key, $output->type, false, $output->label, $property->getName(), provenance: $output->provenance);
                 } catch (InvalidArgumentException $e) {
                     throw new InvalidNodeDefinitionException("Invalid output port on [{$class}::\${$property->getName()}]: {$e->getMessage()}", previous: $e);
                 }

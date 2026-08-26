@@ -157,6 +157,10 @@
           "path": "/best-practices/idempotency"
         },
         {
+          "title": "Provenance and taint",
+          "path": "/best-practices/provenance"
+        },
+        {
           "title": "Security",
           "path": "/best-practices/security"
         },

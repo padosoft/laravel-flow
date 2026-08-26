@@ -25,6 +25,25 @@ If you currently depend on internal classes, switch to the matching public contr
 
 ---
 
+## v2.3 → v2.4
+
+### Additive `@api` (non-breaking)
+
+- **Port provenance** — `Node\PortProvenance` (`Untrusted` / `Derived` / `Trusted`) on `#[Output]`, and `requiresTrusted: true` on `#[Input]`. Both are trailing, defaulted parameters on the attributes and on `PortDefinition`, so every existing port and every existing `new PortDefinition(...)` call keeps its current meaning (`Derived`, not required to be trusted).
+- **Analysis** — `Provenance\TaintAnalyzer::analyze()` returns a `Provenance\TaintMap`; `violations()` returns `Provenance\TaintViolation`s carrying a `Provenance\TaintPath` from the originating source to the sink.
+- **Validation** — `GraphValidator` rejects a graph in which untrusted data can reach a `requiresTrusted` input. Its constructor takes an optional trailing `?TaintAnalyzer`; omit it and one is built from the registry.
+- **CLI** — `php artisan flow:taint {name} [--version=] [--json]`.
+
+### Behaviour change to be aware of
+
+A graph is only ever rejected because of a declaration YOU added. With no `Untrusted` outputs and no `requiresTrusted` inputs anywhere in your node catalog, the analysis has nothing to propagate and nothing to refuse, and validation behaves exactly as in 2.3.
+
+The one observable difference without any declaration is the **node catalog projection**: `PortDefinition::toArray()` now includes `provenance` and `requires_trusted` on every port. This is additive — no key was renamed or removed — but a consumer asserting on the exact key set of a port projection will need updating.
+
+### Required migration
+
+None. No schema change and no config change.
+
 ## v2.2 → v2.3
 
 ### Additive `@api` (non-breaking)

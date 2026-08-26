@@ -25,6 +25,18 @@ If you currently depend on internal classes, switch to the matching public contr
 
 ---
 
+## v2.2 → v2.3
+
+### Additive `@api` (non-breaking)
+
+- **Forensic run bundle** — `Forensics\ForensicExporter::export($runId, $redact = true)` returns a `Forensics\ForensicBundle`: the run, the stored graph definition at the exact version it executed, every node record in sequence with its inputs and outputs, and the audit trail — self-contained and content-addressed (`digest()` over a canonical JSON encoding that excludes `exportedAt` and the digest itself, so re-exporting the same run yields the same digest).
+- **Verification** — `Forensics\ForensicVerifier::verify($bundle, $expectedDigest = null)` returns a `Forensics\ForensicReport` of four independent findings: `CHECK_DIGEST`, `CHECK_DEFINITION`, `CHECK_SEQUENCE`, `CHECK_ROUTING`. Routing is replayed by re-running the real `InputRouter` over the recorded outputs; node handlers are never executed, which is precisely why the check is deterministic. `ForensicFinding::UNVERIFIABLE` is a third state, not a soft pass — a redacted bundle reports routing as unverifiable rather than claiming a check it cannot substantiate.
+- **CLI** — `php artisan flow:forensics {runId} [--output=path] [--raw] [--verify=path]`.
+
+### Required migration
+
+None. No schema change, no config change; the exporter and verifier are container bindings you opt into by calling them.
+
 ## v2.x → v2.2
 
 ### Additive `@api` (non-breaking)

@@ -88,6 +88,13 @@ final class PublicApiContractTest extends TestCase
         yield 'Pagination' => ['Padosoft\\LaravelFlow\\Dashboard\\Pagination'];
         yield 'PaginatedResult' => ['Padosoft\\LaravelFlow\\Dashboard\\PaginatedResult'];
         yield 'Kpis' => ['Padosoft\\LaravelFlow\\Dashboard\\Kpis'];
+
+        yield 'ForensicBundle' => ['Padosoft\\LaravelFlow\\Forensics\\ForensicBundle'];
+        yield 'ForensicExporter' => ['Padosoft\\LaravelFlow\\Forensics\\ForensicExporter'];
+        yield 'ForensicVerifier' => ['Padosoft\\LaravelFlow\\Forensics\\ForensicVerifier'];
+        yield 'ForensicReport' => ['Padosoft\\LaravelFlow\\Forensics\\ForensicReport'];
+        yield 'ForensicFinding' => ['Padosoft\\LaravelFlow\\Forensics\\ForensicFinding'];
+        yield 'RunNotExportableException' => ['Padosoft\\LaravelFlow\\Forensics\\RunNotExportableException'];
     }
 
     /**
@@ -345,6 +352,8 @@ final class PublicApiContractTest extends TestCase
             'Padosoft\\LaravelFlow\\Console\\ApproveFlowCommand',
             'Padosoft\\LaravelFlow\\Console\\RejectFlowCommand',
             'Padosoft\\LaravelFlow\\Console\\DeliverWebhookOutboxCommand',
+            'Padosoft\\LaravelFlow\\Console\\ForensicsCommand',
+            'Padosoft\\LaravelFlow\\Forensics\\ForensicCanonicalJson',
         ];
 
         foreach ($internalClasses as $class) {
@@ -356,6 +365,53 @@ final class PublicApiContractTest extends TestCase
                 $class,
             ));
         }
+    }
+
+    public function test_forensic_bundle_pins_documented_surface(): void
+    {
+        $this->assertHasPublicMethods('Padosoft\\LaravelFlow\\Forensics\\ForensicBundle', [
+            'body',
+            'toArray',
+            'digest',
+        ]);
+
+        $this->assertHasConstants('Padosoft\\LaravelFlow\\Forensics\\ForensicBundle', [
+            'FORMAT',
+            'SPEC_VERSION',
+        ]);
+    }
+
+    public function test_forensic_exporter_and_verifier_pin_documented_surface(): void
+    {
+        $this->assertHasPublicMethods('Padosoft\\LaravelFlow\\Forensics\\ForensicExporter', ['export']);
+        $this->assertHasPublicMethods('Padosoft\\LaravelFlow\\Forensics\\ForensicVerifier', ['verify']);
+
+        // The four checks are the contract a consumer writes assertions
+        // against; renaming one silently changes what a report means.
+        $this->assertHasConstants('Padosoft\\LaravelFlow\\Forensics\\ForensicVerifier', [
+            'CHECK_DIGEST',
+            'CHECK_DEFINITION',
+            'CHECK_SEQUENCE',
+            'CHECK_ROUTING',
+        ]);
+    }
+
+    public function test_forensic_report_and_finding_pin_documented_surface(): void
+    {
+        $this->assertHasPublicMethods('Padosoft\\LaravelFlow\\Forensics\\ForensicReport', [
+            'intact',
+            'ofStatus',
+            'counts',
+            'toArray',
+        ]);
+
+        // `unverifiable` is a first-class third state, not a flavour of
+        // `failed` — a consumer branching on two statuses is a bug.
+        $this->assertHasConstants('Padosoft\\LaravelFlow\\Forensics\\ForensicFinding', [
+            'OK',
+            'FAILED',
+            'UNVERIFIABLE',
+        ]);
     }
 
     /**

@@ -8,11 +8,20 @@ use Padosoft\LaravelFlow\Contracts\DefinitionRepository;
 use Padosoft\LaravelFlow\Graph\Exceptions\InvalidGraphException;
 use Padosoft\LaravelFlow\Node\Exceptions\UnknownNodeTypeException;
 use Padosoft\LaravelFlow\Node\NodeRegistry;
+use Padosoft\LaravelFlow\Provenance\TaintAnalyzer;
 
 /**
  * Semantic graph validation against the node catalog: every node type
- * registered, every wire lands on real ports with compatible types, and
- * every required input is fed by a wire or a config literal.
+ * registered, every wire lands on real ports with compatible types, every
+ * required input is fed by a wire or a config literal, and no untrusted
+ * data reaches a port that declared it will not accept any.
+ *
+ * That last check is the reason a graph can be rejected for a *security*
+ * reason rather than a structural one. Because a graph's wiring is stored
+ * data and nothing rewires it at run time, the set of paths data can take
+ * is knowable before the graph runs — so "a model completion can reach
+ * this shell command" is a fact about the definition, catchable at publish
+ * time rather than discovered in an incident. See {@see TaintAnalyzer}.
  *
  * The internal {@see DefinitionRepository} implementation runs this on
  * {@see DefinitionRepository::publish()} only — a draft may be
@@ -25,7 +34,10 @@ use Padosoft\LaravelFlow\Node\NodeRegistry;
  */
 final class GraphValidator
 {
-    public function __construct(private readonly NodeRegistry $registry) {}
+    public function __construct(
+        private readonly NodeRegistry $registry,
+        private readonly ?TaintAnalyzer $taint = null,
+    ) {}
 
     /**
      * @throws InvalidGraphException
@@ -144,8 +156,25 @@ final class GraphValidator
             }
         }
 
+        // Taint runs LAST and only on an otherwise-valid graph. The
+        // analysis reads port definitions and wires, so on a graph with
+        // unknown node types or dangling wires it would report confident
+        // nonsense about a structure that does not hold — and burying the
+        // real error under a speculative one is how a security message
+        // gets ignored.
+        if ($violations === []) {
+            foreach ($this->taintAnalyzer()->violations($graph) as $violation) {
+                $violations[] = $violation->message();
+            }
+        }
+
         if ($violations !== []) {
             throw new InvalidGraphException($violations);
         }
+    }
+
+    private function taintAnalyzer(): TaintAnalyzer
+    {
+        return $this->taint ?? new TaintAnalyzer($this->registry);
     }
 }

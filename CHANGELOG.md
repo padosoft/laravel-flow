@@ -4,6 +4,18 @@ All notable changes to `padosoft/laravel-flow` are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). From v1.0.0 onward, SemVer applies to source classes annotated with `@api`. Classes annotated `@internal` are not covered by the SemVer guarantee; see [`docs/UPGRADE.md`](docs/UPGRADE.md) for the full policy.
 
+## [2.4.0] — 2026-08-26
+
+### Added
+
+- **Provenance / taint analysis (`@api`)**: a node port now declares where its authority comes from. An output carries a `Node\PortProvenance` — `Untrusted` (a taint source: a model completion, a fetched page, an ingested mail body), `Derived` (the default: untrusted in, untrusted out) or `Trusted` (an explicit, accountable sanitization claim) — and an input can declare `requiresTrusted: true` to refuse untrusted data outright. `Provenance\TaintAnalyzer::analyze()` propagates taint across the graph and returns a `Provenance\TaintMap`; `violations()` returns the wires that carry untrusted data into a port that refuses it, each with the `Provenance\TaintPath` from the originating source. `GraphValidator` now runs that check and **rejects such a graph at publish time**, with a message naming the origin and the full route (`llm.text -> format.out -> shell.command`) because the fix is almost never at the sink. Because a graph's wiring is stored data that nothing rewires at run time, this analysis is complete for the property it checks rather than best-effort. Exposed as `php artisan flow:taint {name} [--version=] [--json]`, which exits non-zero on violations so it doubles as a CI gate for definitions stored before the analysis existed.
+- **Catalog projection carries the declarations**: `PortDefinition::toArray()` gains `provenance` and `requires_trusted`, so a visual editor can warn about a wire before the author reaches the validator. Additive keys on an existing projection; no key was renamed or removed.
+
+### Notes
+
+- Existing graphs are unaffected: every port defaults to `Derived` / `requiresTrusted: false`, which is exactly the behaviour of a codebase with no provenance model. Nothing is rejected until something is declared.
+- `GraphValidator`'s constructor gains an optional trailing `?TaintAnalyzer` (defaulted), so existing `new GraphValidator($registry)` call sites are unchanged.
+
 ## [2.3.0] — 2026-08-26
 
 ### Added

@@ -23,6 +23,7 @@ use Padosoft\LaravelFlow\Console\NodeCatalogCommand;
 use Padosoft\LaravelFlow\Console\PruneFlowRunsCommand;
 use Padosoft\LaravelFlow\Console\RejectFlowCommand;
 use Padosoft\LaravelFlow\Console\ReplayFlowRunCommand;
+use Padosoft\LaravelFlow\Console\TaintCommand;
 use Padosoft\LaravelFlow\Contracts\ApprovalRepository;
 use Padosoft\LaravelFlow\Contracts\AuditRepository;
 use Padosoft\LaravelFlow\Contracts\DefinitionRepository;
@@ -71,6 +72,7 @@ use Padosoft\LaravelFlow\Persistence\EloquentWebhookOutboxRepository;
 use Padosoft\LaravelFlow\Persistence\ErrorMessageRedactor;
 use Padosoft\LaravelFlow\Persistence\ExecutionScopedPayloadRedactor;
 use Padosoft\LaravelFlow\Persistence\KeyBasedPayloadRedactor;
+use Padosoft\LaravelFlow\Provenance\TaintAnalyzer;
 use Throwable;
 
 /**
@@ -257,6 +259,11 @@ final class LaravelFlowServiceProvider extends ServiceProvider
             return $registry;
         });
         $this->app->singleton(NodeCatalog::class);
+
+        // Stateless and derived entirely from the node catalog, so one
+        // instance serves the validator, the console command and any host
+        // that wants to ask the question itself.
+        $this->app->singleton(TaintAnalyzer::class);
 
         $this->app->singleton(ReadinessResolver::class);
         $this->app->singleton(InputRouter::class);
@@ -494,6 +501,7 @@ final class LaravelFlowServiceProvider extends ServiceProvider
             ExportFlowDefinitionCommand::class,
             ImportFlowDefinitionCommand::class,
             ForensicsCommand::class,
+            TaintCommand::class,
         ]);
     }
 

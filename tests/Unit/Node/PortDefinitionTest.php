@@ -15,7 +15,7 @@ final class PortDefinitionTest extends TestCase
         $port = new PortDefinition(key: 'order_id', type: PortType::Int, required: true, propertyName: 'orderId');
 
         $this->assertSame(
-            ['key' => 'order_id', 'type' => 'int', 'required' => true, 'label' => 'order_id', 'multiple' => false],
+            ['key' => 'order_id', 'type' => 'int', 'required' => true, 'label' => 'order_id', 'multiple' => false, 'provenance' => 'derived', 'requires_trusted' => false],
             $port->toArray(),
         );
     }

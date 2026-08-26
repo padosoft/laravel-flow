@@ -186,6 +186,26 @@ A reasonable order:
 If step 3 tempts you to declare `Trusted` on a port that just reformats,
 the honest move is to remove the wire instead.
 
+## The same rule, one and two layers out
+
+This package fixes what a **graph** may connect, at publish time. Two
+sibling packages answer the same question where a static graph cannot
+reach:
+
+- **`laravel-ai-guardrails`** —
+  [Control P](https://doc.laravel-ai-guardrails.padosoft.com/controls/provenance-gate)
+  refuses a tool call the model decided on *while reading* externally-authored
+  grounding. Retrieval is dynamic, so no static analysis could have caught it;
+  it needs a fact known at call time.
+- **`laravel-iam-server`** —
+  [AI grounding provenance](https://doc.laravel-iam-server.padosoft.com/guides/ai-grounding-provenance):
+  a permission can require that the decision was not made on the strength of a
+  stranger's text, with a citable decision id either way.
+
+Three layers, increasing distance from the action, and none replaces the
+others: this one stops the wire from existing, Control P stops the call, the
+PDP stops the permission.
+
 ## See also
 
 - [Security](/best-practices/security) — redaction, tokens, webhook signing

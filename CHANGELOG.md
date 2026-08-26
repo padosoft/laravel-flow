@@ -4,6 +4,18 @@ All notable changes to `padosoft/laravel-flow` are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). From v1.0.0 onward, SemVer applies to source classes annotated with `@api`. Classes annotated `@internal` are not covered by the SemVer guarantee; see [`docs/UPGRADE.md`](docs/UPGRADE.md) for the full policy.
 
+## [2.3.0] — 2026-08-26
+
+### Added
+
+- **Forensic run bundle + deterministic routing replay (`@api`)**: `Forensics\ForensicExporter::export()` produces a self-contained, content-addressed `Forensics\ForensicBundle` for one run — the run row, its stored graph definition at the exact version it executed, every node record in sequence with inputs/outputs, and the audit trail — digested with a canonical JSON encoding so the bundle proves it was not edited after export. `Forensics\ForensicVerifier::verify()` returns a `Forensics\ForensicReport` of four independent checks (`CHECK_DIGEST`, `CHECK_DEFINITION`, `CHECK_SEQUENCE`, `CHECK_ROUTING`); the routing check re-runs the real `InputRouter` over the recorded node outputs and names the divergent node when the replayed inputs disagree with what was recorded. Node bodies are never re-executed — only the pure router between them is replayed, which is what makes the check deterministic. `Forensics\ForensicFinding::UNVERIFIABLE` is a first-class third state alongside `OK`/`FAILED`: a redacted bundle honestly reports routing as unverifiable rather than claiming a pass it cannot substantiate. Exposed as `php artisan flow:forensics {runId} --output= --raw --verify=`, and bound in the container (exporter with the configured `PayloadRedactor`, verifier with the `NodeRegistry`).
+
+## [2.2.2] — 2026-08-25
+
+### Fixed
+
+- **Docs-site dependency audit**: resolved the high-severity advisories reported by `npm audit` in the documentation toolchain (adm-zip 0.6, sharp 0.35, protobufjs 7.6.5, linkify-it 5.0.2). No package source or runtime behavior changed.
+
 ## [2.2.1] — 2026-08-24
 
 ### Fixed

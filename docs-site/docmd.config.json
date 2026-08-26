@@ -186,6 +186,10 @@
           "path": "/operations/pruning-replay"
         },
         {
+          "title": "Forensic bundles",
+          "path": "/operations/forensics"
+        },
+        {
           "title": "Runbooks",
           "path": "/operations/runbooks"
         }
@@ -234,7 +238,7 @@
     "search": {
       "enabled": true,
       "semantic": true,
-      "placeholder": "Search the docs…"
+      "placeholder": "Search the docs\u2026"
     },
     "git": {
       "repo": "https://github.com/padosoft/laravel-flow",

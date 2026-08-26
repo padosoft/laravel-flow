@@ -17,6 +17,7 @@ use Padosoft\LaravelFlow\Broadcasting\GraphProgressBroadcaster;
 use Padosoft\LaravelFlow\Console\ApproveFlowCommand;
 use Padosoft\LaravelFlow\Console\DeliverWebhookOutboxCommand;
 use Padosoft\LaravelFlow\Console\ExportFlowDefinitionCommand;
+use Padosoft\LaravelFlow\Console\ForensicsCommand;
 use Padosoft\LaravelFlow\Console\ImportFlowDefinitionCommand;
 use Padosoft\LaravelFlow\Console\NodeCatalogCommand;
 use Padosoft\LaravelFlow\Console\PruneFlowRunsCommand;
@@ -52,6 +53,8 @@ use Padosoft\LaravelFlow\Executor\Nodes\MergeNode;
 use Padosoft\LaravelFlow\Executor\Nodes\SubFlowNode;
 use Padosoft\LaravelFlow\Executor\QueueGraphCoordinator;
 use Padosoft\LaravelFlow\Executor\ReadinessResolver;
+use Padosoft\LaravelFlow\Forensics\ForensicExporter;
+use Padosoft\LaravelFlow\Forensics\ForensicVerifier;
 use Padosoft\LaravelFlow\Graph\DefinitionSigner;
 use Padosoft\LaravelFlow\Graph\GraphValidator;
 use Padosoft\LaravelFlow\Node\Attributes\FlowNode;
@@ -128,6 +131,19 @@ final class LaravelFlowServiceProvider extends ServiceProvider
                 replacement: (string) ($redaction['replacement'] ?? '[redacted]'),
             );
         });
+
+        // Forensics: the exporter re-applies the bound redactor because an
+        // EXPORT leaves the system — the bar for a document that travels is not
+        // the bar for a row in your own database. The verifier needs the node
+        // registry to know each node's port contract before it can re-derive an
+        // input map.
+        $this->app->bind(ForensicExporter::class, fn (Container $app): ForensicExporter => new ForensicExporter(
+            $app->make(PayloadRedactor::class),
+        ));
+
+        $this->app->bind(ForensicVerifier::class, fn (Container $app): ForensicVerifier => new ForensicVerifier(
+            $app->make(NodeRegistry::class),
+        ));
 
         $this->app->singleton(ExecutionScopedPayloadRedactor::class, fn (Container $app): ExecutionScopedPayloadRedactor => new ExecutionScopedPayloadRedactor($app));
 
@@ -477,6 +493,7 @@ final class LaravelFlowServiceProvider extends ServiceProvider
             NodeCatalogCommand::class,
             ExportFlowDefinitionCommand::class,
             ImportFlowDefinitionCommand::class,
+            ForensicsCommand::class,
         ]);
     }
 

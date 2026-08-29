@@ -14,6 +14,9 @@ use Illuminate\Database\ConnectionResolverInterface;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\ServiceProvider;
 use Padosoft\LaravelFlow\Broadcasting\GraphProgressBroadcaster;
+use Padosoft\LaravelFlow\Routines\FlowTarget;
+use Padosoft\Routines\Contracts\Target\RoutineTarget;
+use Padosoft\Routines\Targets\TargetRegistry;
 use Padosoft\LaravelFlow\Console\ApproveFlowCommand;
 use Padosoft\LaravelFlow\Console\DeliverWebhookOutboxCommand;
 use Padosoft\LaravelFlow\Console\ExportFlowDefinitionCommand;
@@ -467,6 +470,11 @@ final class LaravelFlowServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        // Before the console guard, deliberately: the routine scheduler runs in the console, but
+        // the admin API that lists available targets runs over HTTP. Registering inside the guard
+        // would give a panel that shows no flow target and a scheduler that runs one.
+        $this->registerRoutineTarget();
+
         if (! $this->app->runningInConsole()) {
             return;
         }
@@ -598,6 +606,25 @@ final class LaravelFlowServiceProvider extends ServiceProvider
         return function_exists('config_path')
             ? config_path($file)
             : $this->app->basePath('config/'.$file);
+    }
+
+    /**
+     * Make flows startable from a schedule, when padosoft/laravel-routines is installed.
+     *
+     * Guarded by class_exists rather than a hard dependency: laravel-flow depends on
+     * `laravel-routines-contracts` (which has no dependencies of its own) for the interface, and
+     * on nothing at all for the registry. An application that wants flows but not scheduling
+     * installs neither, and this method is a no-op.
+     */
+    private function registerRoutineTarget(): void
+    {
+        if (! class_exists(TargetRegistry::class) || ! interface_exists(RoutineTarget::class)) {
+            return;
+        }
+
+        $this->callAfterResolving(TargetRegistry::class, function (TargetRegistry $registry): void {
+            $registry->register(new FlowTarget($this->app->make(FlowEngine::class)));
+        });
     }
 
     /**

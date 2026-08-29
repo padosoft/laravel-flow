@@ -18,3 +18,5 @@ composer.lock
 Thumbs.db
 .claude/scheduled_tasks.lock
 .claude/settings.local.json
+composer-test.json
+composer-test.lock

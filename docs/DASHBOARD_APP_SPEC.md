@@ -104,15 +104,20 @@ and webhook outbox — not only the run list. That distinction is the point:
 restricting the list alone still lets a caller read an excluded run's detail
 by id, and the detail is where the payloads are.
 
-Two rules for implementers:
+Three rules for implementers:
 
 - **Never widen.** `apply()` receives a builder and returns it with
   restrictions added. It must be side-effect free.
-- **Returning the builder unmodified means "no restriction"**, which is right
-  for a deployment with no boundary. It is also why a host that *does* have
-  one must resolve its subject before calling: passing `null` because the
-  lookup failed turns a failed lookup into an unrestricted read. Fail closed
-  in the host, where the meaning is known.
+- **Resolve the subject inside `apply()`, never in the constructor.** The read
+  model is a singleton, so a scope that captures a tenant when it is built
+  will serve that tenant to every later request under a long-lived container
+  (Octane, Swoole, a queue worker). Read the current subject each time
+  `apply()` runs.
+- **Returning the builder unmodified means "no restriction."** That is right
+  for a deployment with no boundary. It is also why an implementation that
+  cannot resolve its subject must add an always-false constraint rather than
+  returning early — otherwise a failed lookup silently widens into an
+  unrestricted read.
 
 
 ### Authorization hook — `Padosoft\LaravelFlow\Dashboard\Authorization\DashboardActionAuthorizer`

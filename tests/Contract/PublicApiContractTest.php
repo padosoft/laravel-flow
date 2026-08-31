@@ -37,6 +37,7 @@ final class PublicApiContractTest extends TestCase
         yield 'FlowDefinition' => ['Padosoft\\LaravelFlow\\FlowDefinition'];
         yield 'FlowStep' => ['Padosoft\\LaravelFlow\\FlowStep'];
         yield 'FlowContext' => ['Padosoft\\LaravelFlow\\FlowContext'];
+        yield 'DashboardReadScope' => ['Padosoft\\LaravelFlow\\Contracts\\DashboardReadScope'];
         yield 'FlowStepHandler' => ['Padosoft\\LaravelFlow\\FlowStepHandler'];
         yield 'FlowCompensator' => ['Padosoft\\LaravelFlow\\FlowCompensator'];
         yield 'IssuedApprovalToken' => ['Padosoft\\LaravelFlow\\IssuedApprovalToken'];
@@ -195,6 +196,13 @@ final class PublicApiContractTest extends TestCase
             'listWebhookOutbox',
             'kpis',
             'withScope',
+        ]);
+    }
+
+    public function test_dashboard_read_scope_pins_its_documented_public_method(): void
+    {
+        $this->assertHasPublicMethods('Padosoft\\LaravelFlow\\Contracts\\DashboardReadScope', [
+            'apply',
         ]);
     }
 

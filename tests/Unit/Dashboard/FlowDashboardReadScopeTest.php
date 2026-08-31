@@ -116,6 +116,35 @@ final class FlowDashboardReadScopeTest extends PersistenceTestCase
         $this->assertNotSame([], $unscoped->audit);
     }
 
+    public function test_the_read_model_does_not_freeze_a_scopes_decision_between_calls(): void
+    {
+        $this->seedOneRunPerDefinition();
+
+        // A scope that reads its subject when apply() runs, which is what the
+        // contract requires: the read model is a singleton, so a scope wired
+        // once must not answer for the request that happened to build it.
+        $subject = new \stdClass;
+        $subject->definition = self::VISIBLE;
+
+        $reader = $this->reader()->withScope(new RecordingReadScope([
+            'flow_runs' => static fn (Builder $q): Builder => $q->where('definition_name', $subject->definition),
+        ]));
+
+        $first = $reader->listRuns(new RunFilter, new Pagination(1, 10));
+
+        $subject->definition = self::HIDDEN;
+
+        $second = $reader->listRuns(new RunFilter, new Pagination(1, 10));
+
+        $this->assertSame(1, $first->total);
+        $this->assertSame(1, $second->total);
+        $this->assertNotSame(
+            $first->items[0]->id,
+            $second->items[0]->id,
+            'The same reader answered twice from one subject, so a captured tenant would outlive its request.',
+        );
+    }
+
     public function test_without_a_scope_every_read_is_unconstrained(): void
     {
         $this->seedOneRunPerDefinition();

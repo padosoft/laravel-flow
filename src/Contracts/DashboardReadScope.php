@@ -28,11 +28,22 @@ use Illuminate\Database\Eloquent\Model;
  * by id, and the detail is where the payloads are.
  *
  * Implementations MUST be side-effect free and MUST NOT widen the query: they
- * receive a builder and return it with restrictions added. Returning it
- * unmodified means "no restriction", which is the correct behaviour for a
- * deployment with no boundary to enforce — and the reason a host that means
- * to restrict must never let an unresolvable subject fall through to that
- * branch. Fail closed there, in the host, where the meaning is known.
+ * receive a builder and return it with restrictions added.
+ *
+ * Implementations MUST resolve their subject inside `apply()`, when it runs —
+ * never capture a resolved subject when the scope is constructed. The read
+ * model is bound as a singleton, so under a long-lived container (Octane,
+ * Swoole, a queue worker) a captured subject outlives the request that
+ * resolved it and would be served to the next one. That failure is precisely
+ * the leak this contract exists to prevent, and it is silent.
+ *
+ * Returning the builder unmodified means "no restriction". That is correct
+ * for a deployment with no boundary to enforce, and it is why an
+ * implementation that CANNOT resolve its subject must add an always-false
+ * constraint instead of returning early: an unmodified builder reads as "no
+ * restriction", so a failed lookup would otherwise widen into an
+ * unrestricted read. Fail closed, in the implementation, where the meaning
+ * is known.
  *
  * @api
  */

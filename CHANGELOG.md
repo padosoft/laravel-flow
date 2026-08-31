@@ -13,7 +13,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ### Notes
 
 - Purely additive and inert by default. With no scope wired, every query is byte-for-byte the one it was before, which is the correct behaviour for a deployment with no boundary to enforce. Passing `null` clears a previously applied scope.
-- An implementation returning the builder unmodified means "no restriction". A host that means to restrict must therefore resolve its subject **before** calling: handing `null` because the subject could not be resolved turns a failed lookup into an unrestricted read.
+- An implementation returning the builder unmodified means "no restriction". An implementation that cannot resolve its subject must therefore add an always-false constraint rather than returning early, or a failed lookup silently widens into an unrestricted read.
+- The read model is a singleton, so a scope is wired once and reused for the life of the container. Implementations MUST resolve their subject inside `apply()` rather than capturing it at construction: under Octane, Swoole or a queue worker a captured subject outlives the request that resolved it and would be served to the next one.
 
 ## [2.4.0] — 2026-08-26
 

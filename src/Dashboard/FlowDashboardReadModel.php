@@ -40,11 +40,14 @@ final class FlowDashboardReadModel
      * which hands back the built instance, and rebuilding it by hand there
      * would silently drop the configured connection.
      *
-     * Passing null returns an unconstrained copy. That is the correct shape
-     * for a deployment with no boundary to enforce, and it is why a host that
-     * DOES have one must resolve its subject before calling: handing null
-     * because the subject could not be resolved turns a failed lookup into an
-     * unrestricted read.
+     * Passing null returns an unconstrained copy — the correct shape for a
+     * deployment with no boundary to enforce.
+     *
+     * Because this instance is a singleton, the scope is wired ONCE and then
+     * reused for the life of the container. So the scope must resolve its
+     * subject when `apply()` runs, not when it is constructed here; see
+     * {@see DashboardReadScope} for why capturing one is a cross-request
+     * leak rather than an optimisation.
      */
     public function withScope(?DashboardReadScope $scope): self
     {

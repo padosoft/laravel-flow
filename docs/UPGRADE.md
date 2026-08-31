@@ -25,6 +25,28 @@ If you currently depend on internal classes, switch to the matching public contr
 
 ---
 
+## v2.4 → v2.5
+
+### Additive `@api` (non-breaking)
+
+- **`Contracts\DashboardReadScope`** — a new public extension contract with one method, `apply(Builder $query): Builder`. It lets a host constrain every query the dashboard read model issues; the package supplies no implementation and binds none.
+- **`Dashboard\FlowDashboardReadModel::withScope(?DashboardReadScope $scope): self`** — returns a copy carrying the scope. The constructor gains a trailing, defaulted `?DashboardReadScope $scope = null`, so every existing `new FlowDashboardReadModel($connection)` call keeps its current meaning.
+
+### Behaviour change to be aware of
+
+None without a scope wired. With no scope, every query the read model issues is the one it issued in 2.4, and `withScope(null)` returns an unconstrained copy.
+
+Once you DO wire one, note that it applies to all five base queries — runs, run nodes, audit, approvals and webhook outbox — not only the run list. Restricting the list alone would still let a caller read an excluded run's detail by id, so the detail sub-queries are scoped too. If you were relying on the detail being readable for a run the list hides, that combination was never coherent and no longer holds.
+
+### Required migration
+
+None. No schema change and no config change.
+
+### Two rules if you implement the contract
+
+1. **Resolve your subject inside `apply()`, not in the constructor.** The read model is bound as a singleton and a host wires the scope once via `$app->extend(...)`. A scope that captures a tenant when it is built will serve that tenant to every later request under a long-lived container (Octane, Swoole, a queue worker).
+2. **Fail closed.** Returning the builder unmodified means "no restriction". An implementation that cannot resolve its subject must add an always-false constraint rather than returning early, or a failed lookup silently widens into an unrestricted read.
+
 ## v2.3 → v2.4
 
 ### Additive `@api` (non-breaking)

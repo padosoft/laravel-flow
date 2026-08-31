@@ -194,6 +194,7 @@ final class PublicApiContractTest extends TestCase
             'pendingWebhookOutbox',
             'listWebhookOutbox',
             'kpis',
+            'withScope',
         ]);
     }
 

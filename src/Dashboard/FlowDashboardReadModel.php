@@ -7,6 +7,7 @@ namespace Padosoft\LaravelFlow\Dashboard;
 use DateTimeImmutable;
 use DateTimeInterface;
 use Illuminate\Database\Eloquent\Builder;
+use Padosoft\LaravelFlow\Contracts\DashboardReadScope;
 use Padosoft\LaravelFlow\FlowRun;
 use Padosoft\LaravelFlow\Models\FlowApprovalRecord;
 use Padosoft\LaravelFlow\Models\FlowAuditRecord;
@@ -28,7 +29,27 @@ final class FlowDashboardReadModel
 {
     public function __construct(
         private readonly ?string $connection = null,
+        private readonly ?DashboardReadScope $scope = null,
     ) {}
+
+    /**
+     * Return a copy of this read model with every query constrained by $scope.
+     *
+     * A wither rather than a setter because the read model is immutable and
+     * bound as a singleton: a host wires this through `$app->extend(...)`,
+     * which hands back the built instance, and rebuilding it by hand there
+     * would silently drop the configured connection.
+     *
+     * Passing null returns an unconstrained copy. That is the correct shape
+     * for a deployment with no boundary to enforce, and it is why a host that
+     * DOES have one must resolve its subject before calling: handing null
+     * because the subject could not be resolved turns a failed lookup into an
+     * unrestricted read.
+     */
+    public function withScope(?DashboardReadScope $scope): self
+    {
+        return new self($this->connection, $scope);
+    }
 
     /**
      * @return PaginatedResult<RunSummary>
@@ -564,11 +585,24 @@ final class FlowDashboardReadModel
     }
 
     /**
+     * Apply the host-supplied scope, if one was wired.
+     *
+     * @template TModel of \Illuminate\Database\Eloquent\Model
+     *
+     * @param  Builder<TModel>  $query
+     * @return Builder<TModel>
+     */
+    private function scoped(Builder $query): Builder
+    {
+        return $this->scope?->apply($query) ?? $query;
+    }
+
+    /**
      * @return Builder<FlowRunRecord>
      */
     private function runQuery(): Builder
     {
-        return (new FlowRunRecord)->setConnection($this->connection)->newQuery();
+        return $this->scoped((new FlowRunRecord)->setConnection($this->connection)->newQuery());
     }
 
     /**
@@ -576,7 +610,7 @@ final class FlowDashboardReadModel
      */
     private function stepQuery(): Builder
     {
-        return (new FlowRunNodeRecord)->setConnection($this->connection)->newQuery();
+        return $this->scoped((new FlowRunNodeRecord)->setConnection($this->connection)->newQuery());
     }
 
     /**
@@ -584,7 +618,7 @@ final class FlowDashboardReadModel
      */
     private function auditQuery(): Builder
     {
-        return (new FlowAuditRecord)->setConnection($this->connection)->newQuery();
+        return $this->scoped((new FlowAuditRecord)->setConnection($this->connection)->newQuery());
     }
 
     /**
@@ -592,7 +626,7 @@ final class FlowDashboardReadModel
      */
     private function approvalQuery(): Builder
     {
-        return (new FlowApprovalRecord)->setConnection($this->connection)->newQuery();
+        return $this->scoped((new FlowApprovalRecord)->setConnection($this->connection)->newQuery());
     }
 
     /**
@@ -600,7 +634,7 @@ final class FlowDashboardReadModel
      */
     private function webhookOutboxQuery(): Builder
     {
-        return (new FlowWebhookOutboxRecord)->setConnection($this->connection)->newQuery();
+        return $this->scoped((new FlowWebhookOutboxRecord)->setConnection($this->connection)->newQuery());
     }
 
     private function immutable(mixed $value): ?DateTimeImmutable

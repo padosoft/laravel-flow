@@ -4,6 +4,17 @@ All notable changes to `padosoft/laravel-flow` are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). From v1.0.0 onward, SemVer applies to source classes annotated with `@api`. Classes annotated `@internal` are not covered by the SemVer guarantee; see [`docs/UPGRADE.md`](docs/UPGRADE.md) for the full policy.
 
+## [2.5.0] — 2026-08-31
+
+### Added
+
+- **Host-supplied read scope on the dashboard (`@api`)**: `Contracts\DashboardReadScope` lets a host constrain every query the dashboard issues, and `FlowDashboardReadModel::withScope()` returns a copy carrying it. This package defines no tenant column — none of its migrations do — so it cannot filter on one; a host that has added its own boundary supplies the predicate and stays authoritative about its own schema, which matters because a host that has NOT added the column must never be handed a query referencing it. The scope is applied to all five base queries (runs, run nodes, audit, approvals, webhook outbox) rather than only to the run list: scoping the list alone would still let a caller read an excluded run's detail by id, and the detail is where the payloads are. `withScope()` is a wither rather than a setter because the read model is immutable and bound as a singleton — a host wires it through `$app->extend(...)`, and rebuilding the instance by hand there would silently drop the configured connection.
+
+### Notes
+
+- Purely additive and inert by default. With no scope wired, every query is byte-for-byte the one it was before, which is the correct behaviour for a deployment with no boundary to enforce. Passing `null` clears a previously applied scope.
+- An implementation returning the builder unmodified means "no restriction". A host that means to restrict must therefore resolve its subject **before** calling: handing `null` because the subject could not be resolved turns a failed lookup into an unrestricted read.
+
 ## [2.4.0] — 2026-08-26
 
 ### Added

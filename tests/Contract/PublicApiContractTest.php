@@ -4,11 +4,13 @@ declare(strict_types=1);
 
 namespace Padosoft\LaravelFlow\Tests\Contract;
 
+use Illuminate\Database\Eloquent\Builder;
 use Padosoft\LaravelFlow\Dashboard\RunSummary;
 use Padosoft\LaravelFlow\Node\PortProvenance;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
+use ReflectionNamedType;
 
 /**
  * Pin the v1.0 public API surface so a follow-up patch cannot silently
@@ -37,6 +39,7 @@ final class PublicApiContractTest extends TestCase
         yield 'FlowDefinition' => ['Padosoft\\LaravelFlow\\FlowDefinition'];
         yield 'FlowStep' => ['Padosoft\\LaravelFlow\\FlowStep'];
         yield 'FlowContext' => ['Padosoft\\LaravelFlow\\FlowContext'];
+        yield 'DashboardReadScope' => ['Padosoft\\LaravelFlow\\Contracts\\DashboardReadScope'];
         yield 'FlowStepHandler' => ['Padosoft\\LaravelFlow\\FlowStepHandler'];
         yield 'FlowCompensator' => ['Padosoft\\LaravelFlow\\FlowCompensator'];
         yield 'IssuedApprovalToken' => ['Padosoft\\LaravelFlow\\IssuedApprovalToken'];
@@ -194,7 +197,35 @@ final class PublicApiContractTest extends TestCase
             'pendingWebhookOutbox',
             'listWebhookOutbox',
             'kpis',
+            'withScope',
         ]);
+    }
+
+    public function test_dashboard_read_scope_pins_its_documented_public_method(): void
+    {
+        $this->assertHasPublicMethods('Padosoft\\LaravelFlow\\Contracts\\DashboardReadScope', [
+            'apply',
+        ]);
+    }
+
+    public function test_dashboard_read_scope_signature_is_pinned(): void
+    {
+        // The method NAME alone is not the contract: this interface exists so a
+        // host can hand back a constrained builder, so narrowing the parameter
+        // or widening the return would break every implementation while still
+        // satisfying a name-only assertion.
+        $method = (new ReflectionClass('Padosoft\\LaravelFlow\\Contracts\\DashboardReadScope'))->getMethod('apply');
+
+        $this->assertCount(1, $method->getParameters());
+
+        $returnType = $method->getReturnType();
+        $this->assertInstanceOf(ReflectionNamedType::class, $returnType);
+        $this->assertSame(Builder::class, $returnType->getName());
+        $this->assertFalse($returnType->allowsNull());
+
+        $parameterType = $method->getParameters()[0]->getType();
+        $this->assertInstanceOf(ReflectionNamedType::class, $parameterType);
+        $this->assertSame(Builder::class, $parameterType->getName());
     }
 
     public function test_step_summary_pins_read_properties(): void
@@ -333,7 +364,7 @@ final class PublicApiContractTest extends TestCase
         $this->assertNull($parameters[2]->getDefaultValue());
 
         $returnType = $method->getReturnType();
-        $this->assertInstanceOf(\ReflectionNamedType::class, $returnType);
+        $this->assertInstanceOf(ReflectionNamedType::class, $returnType);
         $this->assertSame('void', $returnType->getName());
     }
 

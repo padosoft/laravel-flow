@@ -84,6 +84,42 @@ $kpis = $reader->kpis();
 //       pendingApprovals, webhookOutboxPending, webhookOutboxFailed }
 ```
 
+#### Restricting what the dashboard can read
+
+This package defines no tenant column, so it cannot filter on one. A host that
+has added its own boundary supplies the predicate through
+`Contracts\DashboardReadScope`, and the read model applies it to **every**
+query it issues:
+
+```php
+// In a host service provider. `extend` runs after whichever provider bound
+// the singleton, and preserves the configured connection.
+$this->app->extend(FlowDashboardReadModel::class, fn ($reader) => $reader->withScope(
+    new YourTenantReadScope(...),
+));
+```
+
+The scope reaches all five base queries — runs, run nodes, audit, approvals
+and webhook outbox — not only the run list. That distinction is the point:
+restricting the list alone still lets a caller read an excluded run's detail
+by id, and the detail is where the payloads are.
+
+Three rules for implementers:
+
+- **Never widen.** `apply()` receives a builder and returns it with
+  restrictions added. It must be side-effect free.
+- **Resolve the subject inside `apply()`, never in the constructor.** The read
+  model is a singleton, so a scope that captures a tenant when it is built
+  will serve that tenant to every later request under a long-lived container
+  (Octane, Swoole, a queue worker). Read the current subject each time
+  `apply()` runs.
+- **Returning the builder unmodified means "no restriction."** That is right
+  for a deployment with no boundary. It is also why an implementation that
+  cannot resolve its subject must add an always-false constraint rather than
+  returning early — otherwise a failed lookup silently widens into an
+  unrestricted read.
+
+
 ### Authorization hook — `Padosoft\LaravelFlow\Dashboard\Authorization\DashboardActionAuthorizer`
 
 The dashboard MUST bind a custom implementation in its service provider. The default registered by the package is `DenyAllAuthorizer`, which rejects every action — exactly so production cannot be silently exposed. For local development against a single trusted operator, the package also ships `AllowAllAuthorizer` which can be opted into explicitly:

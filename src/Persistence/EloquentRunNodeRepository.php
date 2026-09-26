@@ -192,19 +192,34 @@ final class EloquentRunNodeRepository implements BranchAwareRunNodeRepository, R
             return false;
         }
 
+        // The duration was persisted at the initial pause; the node only completes
+        // now, so recompute it from its (unchanging) start time — otherwise the
+        // row would report a finish time after the wait with the pre-wait duration.
+        $startedAt = $this->newModel()->newQuery()
+            ->where('run_id', $runId)
+            ->where('node_id', $nodeId)
+            ->value('started_at');
+
+        $values = [
+            'status' => NodeState::Succeeded->value,
+            'finished_at' => $now,
+            'error_class' => null,
+            'error_message' => null,
+            'updated_at' => $this->newModel()->freshTimestamp(),
+        ];
+
+        if ($startedAt !== null) {
+            $start = DateTimeImmutable::createFromInterface(is_string($startedAt) ? new DateTimeImmutable($startedAt) : $startedAt);
+            $values['duration_ms'] = max(0, (int) round(((float) $now->format('U.u') - (float) $start->format('U.u')) * 1000));
+        }
+
         $affected = $this->newModel()->newQuery()
             ->where('run_id', $runId)
             ->where('node_id', $nodeId)
             ->where('status', NodeState::Paused->value)
             ->whereNotNull('resume_at')
             ->where('resume_at', '<=', $now)
-            ->update([
-                'status' => NodeState::Succeeded->value,
-                'finished_at' => $now,
-                'error_class' => null,
-                'error_message' => null,
-                'updated_at' => $this->newModel()->freshTimestamp(),
-            ]);
+            ->update($values);
 
         return $affected === 1;
     }

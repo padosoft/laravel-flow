@@ -34,7 +34,7 @@ If you currently depend on internal classes, switch to the matching public contr
 - **`Contracts\BranchAwareRunNodeRepository`** — an optional extension of `RunNodeRepository` with one method, `activePorts(string $runId): array<string, list<string>>`. No existing `@api` interface gained a method.
 - **`Dashboard\StepSummary`** gains a trailing defaulted `?array $activePorts = null`.
 - **`Node\NodeResult::pausedUntil(DateTimeInterface $resumeAt, array $outputs = [], ?array $businessImpact = null)`** — pause a node until a point in time and let the engine resume it. `NodeResult` gains a trailing defaulted public `?DateTimeImmutable $resumeAt` (private constructor: only the factories are affected).
-- **`Contracts\TimerRepository`** — an optional extension of `RunNodeRepository` (`dueTimers()`, `pendingTimer()`, `resumeTimer()`). No existing `@api` interface gained a method.
+- **`Contracts\TimerRepository`** — an optional extension of `RunNodeRepository` (`dueTimers()`, `pendingTimer()`, `resumeTimer()` and `isResumedTimer()` — a custom backend must implement all four). No existing `@api` interface gained a method.
 - **`Executor\NodeExecutor`** takes a trailing defaulted `int $maxInlineDelaySeconds = 0`; **`Executor\NodeExecution`** gains a trailing defaulted `?DateTimeImmutable $resumeAt`; **`Dashboard\StepSummary`** gains a trailing defaulted `?DateTimeImmutable $resumeAt`.
 - **`php artisan flow:resume-due-timers`** and two config keys, `executor.max_inline_delay_seconds` (default `5`) and `executor.timer_max_job_delay_seconds` (default `900`).
 

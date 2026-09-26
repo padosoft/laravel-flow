@@ -157,6 +157,8 @@ final class TimerResumeTest extends PersistenceTestCase
         $this->assertSame('succeeded', $timer->status);
         // The due time is kept after the resume (it is how a retry recognises a completed timer).
         $this->assertNotNull($timer->resume_at);
+        // The duration covers the wait (paused at NOW, resumed 61 s later), not just the pre-pause work.
+        $this->assertGreaterThanOrEqual(61_000, (int) $timer->duration_ms);
         $this->assertSame(['through' => true], json_decode((string) $timer->outputs, true)['out']);
         $this->assertSame(1, QueueProbeNode::count('p'));
         $this->assertSame('succeeded', DB::table('flow_runs')->where('id', $runId)->value('status'));

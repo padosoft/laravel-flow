@@ -1,5 +1,12 @@
 # Progress
 
+## 2026-09-26 - `laravel-flow-connect` v1.0.0 released (last Macro D loose end closed)
+
+- The 2026-07-18 "program complete" entry covered core, ai and admin, but **`laravel-flow-connect` had never been converted off its dev pin**. Its `composer.json` still required `padosoft/laravel-flow: dev-task/v2d-realtime-triggers` through a `../padosoft-laravel-flow` path repository, and its CI checked out that core branch as a sibling. Verified that `git diff origin/main...origin/task/v2d-realtime-triggers` is empty, so all of that branch's content has been in core `main` since the Macro D gate.
+- **connect PR #6**: core requirement moved to `^2.0` (tested against core v2.0.0 **and** v2.5.0). Removed the path repo, the `minimum-stability: dev` override and CI's sibling checkout. `EventInputMapper`/`WebhookInputMapper` promoted to `@api` (hosts implement them). Rewrote the README, added a CHANGELOG, and added `.gitattributes` (LF, so Pint passes on Windows). Tagged **v1.0.0**.
+- Core docs: new docs-site guide `guides/triggers` (+ nav entry) and `FlowTrigger` added to the Contracts reference.
+- **Still open in connect's design scope** (spec §package map, never scheduled in the master plan): the generic HTTP/API node and the transform/condition/delay/batch utility nodes. The connect README lists them under Roadmap.
+
 ## 2026-07-18 - 🏁 FLOW 2.0 PROGRAM COMPLETE — all three packages released
 
 The Flow 2.0 super-package program (Macros A→G) is **done and published**. Verified live on Packagist + GitHub Releases:

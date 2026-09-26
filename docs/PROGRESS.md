@@ -1,5 +1,12 @@
 # Progress
 
+## 2026-09-27 - v2.6.0 released (branching + timers) and `laravel-flow-connect` v1.1.0 nodes
+
+- **Core #115 (timed resume) MERGED** (squash `4b531fe`) after **7 Codex review rounds**, 9 real findings, all fixed with tests: retry-safe resume (`resume_at` kept so a retry re-drives the idempotent coordinator), sweeper recovery of a completed-but-stalled timer (including a leaf timer with no `pending` node), post-sleep `finished_at`/`duration_ms` and a recomputed queued `duration_ms` (capped to the 32-bit column), a timed pause never node-cached even when it completes inline, terminal runs filtered out of the sweep so stale rows cannot starve `--limit`, and the UPGRADE note listing all four `TimerRepository` methods.
+- **Core v2.6.0** tagged and released: README + docs-site (Branching, Timers, Connect nodes), CHANGELOG `[2.6.0]`, UPGRADE `v2.5 → v2.6`. Two migrations, both only needed once a graph uses the feature: `active_ports` and `resume_at`.
+- **`laravel-flow-connect` v1.1.0**: `connect.http.request` (named connections, egress guard, taint-aware ports), `connect.transform`, `connect.condition` (core branch skip), `connect.delay` (core timers), `connect.batch`; requires core `^2.6`.
+- **Program note**: the roadmap items the connect design spec listed (HTTP/API node and transform/condition/delay/batch utility nodes) are now all shipped; nothing remains open.
+
 ## 2026-09-28 - v2.6 program: connect nodes (HTTP + utility) need two core primitives
 
 **Goal**: ship the `laravel-flow-connect` v1.1.0 nodes (`connect.http.request`, `transform`, `condition`, `delay`, `batch`), as the design spec places them in that package. Two of them cannot work on core v2.5, so core gets two additive primitives first (core **v2.6.0**), then connect consumes `^2.6`. The approved plan: one PR per unit (core branch-skip → core timed-resume → core release → connect N1…N6 → connect v1.1.0).

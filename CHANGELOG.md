@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [2.6.0] — 2026-09-27
+
+Two additive primitives that let a satellite package ship a real condition node and a real delay node — the `padosoft/laravel-flow-connect` v1.1 nodes. Both are strictly opt-in: a graph that uses neither behaves exactly as in 2.5.
+
 ### Added
 
 - **Per-port branching (`@api`)**: `NodeResult::branch(array $outputs, array $activePorts)` lets a node activate only some of its output ports. A wire from an inactive port is dead; a node whose every incoming wire is dead is **skipped** (recorded `skipped`, never run) and so is everything downstream that depended only on it, in the same readiness pass. A node with at least one live incoming wire still runs, with the dead input absent, so joins after a branch should use `flow.merge` or optional ports. This is what a condition / switch node needs; until now the executor could only decide readiness per node, so the branch not taken still ran and failed with `invalid_input`.

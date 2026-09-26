@@ -272,8 +272,13 @@ final class NodeExecutor
         // resumes it, no worker sleeps); synchronous -> sleep inline within the
         // configured cap, otherwise fail with an actionable message.
         $resumeAt = null;
+        $timed = false;
 
         if ($state === NodeState::Paused && $result->resumeAt !== null) {
+            // Remember that this result was a timed pause even when it is converted
+            // to a success below: it must never reach the node cache (a hit would
+            // serve an immediate success, skipping the handler and the delay).
+            $timed = true;
             $remaining = $result->resumeAt->getTimestamp() - ($this->clock)()->getTimestamp();
 
             if ($dryRun || $remaining <= 0) {
@@ -362,8 +367,9 @@ final class NodeExecutor
         // input); its partial outputs must NEVER be cached, or a later hit would
         // be served as a completed `succeeded`, silently skipping the pause.
         // A branch result is never cached either: a cache hit replays outputs
-        // only, so it could not carry which ports were activated.
-        if ($contentHash !== null && $this->cache !== null && $definition->cacheable !== null && $result->success && ! $result->paused && $activePorts === null) {
+        // only, so it could not carry which ports were activated. Nor is a timed
+        // pause, even one already completed inline (see $timed above).
+        if ($contentHash !== null && $this->cache !== null && $definition->cacheable !== null && $result->success && ! $result->paused && $activePorts === null && ! $timed) {
             try {
                 $this->cache->put($contentHash, $node->type, $result->outputs, $result->businessImpact, $definition->cacheable->ttl);
             } catch (Throwable $e) {

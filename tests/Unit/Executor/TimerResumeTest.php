@@ -23,6 +23,7 @@ use Padosoft\LaravelFlow\FlowEngine;
 use Padosoft\LaravelFlow\Graph\Connection;
 use Padosoft\LaravelFlow\Graph\GraphDefinition;
 use Padosoft\LaravelFlow\Graph\GraphNode;
+use Padosoft\LaravelFlow\Tests\Fixtures\GraphNodes\CacheableTimerNode;
 use Padosoft\LaravelFlow\Tests\Fixtures\GraphNodes\QueueProbeNode;
 use Padosoft\LaravelFlow\Tests\Fixtures\GraphNodes\TimerNode;
 use Padosoft\LaravelFlow\Tests\Unit\Persistence\PersistenceTestCase;
@@ -44,7 +45,7 @@ final class TimerResumeTest extends PersistenceTestCase
         $app['config']->set('queue.default', 'sync');
         $app['config']->set('laravel-flow.persistence.enabled', true);
         $app['config']->set('laravel-flow.executor.max_inline_delay_seconds', 5);
-        $app['config']->set('laravel-flow.nodes.handlers', [TimerNode::class, QueueProbeNode::class]);
+        $app['config']->set('laravel-flow.nodes.handlers', [TimerNode::class, QueueProbeNode::class, CacheableTimerNode::class]);
     }
 
     protected function setUp(): void
@@ -290,6 +291,23 @@ final class TimerResumeTest extends PersistenceTestCase
 
         // A finished run is never picked again.
         $this->artisan('flow:resume-due-timers')->expectsOutput('0 due timer(s) dispatched.')->assertExitCode(0);
+    }
+
+    public function test_a_cacheable_timer_is_never_served_from_the_node_cache(): void
+    {
+        CacheableTimerNode::$executions = 0;
+        $graph = new GraphDefinition([new GraphNode('c', 'test.cacheable_timer')], []);
+
+        // Within the inline cap the pause completes as a success — which must
+        // still stay out of the cache, or the second run would skip the delay.
+        $first = $this->runner()->run($graph, []);
+        $second = $this->runner()->run($graph, []);
+
+        $this->assertSame(NodeState::Succeeded, $first->nodeStates['c']);
+        $this->assertSame(NodeState::Succeeded, $second->nodeStates['c']);
+        $this->assertSame(2, CacheableTimerNode::$executions, 'the handler must run every time');
+        $this->assertSame(0, DB::table('flow_node_cache')->count());
+        Sleep::assertSleptTimes(2);
     }
 
     public function test_a_leaf_timer_whose_run_only_needs_finalizing_is_recovered_too(): void

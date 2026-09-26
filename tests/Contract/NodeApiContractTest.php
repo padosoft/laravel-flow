@@ -85,7 +85,7 @@ final class NodeApiContractTest extends TestCase
 
     public function test_node_result_factories_are_pinned(): void
     {
-        foreach (['success', 'failed', 'dryRunSkipped', 'paused', 'branch'] as $factory) {
+        foreach (['success', 'failed', 'dryRunSkipped', 'paused', 'branch', 'pausedUntil'] as $factory) {
             $this->assertTrue((new ReflectionClass(NodeResult::class))->getMethod($factory)->isStatic(), $factory);
         }
     }

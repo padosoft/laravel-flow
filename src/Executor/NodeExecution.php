@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Padosoft\LaravelFlow\Executor;
 
+use DateTimeImmutable;
 use Padosoft\LaravelFlow\Executor\Nodes\ApprovalGateNode;
 use Padosoft\LaravelFlow\Executor\State\NodeState;
 use Padosoft\LaravelFlow\IssuedApprovalToken;
@@ -40,5 +41,10 @@ final readonly class NodeExecution
          * @var list<string>|null
          */
         public ?array $activePorts = null,
+        /**
+         * When the node paused on a timer ({@see NodeResult::pausedUntil()}) and
+         * stays paused: the time it is due to resume. Null otherwise.
+         */
+        public ?DateTimeImmutable $resumeAt = null,
     ) {}
 }

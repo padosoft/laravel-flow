@@ -292,6 +292,15 @@ return [
         'lock_retry_seconds' => ($executorLockRetrySeconds = env('LARAVEL_FLOW_EXECUTOR_LOCK_RETRY_SECONDS')) !== null ? (int) $executorLockRetrySeconds : null,
         'default_tries' => (int) env('LARAVEL_FLOW_EXECUTOR_DEFAULT_TRIES', 1),
         'default_backoff_seconds' => (int) env('LARAVEL_FLOW_EXECUTOR_DEFAULT_BACKOFF', 0),
+        // Timed pauses (NodeResult::pausedUntil(), e.g. a delay node).
+        // max_inline_delay_seconds: the longest wait a SYNCHRONOUS run sleeps
+        // inline; a longer wait fails the node — run the graph queued instead.
+        // timer_max_job_delay_seconds: the longest single queue delay used to
+        // resume a queued timer (900 = the SQS DelaySeconds ceiling); a longer
+        // wait hops across several jobs. Schedule `flow:resume-due-timers`
+        // every minute as the safety net (lost job / a driver that cannot delay).
+        'max_inline_delay_seconds' => (int) env('LARAVEL_FLOW_EXECUTOR_MAX_INLINE_DELAY', 5),
+        'timer_max_job_delay_seconds' => (int) env('LARAVEL_FLOW_EXECUTOR_TIMER_MAX_JOB_DELAY', 900),
         'queue' => env('LARAVEL_FLOW_EXECUTOR_QUEUE', null),
         'cache' => [
             'store' => env('LARAVEL_FLOW_EXECUTOR_CACHE_STORE', null),

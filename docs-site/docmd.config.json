@@ -202,6 +202,10 @@
           "path": "/operations/forensics"
         },
         {
+          "title": "Timers",
+          "path": "/operations/timers"
+        },
+        {
           "title": "Runbooks",
           "path": "/operations/runbooks"
         }

@@ -12,6 +12,8 @@ use Illuminate\Contracts\Cache\LockProvider;
 use Illuminate\Contracts\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Queue\ShouldQueueAfterCommit;
 use Illuminate\Queue\InteractsWithQueue;
+use Illuminate\Support\Facades\Date;
+use Illuminate\Support\Facades\Log;
 use Padosoft\LaravelFlow\Contracts\FlowStore;
 use Padosoft\LaravelFlow\Executor\NodeExecutor;
 use Padosoft\LaravelFlow\Executor\NodeRouting;
@@ -19,6 +21,7 @@ use Padosoft\LaravelFlow\Executor\State\NodeState;
 use Padosoft\LaravelFlow\Graph\GraphDefinition;
 use Padosoft\LaravelFlow\Graph\GraphNode;
 use RuntimeException;
+use Throwable;
 
 /**
  * Executes a single graph node that a {@see CoordinatorJob} has claimed, then
@@ -114,7 +117,7 @@ final class NodeJob implements ShouldQueueAfterCommit
             $sequenceOf = $this->sequenceOf();
             $connections = NodeRouting::connectionsInto($this->graph, $this->nodeId, $sequenceOf);
 
-            $executor->execute(
+            $execution = $executor->execute(
                 $this->runId,
                 $this->definitionName,
                 $this->nodeFor(),
@@ -127,6 +130,14 @@ final class NodeJob implements ShouldQueueAfterCommit
                 $store,
                 true,
             );
+
+            // A node that paused on a timer (NodeResult::pausedUntil()) has its
+            // resume_at persisted; schedule the delayed job that completes it.
+            // Best-effort: a dispatch failure must not fail the node job —
+            // `flow:resume-due-timers` resumes the timer from the persisted row.
+            if ($execution->resumeAt !== null) {
+                $this->scheduleTimerResume($bus, $config, $execution->resumeAt);
+            }
 
             $this->dispatchCoordinator($bus);
         } finally {
@@ -147,6 +158,25 @@ final class NodeJob implements ShouldQueueAfterCommit
         $state = $store->runNodes()->states($this->runId)[$this->nodeId] ?? NodeState::Pending;
 
         return $state === NodeState::Running;
+    }
+
+    private function scheduleTimerResume(BusDispatcher $bus, ConfigRepository $config, \DateTimeImmutable $resumeAt): void
+    {
+        $remaining = max(0, $resumeAt->getTimestamp() - Date::now()->getTimestamp());
+        $cap = max(1, (int) $config->get('laravel-flow.executor.timer_max_job_delay_seconds', 900));
+
+        try {
+            $bus->dispatch((new ResumeTimerJob($this->runId, $this->nodeId, $this->queue))->delay(min($remaining, $cap)));
+        } catch (Throwable $e) {
+            // Exception CLASS and code only — a queue/DB exception message can
+            // embed the payload.
+            Log::warning('laravel-flow: could not schedule the timer resume job; flow:resume-due-timers will resume it.', [
+                'run_id' => $this->runId,
+                'node_id' => $this->nodeId,
+                'exception' => $e::class,
+                'code' => $e->getCode(),
+            ]);
+        }
     }
 
     private function nodeFor(): GraphNode

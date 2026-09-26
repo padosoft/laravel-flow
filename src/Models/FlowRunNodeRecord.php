@@ -26,6 +26,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property string|null $cache_hit
  * @property int|null $duration_ms
  * @property \DateTimeInterface|null $available_at
+ * @property \DateTimeInterface|null $resume_at
  * @property \DateTimeInterface|null $started_at
  * @property \DateTimeInterface|null $finished_at
  * @property \DateTimeInterface|null $created_at
@@ -56,6 +57,7 @@ final class FlowRunNodeRecord extends Model
         'finished_at' => 'immutable_datetime',
         'inputs' => 'array',
         'outputs' => 'array',
+        'resume_at' => 'immutable_datetime',
         'sequence' => 'integer',
         'started_at' => 'immutable_datetime',
         'updated_at' => 'immutable_datetime',

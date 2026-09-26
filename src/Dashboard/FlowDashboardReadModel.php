@@ -445,6 +445,7 @@ final class FlowDashboardReadModel
                 // only the hit/miss fact, never the hash itself.
                 cacheHit: $record->cache_hit !== null,
                 activePorts: is_array($record->active_ports) ? array_values(array_map('strval', $record->active_ports)) : null,
+                resumeAt: $this->immutable($record->resume_at),
             );
         }
 

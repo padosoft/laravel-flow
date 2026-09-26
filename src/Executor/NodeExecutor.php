@@ -54,6 +54,11 @@ final class NodeExecutor
         // no-timeout default (e.g. a bare unit-test executor).
         private readonly ?Retry $executorDefaultRetry = null,
         private readonly ?GraphProgressBroadcaster $progressBroadcaster = null,
+        // Longest wait (seconds) a SYNCHRONOUS run will sleep inline for a
+        // NodeResult::pausedUntil() node (laravel-flow.executor.
+        // max_inline_delay_seconds). 0 = never sleep: any real wait fails the
+        // node, telling the caller to run it queued.
+        private readonly int $maxInlineDelaySeconds = 0,
     ) {}
 
     /**
@@ -261,6 +266,44 @@ final class NodeExecutor
             }
         }
 
+        // Timed pause (NodeResult::pausedUntil()): the engine, not an external
+        // decision, resumes the node. Due already or a dry run -> complete now;
+        // queued -> stay Paused with a persisted resume time (a delayed job
+        // resumes it, no worker sleeps); synchronous -> sleep inline within the
+        // configured cap, otherwise fail with an actionable message.
+        $resumeAt = null;
+        $timed = false;
+
+        if ($state === NodeState::Paused && $result->resumeAt !== null) {
+            // Remember that this result was a timed pause even when it is converted
+            // to a success below: it must never reach the node cache (a hit would
+            // serve an immediate success, skipping the handler and the delay).
+            $timed = true;
+            $remaining = $result->resumeAt->getTimestamp() - ($this->clock)()->getTimestamp();
+
+            if ($dryRun || $remaining <= 0) {
+                $state = NodeState::Succeeded;
+                $result = NodeResult::success($result->outputs, $result->businessImpact);
+            } elseif ($queued) {
+                $resumeAt = $result->resumeAt;
+            } elseif ($remaining <= $this->maxInlineDelaySeconds) {
+                Sleep::for($remaining)->seconds();
+                // The node completes AFTER the wait, so its finish time and
+                // duration must include it (both were captured before the sleep).
+                $finishedAt = ($this->clock)();
+                $state = NodeState::Succeeded;
+                $result = NodeResult::success($result->outputs, $result->businessImpact);
+            } else {
+                $result = NodeResult::failed(new FlowExecutionException(sprintf(
+                    'Node [%s] must wait %d s, more than the %d s a synchronous run sleeps (laravel-flow.executor.max_inline_delay_seconds); run the graph queued (Flow::dispatchGraph) or raise the limit.',
+                    $node->id,
+                    $remaining,
+                    $this->maxInlineDelaySeconds,
+                )));
+                $state = NodeState::Failed;
+            }
+        }
+
         // Approval token issuance is owned by the EXECUTOR, not the node —
         // mirrors v1, where FlowEngine (not the ApprovalGate step) detects a
         // paused ApprovalGate::class result and issues the token. Hash-only
@@ -313,6 +356,8 @@ final class NodeExecutor
             // Only a branching node writes the column, so every other row is
             // byte-identical to before and an unmigrated database keeps working.
             ...($activePorts !== null ? ['active_ports' => $activePorts] : []),
+            // Likewise only a timer pause writes resume_at.
+            ...($resumeAt !== null ? ['resume_at' => $resumeAt] : []),
         ]);
 
         // Populate the cache after a fresh success (redaction gate + skip-on-
@@ -322,8 +367,9 @@ final class NodeExecutor
         // input); its partial outputs must NEVER be cached, or a later hit would
         // be served as a completed `succeeded`, silently skipping the pause.
         // A branch result is never cached either: a cache hit replays outputs
-        // only, so it could not carry which ports were activated.
-        if ($contentHash !== null && $this->cache !== null && $definition->cacheable !== null && $result->success && ! $result->paused && $activePorts === null) {
+        // only, so it could not carry which ports were activated. Nor is a timed
+        // pause, even one already completed inline (see $timed above).
+        if ($contentHash !== null && $this->cache !== null && $definition->cacheable !== null && $result->success && ! $result->paused && $activePorts === null && ! $timed) {
             try {
                 $this->cache->put($contentHash, $node->type, $result->outputs, $result->businessImpact, $definition->cacheable->ttl);
             } catch (Throwable $e) {
@@ -340,7 +386,7 @@ final class NodeExecutor
             }
         }
 
-        return new NodeExecution($node->id, $state, $result->success ? $result->outputs : [], $result->error, $issuedApprovalToken, $activePorts);
+        return new NodeExecution($node->id, $state, $result->success ? $result->outputs : [], $result->error, $issuedApprovalToken, $activePorts, $resumeAt);
     }
 
     /**

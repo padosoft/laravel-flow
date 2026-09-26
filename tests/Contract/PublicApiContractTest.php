@@ -71,6 +71,7 @@ final class PublicApiContractTest extends TestCase
         yield 'ApprovalDecisionRepository contract' => ['Padosoft\\LaravelFlow\\Contracts\\ApprovalDecisionRepository'];
         yield 'ConditionalRunRepository contract' => ['Padosoft\\LaravelFlow\\Contracts\\ConditionalRunRepository'];
         yield 'BranchAwareRunNodeRepository contract' => ['Padosoft\\LaravelFlow\\Contracts\\BranchAwareRunNodeRepository'];
+        yield 'TimerRepository contract' => ['Padosoft\\LaravelFlow\\Contracts\\TimerRepository'];
         yield 'PayloadRedactor contract' => ['Padosoft\\LaravelFlow\\Contracts\\PayloadRedactor'];
         yield 'CurrentPayloadRedactorProvider contract' => ['Padosoft\\LaravelFlow\\Contracts\\CurrentPayloadRedactorProvider'];
         yield 'RedactorAwareFlowStore contract' => ['Padosoft\\LaravelFlow\\Contracts\\RedactorAwareFlowStore'];
@@ -241,7 +242,7 @@ final class PublicApiContractTest extends TestCase
 
         foreach ([
             'id', 'runId', 'name', 'handler', 'sequence', 'status',
-            'errorClass', 'errorMessage', 'durationMs', 'startedAt', 'finishedAt', 'cacheHit', 'activePorts',
+            'errorClass', 'errorMessage', 'durationMs', 'startedAt', 'finishedAt', 'cacheHit', 'activePorts', 'resumeAt',
         ] as $expected) {
             $this->assertContains(
                 $expected,

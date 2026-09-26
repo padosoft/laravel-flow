@@ -33,6 +33,10 @@ If you currently depend on internal classes, switch to the matching public contr
 - **`Executor\ReadinessResolver::resolve()`** takes an optional third parameter `array $activePorts = []`; **`Executor\ReadinessDecision`** gains a trailing defaulted `array $skipped = []`. Every existing call — `resolve($graph, $states)` and `new ReadinessDecision($ready, $blocked, $allTerminal)` — keeps its meaning.
 - **`Contracts\BranchAwareRunNodeRepository`** — an optional extension of `RunNodeRepository` with one method, `activePorts(string $runId): array<string, list<string>>`. No existing `@api` interface gained a method.
 - **`Dashboard\StepSummary`** gains a trailing defaulted `?array $activePorts = null`.
+- **`Node\NodeResult::pausedUntil(DateTimeInterface $resumeAt, array $outputs = [], ?array $businessImpact = null)`** — pause a node until a point in time and let the engine resume it. `NodeResult` gains a trailing defaulted public `?DateTimeImmutable $resumeAt` (private constructor: only the factories are affected).
+- **`Contracts\TimerRepository`** — an optional extension of `RunNodeRepository` (`dueTimers()`, `pendingTimer()`, `resumeTimer()` and `isResumedTimer()` — a custom backend must implement all four). No existing `@api` interface gained a method.
+- **`Executor\NodeExecutor`** takes a trailing defaulted `int $maxInlineDelaySeconds = 0`; **`Executor\NodeExecution`** gains a trailing defaulted `?DateTimeImmutable $resumeAt`; **`Dashboard\StepSummary`** gains a trailing defaulted `?DateTimeImmutable $resumeAt`.
+- **`php artisan flow:resume-due-timers`** and two config keys, `executor.max_inline_delay_seconds` (default `5`) and `executor.timer_max_job_delay_seconds` (default `900`).
 
 ### Behaviour change to be aware of
 
@@ -50,6 +54,17 @@ php artisan migrate
 ```
 
 It adds a nullable JSON `flow_run_nodes.active_ports`. Without it, non-branching graphs run exactly as before, and a branching graph fails with an explicit message naming the missing migration. Under Octane or a long-lived queue worker, restart the worker after migrating — the column's presence is checked once per process.
+
+**Only if you use timers** (`NodeResult::pausedUntil()`): also publish and run `2026_09_28_000002_add_resume_at_to_flow_run_nodes.php`, which adds a nullable `flow_run_nodes.resume_at` with an index on `(status, resume_at)`. The same rules apply: a graph with no timer is unaffected, a graph that uses one fails with a message naming the missing migration, and workers need a restart after migrating.
+
+**Timers also need the safety net scheduled.** A delayed job resumes each timer, but a lost job or a queue driver that cannot delay leaves a due timer behind:
+
+```php
+// routes/console.php
+Schedule::command('flow:resume-due-timers')->everyMinute()->withoutOverlapping();
+```
+
+On `queue.default=sync` the delayed job runs immediately, before the timer is due, so the sweeper is the ONLY thing that resumes a timer there. A synchronous run (`Flow::runGraph()`) never queues: it sleeps inline for a wait of at most `executor.max_inline_delay_seconds` and fails the node for a longer one, telling you to run the graph queued.
 
 ## v2.4 → v2.5
 

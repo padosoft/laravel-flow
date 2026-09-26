@@ -136,10 +136,12 @@ final class EloquentRunNodeRepository implements BranchAwareRunNodeRepository, R
         // Also a timer that was COMPLETED but whose run never advanced: the flip
         // committed and then the coordinator could not be enqueued (a queue
         // outage), and no job retry is coming (e.g. `--sync`, or retries
-        // exhausted). Such a run is `running`, has nodes waiting (`pending`) and
-        // none in flight (`running`); the grace period keeps a healthy run that is
-        // simply between two coordinator passes from being re-driven. Re-driving
-        // is safe either way: the coordinator's claims are compare-and-set.
+        // exhausted). Such a run is still `running` yet has no node in flight
+        // (`running`) — whether nodes are waiting (`pending`) or the timer was the
+        // last work and only the finalize is missing (a leaf timer). The grace
+        // period keeps a healthy run that is simply between two coordinator passes
+        // from being re-driven. Re-driving is safe either way: the coordinator's
+        // claims are compare-and-set and a finished run is finalized once.
         $remaining = $limit - count($timers);
 
         if ($remaining > 0) {
@@ -153,9 +155,6 @@ final class EloquentRunNodeRepository implements BranchAwareRunNodeRepository, R
                 ->whereExists(static fn ($query) => $query->from('flow_runs as run')
                     ->whereColumn('run.id', 'timer.run_id')
                     ->where('run.status', 'running'))
-                ->whereExists(static fn ($query) => $query->from('flow_run_nodes as waiting')
-                    ->whereColumn('waiting.run_id', 'timer.run_id')
-                    ->where('waiting.status', NodeState::Pending->value))
                 ->whereNotExists(static fn ($query) => $query->from('flow_run_nodes as active')
                     ->whereColumn('active.run_id', 'timer.run_id')
                     ->where('active.status', NodeState::Running->value))

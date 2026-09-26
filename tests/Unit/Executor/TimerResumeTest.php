@@ -290,6 +290,47 @@ final class TimerResumeTest extends PersistenceTestCase
         $this->artisan('flow:resume-due-timers')->expectsOutput('0 due timer(s) dispatched.')->assertExitCode(0);
     }
 
+    public function test_a_leaf_timer_whose_run_only_needs_finalizing_is_recovered_too(): void
+    {
+        // The timer is the graph's ONLY node: after the flip there is nothing
+        // pending, the run is merely waiting for the coordinator to finalize it.
+        $graph = new GraphDefinition([new GraphNode('t', 'test.timer', ['seconds' => 60])], []);
+        $runId = $this->engine()->dispatchGraph($graph, []);
+        Carbon::setTestNow(Carbon::parse(self::NOW)->addSeconds(61));
+
+        $bus = new class($this->app) extends Dispatcher
+        {
+            public function dispatch($command)
+            {
+                if ($command instanceof CoordinatorJob) {
+                    throw new RuntimeException('queue backend unavailable');
+                }
+
+                return parent::dispatch($command);
+            }
+        };
+
+        try {
+            (new TimerResumer(
+                $this->app->make(ConnectionResolverInterface::class),
+                $this->app->make(FlowStore::class),
+                static fn (): \DateTimeImmutable => Carbon::now()->toDateTimeImmutable(),
+                $bus,
+            ))->resume($runId, 't');
+            $this->fail('the enqueue failure must surface');
+        } catch (RuntimeException) {
+            // expected
+        }
+
+        $this->assertSame('succeeded', $this->node($runId, 't')->status);
+        $this->assertSame('running', DB::table('flow_runs')->where('id', $runId)->value('status'));
+
+        Carbon::setTestNow(Carbon::parse(self::NOW)->addSeconds(61 + 61));
+        $this->artisan('flow:resume-due-timers')->expectsOutput('1 due timer(s) dispatched.')->assertExitCode(0);
+
+        $this->assertSame('succeeded', DB::table('flow_runs')->where('id', $runId)->value('status'));
+    }
+
     public function test_a_synchronous_timer_is_stamped_after_the_inline_wait(): void
     {
         // Make the faked sleep advance the clock, as a real one would.

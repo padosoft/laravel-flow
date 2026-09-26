@@ -4,12 +4,14 @@ declare(strict_types=1);
 
 namespace Padosoft\LaravelFlow\Persistence;
 
+use DateTimeImmutable;
 use DateTimeInterface;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Schema;
 use Padosoft\LaravelFlow\Contracts\BranchAwareRunNodeRepository;
 use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
 use Padosoft\LaravelFlow\Contracts\RunNodeRepository;
+use Padosoft\LaravelFlow\Contracts\TimerRepository;
 use Padosoft\LaravelFlow\Exceptions\PersistenceUnavailableException;
 use Padosoft\LaravelFlow\Executor\State\NodeState;
 use Padosoft\LaravelFlow\Models\FlowRunNodeRecord;
@@ -17,9 +19,11 @@ use Padosoft\LaravelFlow\Models\FlowRunNodeRecord;
 /**
  * @internal
  */
-final class EloquentRunNodeRepository implements BranchAwareRunNodeRepository, RunNodeRepository
+final class EloquentRunNodeRepository implements BranchAwareRunNodeRepository, RunNodeRepository, TimerRepository
 {
     private ?bool $hasActivePortsColumn = null;
+
+    private ?bool $hasResumeAtColumn = null;
 
     public function __construct(
         private readonly ?string $connection,
@@ -35,6 +39,10 @@ final class EloquentRunNodeRepository implements BranchAwareRunNodeRepository, R
         // migration has not been run.
         if (array_key_exists('active_ports', $attributes) && ! $this->activePortsColumnExists()) {
             throw new PersistenceUnavailableException('flow_run_nodes.active_ports is missing: publish and run the laravel-flow v2.6 migrations to use branching nodes.');
+        }
+
+        if (array_key_exists('resume_at', $attributes) && ! $this->resumeAtColumnExists()) {
+            throw new PersistenceUnavailableException('flow_run_nodes.resume_at is missing: publish and run the laravel-flow v2.6 migrations to use timer nodes.');
         }
 
         $values = $this->databaseAttributesFor($runId, $nodeId, $attributes);
@@ -103,6 +111,69 @@ final class EloquentRunNodeRepository implements BranchAwareRunNodeRepository, R
         return $ports;
     }
 
+    public function dueTimers(DateTimeInterface $now, int $limit): array
+    {
+        if (! $this->resumeAtColumnExists()) {
+            return [];
+        }
+
+        $timers = [];
+
+        foreach ($this->newModel()->newQuery()
+            ->where('status', NodeState::Paused->value)
+            ->whereNotNull('resume_at')
+            ->where('resume_at', '<=', $now)
+            ->orderBy('resume_at')
+            ->limit(max(1, $limit))
+            ->get(['run_id', 'node_id']) as $row) {
+            $timers[] = ['run_id' => (string) $row->run_id, 'node_id' => (string) $row->node_id];
+        }
+
+        return $timers;
+    }
+
+    public function pendingTimer(string $runId, string $nodeId): ?DateTimeImmutable
+    {
+        if (! $this->resumeAtColumnExists()) {
+            return null;
+        }
+
+        $row = $this->newModel()->newQuery()
+            ->where('run_id', $runId)
+            ->where('node_id', $nodeId)
+            ->where('status', NodeState::Paused->value)
+            ->whereNotNull('resume_at')
+            ->first(['resume_at']);
+
+        $resumeAt = $row?->resume_at;
+
+        return $resumeAt === null ? null : DateTimeImmutable::createFromInterface($resumeAt);
+    }
+
+    public function resumeTimer(string $runId, string $nodeId, DateTimeInterface $now): bool
+    {
+        if (! $this->resumeAtColumnExists()) {
+            return false;
+        }
+
+        $affected = $this->newModel()->newQuery()
+            ->where('run_id', $runId)
+            ->where('node_id', $nodeId)
+            ->where('status', NodeState::Paused->value)
+            ->whereNotNull('resume_at')
+            ->where('resume_at', '<=', $now)
+            ->update([
+                'status' => NodeState::Succeeded->value,
+                'finished_at' => $now,
+                'resume_at' => null,
+                'error_class' => null,
+                'error_message' => null,
+                'updated_at' => $this->newModel()->freshTimestamp(),
+            ]);
+
+        return $affected === 1;
+    }
+
     public function claim(string $runId, string $nodeId, DateTimeInterface $startedAt): bool
     {
         $affected = $this->newModel()->newQuery()
@@ -154,6 +225,11 @@ final class EloquentRunNodeRepository implements BranchAwareRunNodeRepository, R
     private function activePortsColumnExists(): bool
     {
         return $this->hasActivePortsColumn ??= Schema::connection($this->connection)->hasColumn('flow_run_nodes', 'active_ports');
+    }
+
+    private function resumeAtColumnExists(): bool
+    {
+        return $this->hasResumeAtColumn ??= Schema::connection($this->connection)->hasColumn('flow_run_nodes', 'resume_at');
     }
 
     private function newModel(): FlowRunNodeRecord

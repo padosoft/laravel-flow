@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Padosoft\LaravelFlow\Node;
 
+use DateTimeImmutable;
+use DateTimeInterface;
 use InvalidArgumentException;
 use Padosoft\LaravelFlow\FlowStepResult;
 use Throwable;
@@ -35,6 +37,11 @@ final class NodeResult
          * @var list<string>|null
          */
         public readonly ?array $activePorts = null,
+        /**
+         * When a {@see self::pausedUntil()} result: the point in time the node
+         * resumes at. Null for every other result.
+         */
+        public readonly ?DateTimeImmutable $resumeAt = null,
     ) {}
 
     /**
@@ -104,5 +111,27 @@ final class NodeResult
     public static function paused(array $outputs = [], ?array $businessImpact = null): self
     {
         return new self(true, $outputs, null, $businessImpact, false, true);
+    }
+
+    /**
+     * Pause the node until `$resumeAt`, then complete it as `succeeded` with
+     * `$outputs`. Unlike {@see self::paused()} (which waits for an external
+     * decision) the engine itself resumes the node at the due time — so a delay
+     * or timer node needs no worker to sleep.
+     *
+     * On a queued run the pause is persisted (`flow_run_nodes.resume_at`) and a
+     * delayed job resumes the node; `flow:resume-due-timers` is the safety net
+     * for a lost job or a queue driver that cannot delay. On a synchronous run
+     * the executor sleeps inline when the wait is within
+     * `laravel-flow.executor.max_inline_delay_seconds` and fails the node with
+     * an actionable message otherwise. A dry run never waits. A time already
+     * in the past completes the node immediately.
+     *
+     * @param  array<string, mixed>  $outputs  keyed by output port key; delivered when the node resumes
+     * @param  array<string, mixed>|null  $businessImpact
+     */
+    public static function pausedUntil(DateTimeInterface $resumeAt, array $outputs = [], ?array $businessImpact = null): self
+    {
+        return new self(true, $outputs, null, $businessImpact, false, true, null, DateTimeImmutable::createFromInterface($resumeAt));
     }
 }

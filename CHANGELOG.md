@@ -14,12 +14,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **Dashboard**: `StepSummary` gains a trailing defaulted `$activePorts` so a run view can show which branch was taken.
 - **Forensics**: a forensic bundle records each branching / branch-skipped node's `active_ports` (present only for those nodes, so every non-branching bundle and its digest are unchanged), and `ForensicVerifier` now cross-checks the branch skips: a node that ran although every incoming wire was dead, or a recorded skip the decisions do not justify, is a `failed` routing finding.
 - **Migration** `2026_09_28_000001_add_active_ports_to_flow_run_nodes.php`: a nullable `flow_run_nodes.active_ports` JSON column, written only by a branching node.
+- **Timed resume (`@api`)**: `NodeResult::pausedUntil(DateTimeInterface $resumeAt, array $outputs = [])` pauses a node until a point in time and lets the engine resume it — the primitive a delay/timer node needs; until now a node that returned `paused()` could never be resumed by anything but an approval. On a **queued** run the node is stored `paused` with `resume_at` and a delayed job completes it (no worker sleeps; a wait longer than `executor.timer_max_job_delay_seconds`, default 900 = the SQS ceiling, hops across several jobs). On a **synchronous** run the executor sleeps inline up to `executor.max_inline_delay_seconds` (default 5) and otherwise fails the node with an actionable message. A dry run and a time already past complete immediately. Resuming never re-runs the handler, and it never issues an approval token.
+- **`Contracts\TimerRepository` (`@api`, optional)**: `dueTimers()`, `pendingTimer()`, `resumeTimer()` — the compare-and-set that completes a due timer exactly once. Implemented by the Eloquent repository.
+- **`php artisan flow:resume-due-timers {--limit=500} {--sync}`**: the safety net for a lost job or a queue driver that cannot delay (`sync`); idempotent, so schedule it every minute.
+- **Dashboard**: `StepSummary` gains a trailing defaulted `$resumeAt`.
+- **Migration** `2026_09_28_000002_add_resume_at_to_flow_run_nodes.php`: a nullable `flow_run_nodes.resume_at` (`timestampTz`, indexed with `status`), written only by a timer. Deliberately not `available_at`, which records a retry backoff and is set on any node that retried before pausing.
 
 ### Notes
 
 - Strictly opt-in. A node that merely omits an optional output is not branching and behaves exactly as in 2.5, and a non-branching node's persisted row is byte-identical to before.
 - The migration is only required once a graph branches. Without it, ordinary graphs are unaffected and a branching graph fails with an explicit "run the v2.6 migrations" error.
 - Activating an output port the node did not declare fails the node. Branch results are never node-cached.
+- Timed resume is strictly opt-in as well: a graph with no `pausedUntil()` node behaves exactly as in 2.5, and a non-timer row is byte-identical. `NodeResult` gains a trailing defaulted `$resumeAt`, `NodeExecution` a trailing defaulted `$resumeAt`, and `NodeExecutor` a trailing defaulted `$maxInlineDelaySeconds` constructor argument.
+- A timer is not an approval: `flow:resume-due-timers` and the resume job only ever touch a `paused` node that has a `resume_at`, so an approval-paused node is never resumed by them, and a cancelled run's node (already `failed`) is left alone.
+- On `queue.default=sync` a delayed job runs at once, before the timer is due, and stops; the timer then waits for `flow:resume-due-timers`. Use a real queue driver and schedule the command in production.
 
 ## [2.5.0] — 2026-08-31
 

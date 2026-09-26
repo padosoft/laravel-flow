@@ -23,6 +23,7 @@ use Padosoft\LaravelFlow\Console\NodeCatalogCommand;
 use Padosoft\LaravelFlow\Console\PruneFlowRunsCommand;
 use Padosoft\LaravelFlow\Console\RejectFlowCommand;
 use Padosoft\LaravelFlow\Console\ReplayFlowRunCommand;
+use Padosoft\LaravelFlow\Console\ResumeDueTimersCommand;
 use Padosoft\LaravelFlow\Console\TaintCommand;
 use Padosoft\LaravelFlow\Contracts\ApprovalRepository;
 use Padosoft\LaravelFlow\Contracts\AuditRepository;
@@ -54,6 +55,7 @@ use Padosoft\LaravelFlow\Executor\Nodes\MergeNode;
 use Padosoft\LaravelFlow\Executor\Nodes\SubFlowNode;
 use Padosoft\LaravelFlow\Executor\QueueGraphCoordinator;
 use Padosoft\LaravelFlow\Executor\ReadinessResolver;
+use Padosoft\LaravelFlow\Executor\TimerResumer;
 use Padosoft\LaravelFlow\Forensics\ForensicExporter;
 use Padosoft\LaravelFlow\Forensics\ForensicVerifier;
 use Padosoft\LaravelFlow\Graph\DefinitionSigner;
@@ -315,6 +317,7 @@ final class LaravelFlowServiceProvider extends ServiceProvider
                 $payloadRedactor,
                 $this->executorDefaultRetry($app),
                 $app->make(GraphProgressBroadcaster::class),
+                max(0, (int) $app['config']->get('laravel-flow.executor.max_inline_delay_seconds', 5)),
             );
         });
         $this->app->bind(GraphSaga::class, function (Container $app): GraphSaga {
@@ -389,6 +392,29 @@ final class LaravelFlowServiceProvider extends ServiceProvider
                 is_numeric($lockRetrySeconds) && (int) $lockRetrySeconds >= 1 ? (int) $lockRetrySeconds : 30,
                 $app->make(GraphSaga::class),
                 $this->graphCompensationStrategy($app),
+                $app->make(GraphProgressBroadcaster::class),
+            );
+        });
+        $this->app->bind(TimerResumer::class, function (Container $app): TimerResumer {
+            /** @var string|null $connection */
+            $connection = $app['config']->get('laravel-flow.default_storage');
+            $config = $app['config'];
+
+            $lockStore = $config->get('laravel-flow.executor.lock_store') ?? $config->get('laravel-flow.queue.lock_store');
+            $lockSeconds = $config->get('laravel-flow.executor.lock_seconds') ?? $config->get('laravel-flow.queue.lock_seconds');
+            $lockRetrySeconds = $config->get('laravel-flow.executor.lock_retry_seconds') ?? $config->get('laravel-flow.queue.lock_retry_seconds');
+            $queue = $config->get('laravel-flow.executor.queue');
+
+            return new TimerResumer(
+                $app->make(ConnectionResolverInterface::class),
+                $app->make(FlowStore::class),
+                static fn (): \DateTimeImmutable => Date::now()->toDateTimeImmutable(),
+                $app->make(BusDispatcher::class),
+                is_string($connection) ? $connection : null,
+                is_string($queue) && $queue !== '' ? $queue : null,
+                is_string($lockStore) && $lockStore !== '' ? $lockStore : null,
+                is_numeric($lockSeconds) && (int) $lockSeconds >= 1 ? (int) $lockSeconds : 3600,
+                is_numeric($lockRetrySeconds) && (int) $lockRetrySeconds >= 1 ? (int) $lockRetrySeconds : 30,
                 $app->make(GraphProgressBroadcaster::class),
             );
         });
@@ -490,6 +516,7 @@ final class LaravelFlowServiceProvider extends ServiceProvider
             __DIR__.'/../database/migrations/2026_07_09_000012_create_flow_node_cache_table.php' => $this->app->databasePath('migrations/2026_07_09_000012_create_flow_node_cache_table.php'),
             __DIR__.'/../database/migrations/2026_08_23_000001_add_subject_to_flow_runs_table.php' => $this->app->databasePath('migrations/2026_08_23_000001_add_subject_to_flow_runs_table.php'),
             __DIR__.'/../database/migrations/2026_09_28_000001_add_active_ports_to_flow_run_nodes.php' => $this->app->databasePath('migrations/2026_09_28_000001_add_active_ports_to_flow_run_nodes.php'),
+            __DIR__.'/../database/migrations/2026_09_28_000002_add_resume_at_to_flow_run_nodes.php' => $this->app->databasePath('migrations/2026_09_28_000002_add_resume_at_to_flow_run_nodes.php'),
         ], 'laravel-flow-migrations');
 
         $this->commands([
@@ -503,6 +530,7 @@ final class LaravelFlowServiceProvider extends ServiceProvider
             ImportFlowDefinitionCommand::class,
             ForensicsCommand::class,
             TaintCommand::class,
+            ResumeDueTimersCommand::class,
         ]);
     }
 

@@ -9,6 +9,7 @@ use Padosoft\LaravelFlow\Broadcasting\GraphRunProgressUpdated;
 use Padosoft\LaravelFlow\Broadcasting\NodeTransitioned;
 use Padosoft\LaravelFlow\Contracts\BranchAwareRunNodeRepository;
 use Padosoft\LaravelFlow\Contracts\NodeCacheRepository;
+use Padosoft\LaravelFlow\Contracts\TimerRepository;
 use Padosoft\LaravelFlow\Executor\Attributes\Cacheable;
 use Padosoft\LaravelFlow\Executor\Attributes\Cost;
 use Padosoft\LaravelFlow\Executor\Attributes\Retry;
@@ -35,6 +36,7 @@ use Padosoft\LaravelFlow\Executor\State\IllegalStateTransitionException;
 use Padosoft\LaravelFlow\Executor\State\NodeState;
 use Padosoft\LaravelFlow\Executor\State\RunState;
 use Padosoft\LaravelFlow\Node\CompensatableNode;
+use Padosoft\LaravelFlow\Node\NodeResult;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
 
@@ -138,6 +140,31 @@ final class ExecutorApiContractTest extends TestCase
             (new ReflectionClass(BranchAwareRunNodeRepository::class))->getMethods(),
         );
         $this->assertSame(['activePorts'], $methods);
+    }
+
+    public function test_timed_resume_surface_is_pinned(): void
+    {
+        // NodeResult::pausedUntil(): a paused result that carries its resume time.
+        $at = new \DateTimeImmutable('2026-09-28T10:00:00+00:00');
+        $result = NodeResult::pausedUntil($at, ['out' => 1]);
+        $this->assertTrue($result->paused);
+        $this->assertTrue($result->success);
+        $this->assertSame($at->getTimestamp(), $result->resumeAt?->getTimestamp());
+        $this->assertNull(NodeResult::paused()->resumeAt);
+
+        // The optional timer contract is exactly these three methods.
+        $methods = array_map(
+            static fn (\ReflectionMethod $m): string => $m->getName(),
+            (new ReflectionClass(TimerRepository::class))->getMethods(),
+        );
+        sort($methods);
+        $this->assertSame(['dueTimers', 'pendingTimer', 'resumeTimer'], $methods);
+
+        // NodeExecutor's new constructor argument is trailing and defaulted.
+        $ctor = (new ReflectionClass(NodeExecutor::class))->getConstructor();
+        $last = $ctor?->getParameters()[count($ctor->getParameters()) - 1];
+        $this->assertSame('maxInlineDelaySeconds', $last?->getName());
+        $this->assertTrue($last->isDefaultValueAvailable());
     }
 
     public function test_broadcasting_payload_shape_is_pinned(): void

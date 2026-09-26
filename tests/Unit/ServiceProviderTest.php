@@ -161,6 +161,10 @@ final class ServiceProviderTest extends TestCase
             realpath($packageRoot.'/database/migrations/2026_09_28_000001_add_active_ports_to_flow_run_nodes.php'),
             $migrationSources,
         );
+        $this->assertContains(
+            realpath($packageRoot.'/database/migrations/2026_09_28_000002_add_resume_at_to_flow_run_nodes.php'),
+            $migrationSources,
+        );
     }
 
     public function test_deliver_webhook_outbox_command_is_registered(): void

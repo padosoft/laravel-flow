@@ -1,0 +1,255 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Padosoft\LaravelFlow\Tests\Unit\Executor;
+
+use Illuminate\Contracts\Bus\Dispatcher as BusDispatcher;
+use Illuminate\Contracts\Config\Repository as ConfigRepository;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Sleep;
+use Padosoft\LaravelFlow\Executor\GraphRunner;
+use Padosoft\LaravelFlow\Executor\Jobs\ResumeTimerJob;
+use Padosoft\LaravelFlow\Executor\State\NodeState;
+use Padosoft\LaravelFlow\Executor\State\RunState;
+use Padosoft\LaravelFlow\Executor\TimerResumer;
+use Padosoft\LaravelFlow\FlowEngine;
+use Padosoft\LaravelFlow\Graph\Connection;
+use Padosoft\LaravelFlow\Graph\GraphDefinition;
+use Padosoft\LaravelFlow\Graph\GraphNode;
+use Padosoft\LaravelFlow\Tests\Fixtures\GraphNodes\QueueProbeNode;
+use Padosoft\LaravelFlow\Tests\Fixtures\GraphNodes\TimerNode;
+use Padosoft\LaravelFlow\Tests\Unit\Persistence\PersistenceTestCase;
+
+/**
+ * Timed pause (NodeResult::pausedUntil()) through both executors: a synchronous
+ * run sleeps inline within a cap; a queued run persists the pause, schedules a
+ * delayed job, and the sweeper is the safety net. The test queue driver is
+ * `sync`, which cannot delay — exactly the case the sweeper exists for.
+ */
+final class TimerResumeTest extends PersistenceTestCase
+{
+    private const NOW = '2026-09-28 10:00:00';
+
+    protected function defineEnvironment($app): void
+    {
+        parent::defineEnvironment($app);
+        $app['config']->set('queue.default', 'sync');
+        $app['config']->set('laravel-flow.persistence.enabled', true);
+        $app['config']->set('laravel-flow.executor.max_inline_delay_seconds', 5);
+        $app['config']->set('laravel-flow.nodes.handlers', [TimerNode::class, QueueProbeNode::class]);
+    }
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $this->migrateFlowTables();
+        Carbon::setTestNow(self::NOW);
+        Sleep::fake();
+        TimerNode::$executions = 0;
+        QueueProbeNode::reset();
+    }
+
+    protected function tearDown(): void
+    {
+        Carbon::setTestNow();
+        Sleep::fake(false);
+
+        parent::tearDown();
+    }
+
+    /**
+     * t (timer) -> p (probe)
+     */
+    private function timerThenProbe(int $seconds): GraphDefinition
+    {
+        return new GraphDefinition(
+            [new GraphNode('t', 'test.timer', ['seconds' => $seconds]), new GraphNode('p', 'test.probe')],
+            [new Connection('t', 'out', 'p', 'in')],
+        );
+    }
+
+    private function runner(): GraphRunner
+    {
+        return $this->app->make(GraphRunner::class);
+    }
+
+    private function engine(): FlowEngine
+    {
+        return $this->app->make(FlowEngine::class);
+    }
+
+    private function node(string $runId, string $nodeId): object
+    {
+        return DB::table('flow_run_nodes')->where('run_id', $runId)->where('node_id', $nodeId)->first();
+    }
+
+    public function test_sync_sleeps_inline_within_the_cap_and_succeeds(): void
+    {
+        $result = $this->runner()->run($this->timerThenProbe(3), []);
+
+        $this->assertSame(RunState::Succeeded, $result->state);
+        $this->assertSame(NodeState::Succeeded, $result->nodeStates['t']);
+        $this->assertSame(['through' => true], $result->nodeOutputs['t']['out']);
+        $this->assertSame(1, QueueProbeNode::count('p'));
+        Sleep::assertSleptTimes(1);
+        // A sync timer never persists a resume time.
+        $this->assertNull($this->node($result->runId, 't')->resume_at);
+    }
+
+    public function test_sync_fails_actionably_when_the_wait_exceeds_the_cap(): void
+    {
+        $result = $this->runner()->run($this->timerThenProbe(60), []);
+
+        $this->assertSame(NodeState::Failed, $result->nodeStates['t']);
+        $this->assertSame(NodeState::Blocked, $result->nodeStates['p']);
+        $this->assertStringContainsString('max_inline_delay_seconds', $result->errors['t']);
+        $this->assertStringContainsString('Flow::dispatchGraph', $result->errors['t']);
+        Sleep::assertNeverSlept();
+        $this->assertSame(0, QueueProbeNode::count('p'));
+    }
+
+    public function test_a_time_already_due_completes_without_waiting(): void
+    {
+        $result = $this->runner()->run($this->timerThenProbe(0), []);
+
+        $this->assertSame(NodeState::Succeeded, $result->nodeStates['t']);
+        Sleep::assertNeverSlept();
+    }
+
+    public function test_a_dry_run_never_waits(): void
+    {
+        $result = $this->runner()->run($this->timerThenProbe(3600), [], null, true);
+
+        $this->assertSame(NodeState::Succeeded, $result->nodeStates['t']);
+        Sleep::assertNeverSlept();
+        $this->assertSame(0, DB::table('flow_run_nodes')->count());
+    }
+
+    public function test_queued_persists_the_pause_then_the_sweeper_resumes_it_once_due(): void
+    {
+        $runId = $this->engine()->dispatchGraph($this->timerThenProbe(60), []);
+
+        // Paused, not sleeping: the resume time is persisted and nothing downstream ran.
+        $timer = $this->node($runId, 't');
+        $this->assertSame('paused', $timer->status);
+        $this->assertNotNull($timer->resume_at);
+        $this->assertSame('paused', DB::table('flow_runs')->where('id', $runId)->value('status'));
+        $this->assertSame(0, QueueProbeNode::count('p'));
+        Sleep::assertNeverSlept();
+
+        // Not due yet: the sweeper finds nothing.
+        $this->artisan('flow:resume-due-timers')->expectsOutput('0 due timer(s) dispatched.')->assertExitCode(0);
+        $this->assertSame('paused', $this->node($runId, 't')->status);
+
+        // Due: it resumes, keeps the stored outputs, and the run finishes.
+        Carbon::setTestNow(Carbon::parse(self::NOW)->addSeconds(61));
+        $this->artisan('flow:resume-due-timers')->expectsOutput('1 due timer(s) dispatched.')->assertExitCode(0);
+
+        $timer = $this->node($runId, 't');
+        $this->assertSame('succeeded', $timer->status);
+        $this->assertNull($timer->resume_at);
+        $this->assertSame(['through' => true], json_decode((string) $timer->outputs, true)['out']);
+        $this->assertSame(1, QueueProbeNode::count('p'));
+        $this->assertSame('succeeded', DB::table('flow_runs')->where('id', $runId)->value('status'));
+        // The handler ran once; resuming never re-executes it.
+        $this->assertSame(1, TimerNode::$executions);
+    }
+
+    public function test_resuming_twice_is_a_no_op(): void
+    {
+        $runId = $this->engine()->dispatchGraph($this->timerThenProbe(60), []);
+        Carbon::setTestNow(Carbon::parse(self::NOW)->addSeconds(61));
+
+        $resumer = $this->app->make(TimerResumer::class);
+
+        $this->assertTrue($resumer->resume($runId, 't')->wasResumed());
+        $this->assertSame(1, QueueProbeNode::count('p'));
+
+        $again = $resumer->resume($runId, 't');
+        $this->assertFalse($again->wasResumed());
+        $this->assertFalse($again->isNotDue());
+        $this->assertSame(1, QueueProbeNode::count('p'));
+    }
+
+    public function test_a_timer_that_is_not_due_reports_when_it_is(): void
+    {
+        $runId = $this->engine()->dispatchGraph($this->timerThenProbe(60), []);
+
+        $outcome = $this->app->make(TimerResumer::class)->resume($runId, 't');
+
+        $this->assertTrue($outcome->isNotDue());
+        $this->assertSame(Carbon::parse(self::NOW)->addSeconds(60)->getTimestamp(), $outcome->dueAt?->getTimestamp());
+        $this->assertSame('paused', $this->node($runId, 't')->status);
+    }
+
+    public function test_a_cancelled_run_never_resumes_its_timer(): void
+    {
+        $runId = $this->engine()->dispatchGraph($this->timerThenProbe(60), []);
+
+        $this->engine()->cancel($runId);
+        Carbon::setTestNow(Carbon::parse(self::NOW)->addSeconds(120));
+
+        $this->assertFalse($this->app->make(TimerResumer::class)->resume($runId, 't')->wasResumed());
+        $this->artisan('flow:resume-due-timers')->expectsOutput('0 due timer(s) dispatched.')->assertExitCode(0);
+        $this->assertSame('failed', $this->node($runId, 't')->status);
+        $this->assertSame(0, QueueProbeNode::count('p'));
+    }
+
+    public function test_an_approval_pause_is_not_a_timer(): void
+    {
+        // A paused node with no resume_at (an approval gate) must be invisible to
+        // the sweeper and to the resumer.
+        $runId = $this->engine()->dispatchGraph($this->timerThenProbe(60), []);
+        DB::table('flow_run_nodes')->where('run_id', $runId)->where('node_id', 't')->update(['resume_at' => null]);
+        Carbon::setTestNow(Carbon::parse(self::NOW)->addSeconds(120));
+
+        $this->artisan('flow:resume-due-timers')->expectsOutput('0 due timer(s) dispatched.')->assertExitCode(0);
+        $this->assertFalse($this->app->make(TimerResumer::class)->resume($runId, 't')->wasResumed());
+        $this->assertSame('paused', $this->node($runId, 't')->status);
+    }
+
+    public function test_a_resume_job_that_runs_early_reschedules_itself_capped_to_the_hop_limit(): void
+    {
+        $runId = $this->engine()->dispatchGraph($this->timerThenProbe(5000), []);
+
+        // A real, non-sync driver: only then may the job reschedule itself.
+        $config = $this->app->make(ConfigRepository::class);
+        $config->set('queue.connections.delayed', ['driver' => 'null']);
+        $config->set('queue.default', 'delayed');
+        $config->set('laravel-flow.executor.timer_max_job_delay_seconds', 900);
+        Bus::fake();
+
+        (new ResumeTimerJob($runId, 't'))->handle(
+            $this->app->make(TimerResumer::class),
+            $this->app->make(BusDispatcher::class),
+            $config,
+        );
+
+        Bus::assertDispatched(ResumeTimerJob::class, static fn (ResumeTimerJob $job): bool => $job->delay === 900);
+    }
+
+    public function test_a_resume_job_on_the_sync_driver_stops_instead_of_looping(): void
+    {
+        $runId = $this->engine()->dispatchGraph($this->timerThenProbe(60), []);
+        $config = $this->app->make(ConfigRepository::class);
+        Bus::fake();
+
+        (new ResumeTimerJob($runId, 't'))->handle(
+            $this->app->make(TimerResumer::class),
+            $this->app->make(BusDispatcher::class),
+            $config,
+        );
+
+        Bus::assertNotDispatched(ResumeTimerJob::class);
+    }
+
+    public function test_the_sweeper_requires_persistence(): void
+    {
+        $this->app->make(ConfigRepository::class)->set('laravel-flow.persistence.enabled', false);
+
+        $this->artisan('flow:resume-due-timers')->assertExitCode(1);
+    }
+}

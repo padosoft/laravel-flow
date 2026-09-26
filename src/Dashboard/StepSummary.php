@@ -45,5 +45,11 @@ final readonly class StepSummary
          * @var list<string>|null
          */
         public ?array $activePorts = null,
+        /**
+         * When a node paused on a timer (`NodeResult::pausedUntil()`, e.g. a
+         * delay node) is due to resume; null for every other node, including
+         * one paused on an approval.
+         */
+        public ?DateTimeImmutable $resumeAt = null,
     ) {}
 }

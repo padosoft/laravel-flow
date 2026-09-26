@@ -17,9 +17,10 @@ use Throwable;
  * Safety net for timer nodes (`NodeResult::pausedUntil()`): dispatches a resume
  * for every timer that is already due. A delayed job normally resumes each
  * timer on its own; this command covers a lost job and a queue driver that
- * cannot delay (`sync`, or a driver without delayed dispatch). It is idempotent
- * — resuming an already-resumed timer is a no-op — so scheduling it every
- * minute is safe.
+ * cannot delay (`sync`, or a driver without delayed dispatch), and it re-drives a
+ * completed timer whose run stalled because the coordinator could not be
+ * enqueued. It is idempotent — resuming an already-resumed timer never re-runs
+ * anything — so scheduling it every minute is safe.
  *
  * @internal
  */

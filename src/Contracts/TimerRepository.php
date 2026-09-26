@@ -20,8 +20,13 @@ use Padosoft\LaravelFlow\Node\NodeResult;
 interface TimerRepository
 {
     /**
-     * Timers whose `resume_at` has passed, oldest first. Only rows that are
-     * still `paused` count, so a cancelled run's node is never returned.
+     * Timers that need a resume attempt, oldest first: those whose `resume_at`
+     * has passed and that are still `paused` (a cancelled run's node is never
+     * returned), and then any COMPLETED timer whose run stalled before its
+     * coordinator could be enqueued. The second kind exists so a transient queue
+     * outage after the timer flip cannot strand a run when no job retry is coming
+     * (a `--sync` sweep, or retries exhausted); resuming it only re-enters the
+     * idempotent coordinator.
      *
      * @return list<array{run_id: string, node_id: string}>
      */

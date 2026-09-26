@@ -27,6 +27,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Activating an output port the node did not declare fails the node. Branch results are never node-cached.
 - Timed resume is strictly opt-in as well: a graph with no `pausedUntil()` node behaves exactly as in 2.5, and a non-timer row is byte-identical. `NodeResult` gains a trailing defaulted `$resumeAt`, `NodeExecution` a trailing defaulted `$resumeAt`, and `NodeExecutor` a trailing defaulted `$maxInlineDelaySeconds` constructor argument.
 - Resuming is retry-safe. If the queue is down when the coordinator is enqueued AFTER the timer flip committed, the run would otherwise be stuck for good; `resume_at` is therefore kept after the resume (as the time the timer was due), and a retry or duplicate of the resume job that finds a completed timer re-enters the idempotent coordinator instead of doing nothing.
+- The sweeper also recovers a completed timer whose run stalled (no retry coming — a `--sync` sweep, or retries exhausted): a `running` run with `pending` nodes, none `running`, for over a minute, whose timer already succeeded. `TimerRepository::dueTimers()` returns those after the due `paused` ones.
+- A synchronous timer's `finished_at` / `duration_ms` are taken after the inline wait, so they include it.
 - A timer is not an approval: `flow:resume-due-timers` and the resume job only ever touch a `paused` node that has a `resume_at`, so an approval-paused node is never resumed by them, and a cancelled run's node (already `failed`) is left alone.
 - On `queue.default=sync` a delayed job runs at once, before the timer is due, and stops; the timer then waits for `flow:resume-due-timers`. Use a real queue driver and schedule the command in production.
 

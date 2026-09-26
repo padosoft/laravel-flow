@@ -25,6 +25,9 @@ final class EloquentRunNodeRepository implements BranchAwareRunNodeRepository, R
 
     private ?bool $hasResumeAtColumn = null;
 
+    /** A completed timer whose run made no progress for this long is re-driven by the sweeper. */
+    private const STALLED_GRACE_SECONDS = 60;
+
     public function __construct(
         private readonly ?string $connection,
         private readonly PayloadRedactor $redactor,
@@ -117,6 +120,7 @@ final class EloquentRunNodeRepository implements BranchAwareRunNodeRepository, R
             return [];
         }
 
+        $limit = max(1, $limit);
         $timers = [];
 
         foreach ($this->newModel()->newQuery()
@@ -124,9 +128,42 @@ final class EloquentRunNodeRepository implements BranchAwareRunNodeRepository, R
             ->whereNotNull('resume_at')
             ->where('resume_at', '<=', $now)
             ->orderBy('resume_at')
-            ->limit(max(1, $limit))
+            ->limit($limit)
             ->get(['run_id', 'node_id']) as $row) {
             $timers[] = ['run_id' => (string) $row->run_id, 'node_id' => (string) $row->node_id];
+        }
+
+        // Also a timer that was COMPLETED but whose run never advanced: the flip
+        // committed and then the coordinator could not be enqueued (a queue
+        // outage), and no job retry is coming (e.g. `--sync`, or retries
+        // exhausted). Such a run is `running`, has nodes waiting (`pending`) and
+        // none in flight (`running`); the grace period keeps a healthy run that is
+        // simply between two coordinator passes from being re-driven. Re-driving
+        // is safe either way: the coordinator's claims are compare-and-set.
+        $remaining = $limit - count($timers);
+
+        if ($remaining > 0) {
+            $connection = $this->newModel()->getConnection();
+            $grace = DateTimeImmutable::createFromInterface($now)->modify('-'.self::STALLED_GRACE_SECONDS.' seconds');
+
+            foreach ($connection->table('flow_run_nodes as timer')
+                ->where('timer.status', NodeState::Succeeded->value)
+                ->whereNotNull('timer.resume_at')
+                ->where('timer.finished_at', '<=', $grace)
+                ->whereExists(static fn ($query) => $query->from('flow_runs as run')
+                    ->whereColumn('run.id', 'timer.run_id')
+                    ->where('run.status', 'running'))
+                ->whereExists(static fn ($query) => $query->from('flow_run_nodes as waiting')
+                    ->whereColumn('waiting.run_id', 'timer.run_id')
+                    ->where('waiting.status', NodeState::Pending->value))
+                ->whereNotExists(static fn ($query) => $query->from('flow_run_nodes as active')
+                    ->whereColumn('active.run_id', 'timer.run_id')
+                    ->where('active.status', NodeState::Running->value))
+                ->orderBy('timer.finished_at')
+                ->limit($remaining)
+                ->get(['timer.run_id', 'timer.node_id']) as $row) {
+                $timers[] = ['run_id' => (string) $row->run_id, 'node_id' => (string) $row->node_id];
+            }
         }
 
         return $timers;

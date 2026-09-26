@@ -283,6 +283,9 @@ final class NodeExecutor
                 $resumeAt = $result->resumeAt;
             } elseif ($remaining <= $this->maxInlineDelaySeconds) {
                 Sleep::for($remaining)->seconds();
+                // The node completes AFTER the wait, so its finish time and
+                // duration must include it (both were captured before the sleep).
+                $finishedAt = ($this->clock)();
                 $state = NodeState::Succeeded;
                 $result = NodeResult::success($result->outputs, $result->businessImpact);
             } else {

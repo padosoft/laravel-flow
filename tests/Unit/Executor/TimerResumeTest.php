@@ -239,6 +239,74 @@ final class TimerResumeTest extends PersistenceTestCase
         $this->assertSame('paused', $this->node($runId, 't')->status);
     }
 
+    public function test_the_sweeper_recovers_a_completed_timer_whose_run_stalled(): void
+    {
+        $runId = $this->engine()->dispatchGraph($this->timerThenProbe(60), []);
+        Carbon::setTestNow(Carbon::parse(self::NOW)->addSeconds(61));
+
+        // A queue outage right after the flip, with no job retry coming (as in a
+        // `--sync` sweep): the timer is completed but nothing advances the run.
+        $bus = new class($this->app) extends Dispatcher
+        {
+            public function dispatch($command)
+            {
+                if ($command instanceof CoordinatorJob) {
+                    throw new RuntimeException('queue backend unavailable');
+                }
+
+                return parent::dispatch($command);
+            }
+        };
+        $resumer = new TimerResumer(
+            $this->app->make(ConnectionResolverInterface::class),
+            $this->app->make(FlowStore::class),
+            static fn (): \DateTimeImmutable => Carbon::now()->toDateTimeImmutable(),
+            $bus,
+        );
+
+        try {
+            $resumer->resume($runId, 't');
+            $this->fail('the enqueue failure must surface');
+        } catch (RuntimeException) {
+            // expected
+        }
+
+        $this->assertSame('succeeded', $this->node($runId, 't')->status);
+        $this->assertSame(0, QueueProbeNode::count('p'));
+
+        // Inside the grace period a healthy run between two passes is left alone.
+        $this->artisan('flow:resume-due-timers')->expectsOutput('0 due timer(s) dispatched.')->assertExitCode(0);
+        $this->assertSame(0, QueueProbeNode::count('p'));
+
+        // Past it, the ordinary sweep re-drives the stalled run to completion.
+        Carbon::setTestNow(Carbon::parse(self::NOW)->addSeconds(61 + 61));
+        $this->artisan('flow:resume-due-timers')->expectsOutput('1 due timer(s) dispatched.')->assertExitCode(0);
+
+        $this->assertSame(1, QueueProbeNode::count('p'));
+        $this->assertSame('succeeded', DB::table('flow_runs')->where('id', $runId)->value('status'));
+        $this->assertSame(1, TimerNode::$executions);
+
+        // A finished run is never picked again.
+        $this->artisan('flow:resume-due-timers')->expectsOutput('0 due timer(s) dispatched.')->assertExitCode(0);
+    }
+
+    public function test_a_synchronous_timer_is_stamped_after_the_inline_wait(): void
+    {
+        // Make the faked sleep advance the clock, as a real one would.
+        Sleep::whenFakingSleep(static function ($duration): void {
+            Carbon::setTestNow(Carbon::now()->add($duration));
+        });
+
+        $result = $this->runner()->run($this->timerThenProbe(3), []);
+
+        $row = $this->node($result->runId, 't');
+        $this->assertGreaterThanOrEqual(3000, (int) $row->duration_ms);
+        $this->assertGreaterThanOrEqual(
+            Carbon::parse($row->started_at)->addSeconds(3)->getTimestamp(),
+            Carbon::parse($row->finished_at)->getTimestamp(),
+        );
+    }
+
     public function test_a_cancelled_run_never_resumes_its_timer(): void
     {
         $runId = $this->engine()->dispatchGraph($this->timerThenProbe(60), []);

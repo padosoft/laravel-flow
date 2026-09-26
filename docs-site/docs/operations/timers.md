@@ -65,6 +65,8 @@ The command is idempotent. Resuming a timer whose run was cancelled does nothing
 
 If the queue is down at the moment the engine enqueues the follow-up coordinator, the resume job fails and is retried. Because the timer keeps its `resume_at` after it resumes, the retry recognises a completed timer and re-enqueues the coordinator, so a transient outage cannot leave the run stuck.
 
+When no retry is coming (a `--sync` sweep, or retries exhausted), `flow:resume-due-timers` also re-drives a **completed** timer whose run has nodes waiting and none in flight for more than a minute. Re-driving only re-enters the idempotent coordinator, so it is safe on a healthy run too.
+
 ## Cancelling
 
 `Flow::cancel($runId)` terminates a timer-paused node like any other paused node. A resume job that fires afterwards finds the node already `failed` and does nothing.

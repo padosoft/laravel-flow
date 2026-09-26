@@ -5,7 +5,7 @@ description: Extension contract reference.
 
 # Contracts
 
-Use contracts when replacing persistence, redaction, approval, or dashboard behavior.
+Use contracts when replacing persistence, redaction, approval, or dashboard behavior, or when adding a trigger source.
 
 | Contract | Role |
 | --- | --- |
@@ -20,3 +20,4 @@ Use contracts when replacing persistence, redaction, approval, or dashboard beha
 | `RedactorAwareFlowStore` | Receives execution-scoped redactor instances. |
 | `FlowDashboardReadModel` | Provides dashboard read queries. |
 | `DashboardActionAuthorizer` | Authorizes dashboard actions. |
+| `FlowTrigger` | Starts a run from an external signal (`fire()` → `Flow::dispatch()`). Implemented by the [laravel-flow-connect triggers](/guides/triggers). |

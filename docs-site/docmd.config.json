@@ -94,6 +94,10 @@
           "path": "/guides/pipeline-workflow"
         },
         {
+          "title": "Triggers",
+          "path": "/guides/triggers"
+        },
+        {
           "title": "Worked Example",
           "path": "/guides/worked-example"
         }

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Padosoft\LaravelFlow\Tests\Unit\Executor;
 
 use Illuminate\Support\Facades\DB;
+use Padosoft\LaravelFlow\Contracts\FlowStore;
 use Padosoft\LaravelFlow\Executor\GraphRunner;
 use Padosoft\LaravelFlow\Executor\State\NodeState;
 use Padosoft\LaravelFlow\Executor\State\RunState;
@@ -67,6 +68,16 @@ final class BranchSkipTest extends PersistenceTestCase
     private function engine(): FlowEngine
     {
         return $this->app->make(FlowEngine::class);
+    }
+
+    public function test_the_store_reuses_one_run_node_repository_so_its_schema_probe_is_memoised(): void
+    {
+        // The store is a container singleton but used to build a NEW repository
+        // per runNodes() call, discarding the hasColumn memo and re-running that
+        // metadata query on every coordinator pass.
+        $store = $this->app->make(FlowStore::class);
+
+        $this->assertSame($store->runNodes(), $store->runNodes());
     }
 
     public function test_sync_only_the_taken_branch_runs_and_the_join_still_runs(): void

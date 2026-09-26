@@ -25,6 +25,32 @@ If you currently depend on internal classes, switch to the matching public contr
 
 ---
 
+## v2.5 → v2.6
+
+### Additive `@api` (non-breaking)
+
+- **`Node\NodeResult::branch(array $outputs, array $activePorts, ?array $businessImpact = null)`** — a success that activates only the listed output ports. `NodeResult` gains a trailing, defaulted public `?array $activePorts` (its constructor is private, so only the factories are affected).
+- **`Executor\ReadinessResolver::resolve()`** takes an optional third parameter `array $activePorts = []`; **`Executor\ReadinessDecision`** gains a trailing defaulted `array $skipped = []`. Every existing call — `resolve($graph, $states)` and `new ReadinessDecision($ready, $blocked, $allTerminal)` — keeps its meaning.
+- **`Contracts\BranchAwareRunNodeRepository`** — an optional extension of `RunNodeRepository` with one method, `activePorts(string $runId): array<string, list<string>>`. No existing `@api` interface gained a method.
+- **`Dashboard\StepSummary`** gains a trailing defaulted `?array $activePorts = null`.
+
+### Behaviour change to be aware of
+
+None for a graph that does not use `NodeResult::branch()`. Branching is explicit opt-in: a node that simply leaves an optional output out is NOT branching, and its downstream nodes still run as they did in 2.5.
+
+For a graph that does branch, a node reached only through dead wires is `skipped` and the run finishes `succeeded`. A node that has both a live and a dead incoming wire still runs, with the dead input absent — so a **required** input on such a join fails with `invalid_input`. Join branches with `flow.merge` or declare the joining ports optional.
+
+### Required migration
+
+Only if you use branching. Publish and run `2026_09_28_000001_add_active_ports_to_flow_run_nodes.php`:
+
+```bash
+php artisan vendor:publish --tag=laravel-flow-migrations
+php artisan migrate
+```
+
+It adds a nullable JSON `flow_run_nodes.active_ports`. Without it, non-branching graphs run exactly as before, and a branching graph fails with an explicit message naming the missing migration. Under Octane or a long-lived queue worker, restart the worker after migrating — the column's presence is checked once per process.
+
 ## v2.4 → v2.5
 
 ### Additive `@api` (non-breaking)

@@ -19,6 +19,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property array<string, mixed>|null $inputs
  * @property array<string, mixed>|null $outputs
  * @property array<string, mixed>|null $business_impact
+ * @property list<string>|null $active_ports
  * @property string|null $error_class
  * @property string|null $error_message
  * @property bool $dry_run_skipped
@@ -45,6 +46,7 @@ final class FlowRunNodeRecord extends Model
      * @var array<string, string>
      */
     protected $casts = [
+        'active_ports' => 'array',
         'attempts' => 'integer',
         'available_at' => 'immutable_datetime',
         'business_impact' => 'array',

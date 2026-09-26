@@ -98,6 +98,10 @@
           "path": "/guides/triggers"
         },
         {
+          "title": "Branching",
+          "path": "/guides/branching"
+        },
+        {
           "title": "Worked Example",
           "path": "/guides/worked-example"
         }

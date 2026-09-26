@@ -7,6 +7,7 @@ namespace Padosoft\LaravelFlow\Tests\Contract;
 use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
 use Padosoft\LaravelFlow\Broadcasting\GraphRunProgressUpdated;
 use Padosoft\LaravelFlow\Broadcasting\NodeTransitioned;
+use Padosoft\LaravelFlow\Contracts\BranchAwareRunNodeRepository;
 use Padosoft\LaravelFlow\Contracts\NodeCacheRepository;
 use Padosoft\LaravelFlow\Executor\Attributes\Cacheable;
 use Padosoft\LaravelFlow\Executor\Attributes\Cost;
@@ -114,6 +115,29 @@ final class ExecutorApiContractTest extends TestCase
             $this->assertStringContainsString('@api', $doc, $class);
             $this->assertStringNotContainsString('@internal', $doc, $class);
         }
+    }
+
+    public function test_branch_skip_surface_is_pinned(): void
+    {
+        // resolve() gained an OPTIONAL third parameter: a 2-argument call (every
+        // pre-2.6 caller) must keep working and yield the historical decision.
+        $resolve = (new ReflectionClass(ReadinessResolver::class))->getMethod('resolve');
+        $this->assertCount(3, $resolve->getParameters());
+        $this->assertSame('activePorts', $resolve->getParameters()[2]->getName());
+        $this->assertTrue($resolve->getParameters()[2]->isDefaultValueAvailable());
+        $this->assertSame([], $resolve->getParameters()[2]->getDefaultValue());
+
+        // ReadinessDecision gained a TRAILING defaulted `skipped`: the historical
+        // 3-argument construction still works.
+        $decision = new ReadinessDecision(['a'], [], false);
+        $this->assertSame([], $decision->skipped);
+        $this->assertSame(['b'], (new ReadinessDecision([], [], false, ['b']))->skipped);
+
+        $methods = array_map(
+            static fn (\ReflectionMethod $m): string => $m->getName(),
+            (new ReflectionClass(BranchAwareRunNodeRepository::class))->getMethods(),
+        );
+        $this->assertSame(['activePorts'], $methods);
     }
 
     public function test_broadcasting_payload_shape_is_pinned(): void

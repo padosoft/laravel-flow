@@ -4,6 +4,22 @@ All notable changes to `padosoft/laravel-flow` are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). From v1.0.0 onward, SemVer applies to source classes annotated with `@api`. Classes annotated `@internal` are not covered by the SemVer guarantee; see [`docs/UPGRADE.md`](docs/UPGRADE.md) for the full policy.
 
+## [Unreleased]
+
+### Added
+
+- **Per-port branching (`@api`)**: `NodeResult::branch(array $outputs, array $activePorts)` lets a node activate only some of its output ports. A wire from an inactive port is dead; a node whose every incoming wire is dead is **skipped** (recorded `skipped`, never run) and so is everything downstream that depended only on it, in the same readiness pass. A node with at least one live incoming wire still runs, with the dead input absent, so joins after a branch should use `flow.merge` or optional ports. This is what a condition / switch node needs; until now the executor could only decide readiness per node, so the branch not taken still ran and failed with `invalid_input`.
+- **Readiness API**: `ReadinessResolver::resolve()` gains an optional third argument `$activePorts` (node id => activated ports) and `ReadinessDecision` a trailing defaulted `$skipped`. With no map, every decision is identical to 2.5.
+- **`Contracts\BranchAwareRunNodeRepository` (`@api`, optional)**: `activePorts(string $runId): array`, implemented by the Eloquent repository. A custom `RunNodeRepository` that does not implement it is still read through `forRun()`.
+- **Dashboard**: `StepSummary` gains a trailing defaulted `$activePorts` so a run view can show which branch was taken.
+- **Migration** `2026_09_28_000001_add_active_ports_to_flow_run_nodes.php`: a nullable `flow_run_nodes.active_ports` JSON column, written only by a branching node.
+
+### Notes
+
+- Strictly opt-in. A node that merely omits an optional output is not branching and behaves exactly as in 2.5, and a non-branching node's persisted row is byte-identical to before.
+- The migration is only required once a graph branches. Without it, ordinary graphs are unaffected and a branching graph fails with an explicit "run the v2.6 migrations" error.
+- Activating an output port the node did not declare fails the node. Branch results are never node-cached.
+
 ## [2.5.0] — 2026-08-31
 
 ### Added

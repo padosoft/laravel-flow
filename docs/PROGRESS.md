@@ -1,5 +1,14 @@
 # Progress
 
+## 2026-09-28 - v2.6 program: connect nodes (HTTP + utility) need two core primitives
+
+**Goal**: ship the `laravel-flow-connect` v1.1.0 nodes (`connect.http.request`, `transform`, `condition`, `delay`, `batch`), as the design spec places them in that package. Two of them cannot work on core v2.5, so core gets two additive primitives first (core **v2.6.0**), then connect consumes `^2.6`. The approved plan: one PR per unit (core branch-skip → core timed-resume → core release → connect N1…N6 → connect v1.1.0).
+
+- **Gap 1 — no per-port branching**: `ReadinessResolver` decided readiness per node, so a condition node could not stop the branch it did not take (that target still ran, then failed with `invalid_input`). **PR-A (`feat/branch-skip`)**: `NodeResult::branch($outputs, $activePorts)`; a wire from an inactive port is dead; a node whose every incoming wire is dead is `skipped` (recorded `active_ports = []`), cascading in one pass; a node with any live wire still runs. Opt-in only (a node omitting an optional output is NOT branching), so every existing graph and every non-branching node row is byte-identical. New nullable `flow_run_nodes.active_ports`, optional `@api` `BranchAwareRunNodeRepository`, `StepSummary::$activePorts`.
+- **Gap 2 — no timed resume** (PR-B, next): a third-party node that returns `paused()` can never be resumed, and retries sleep inline. Design: `NodeResult::pausedUntil()` + delayed `ResumeTimerJob` + `flow:resume-due-timers` sweeper + `flow_run_nodes.resume_at`; sync runs sleep inline up to a cap.
+- **Lesson**: `ReadinessResolver` originally derived `allTerminal` from the states it was given; once a pass can mark nodes skipped that are not persisted yet, `allTerminal` MUST stay computed from the caller's states (else the runner would break out before persisting the skips). And an arrow function captures by VALUE — the in-pass `$effective` map needs a by-reference closure or the cascade silently never happens (the unit test caught it).
+- README `Comparison vs alternatives` gets its rows for both primitives in the v2.6.0 release PR, once competitor behaviour has been researched (not asserted from memory).
+
 ## 2026-09-26 - `laravel-flow-connect` v1.0.0 released (last Macro D loose end closed)
 
 - The 2026-07-18 "program complete" entry covered core, ai and admin, but **`laravel-flow-connect` had never been converted off its dev pin**. Its `composer.json` still required `padosoft/laravel-flow: dev-task/v2d-realtime-triggers` through a `../padosoft-laravel-flow` path repository, and its CI checked out that core branch as a sibling. Verified that `git diff origin/main...origin/task/v2d-realtime-triggers` is empty, so all of that branch's content has been in core `main` since the Macro D gate.

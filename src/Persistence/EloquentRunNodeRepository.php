@@ -6,16 +6,21 @@ namespace Padosoft\LaravelFlow\Persistence;
 
 use DateTimeInterface;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Facades\Schema;
+use Padosoft\LaravelFlow\Contracts\BranchAwareRunNodeRepository;
 use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
 use Padosoft\LaravelFlow\Contracts\RunNodeRepository;
+use Padosoft\LaravelFlow\Exceptions\PersistenceUnavailableException;
 use Padosoft\LaravelFlow\Executor\State\NodeState;
 use Padosoft\LaravelFlow\Models\FlowRunNodeRecord;
 
 /**
  * @internal
  */
-final class EloquentRunNodeRepository implements RunNodeRepository
+final class EloquentRunNodeRepository implements BranchAwareRunNodeRepository, RunNodeRepository
 {
+    private ?bool $hasActivePortsColumn = null;
+
     public function __construct(
         private readonly ?string $connection,
         private readonly PayloadRedactor $redactor,
@@ -24,6 +29,13 @@ final class EloquentRunNodeRepository implements RunNodeRepository
     public function createOrUpdate(string $runId, string $nodeId, array $attributes): FlowRunNodeRecord
     {
         unset($attributes['id'], $attributes['run_id'], $attributes['node_id']);
+
+        // Only a branching graph writes `active_ports`; fail with an actionable
+        // message (not a raw "unknown column" QueryException) when the v2.6
+        // migration has not been run.
+        if (array_key_exists('active_ports', $attributes) && ! $this->activePortsColumnExists()) {
+            throw new PersistenceUnavailableException('flow_run_nodes.active_ports is missing: publish and run the laravel-flow v2.6 migrations to use branching nodes.');
+        }
 
         $values = $this->databaseAttributesFor($runId, $nodeId, $attributes);
 
@@ -67,6 +79,28 @@ final class EloquentRunNodeRepository implements RunNodeRepository
         }
 
         return $states;
+    }
+
+    public function activePorts(string $runId): array
+    {
+        // No column means no branch decision was ever persisted, so "no node
+        // branched" is the correct answer on an unmigrated database.
+        if (! $this->activePortsColumnExists()) {
+            return [];
+        }
+
+        /** @var array<string, list<string>> $ports */
+        $ports = [];
+
+        foreach ($this->newModel()->newQuery()->where('run_id', $runId)->whereNotNull('active_ports')->get(['node_id', 'active_ports']) as $row) {
+            $list = $row->active_ports;
+
+            if (is_array($list)) {
+                $ports[(string) $row->node_id] = array_values(array_map('strval', $list));
+            }
+        }
+
+        return $ports;
     }
 
     public function claim(string $runId, string $nodeId, DateTimeInterface $startedAt): bool
@@ -115,6 +149,11 @@ final class EloquentRunNodeRepository implements RunNodeRepository
             ]);
 
         return $affected === 1;
+    }
+
+    private function activePortsColumnExists(): bool
+    {
+        return $this->hasActivePortsColumn ??= Schema::connection($this->connection)->hasColumn('flow_run_nodes', 'active_ports');
     }
 
     private function newModel(): FlowRunNodeRecord

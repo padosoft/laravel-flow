@@ -10,6 +10,7 @@ use Illuminate\Contracts\Bus\Dispatcher as BusDispatcher;
 use Illuminate\Database\ConnectionInterface;
 use Illuminate\Database\ConnectionResolverInterface;
 use Padosoft\LaravelFlow\Broadcasting\GraphProgressBroadcaster;
+use Padosoft\LaravelFlow\Contracts\BranchAwareRunNodeRepository;
 use Padosoft\LaravelFlow\Contracts\FlowStore;
 use Padosoft\LaravelFlow\Executor\Jobs\CoordinatorJob;
 use Padosoft\LaravelFlow\Executor\State\NodeState;
@@ -135,11 +136,11 @@ final class QueueGraphCoordinator
         $settled = false;
         $finalized = false;
         $compensationClaimed = false;
-        /** @var list<array{nodeId: string, nodeType: string, sequence: int}> $blockedTransitions */
-        $blockedTransitions = [];
+        /** @var list<array{nodeId: string, nodeType: string, sequence: int, state: NodeState}> $settledTransitions */
+        $settledTransitions = [];
         $sequenceOf = array_flip($graph->topologicalOrder());
 
-        $this->connection()->transaction(function () use ($runId, $graph, $sequenceOf, &$claimed, &$allTerminal, &$settled, &$finalized, &$compensationClaimed, &$blockedTransitions): void {
+        $this->connection()->transaction(function () use ($runId, $graph, $sequenceOf, &$claimed, &$allTerminal, &$settled, &$finalized, &$compensationClaimed, &$settledTransitions): void {
             // Serialize advancement: two coordinators for the same run cannot
             // interleave readiness resolution + claiming.
             $this->connection()->table('flow_runs')->where('id', $runId)->lockForUpdate()->first();
@@ -153,9 +154,9 @@ final class QueueGraphCoordinator
             // whose last work is blocked would never finalize.
             while (true) {
                 $states = $this->store->runNodes()->states($runId);
-                $decision = $this->readiness->resolve($graph, $states);
+                $decision = $this->readiness->resolve($graph, $states, $this->activePortsFor($runId));
 
-                if ($decision->blocked !== []) {
+                if ($decision->blocked !== [] || $decision->skipped !== []) {
                     foreach ($decision->blocked as $id) {
                         $node = $graph->node($id);
 
@@ -174,10 +175,39 @@ final class QueueGraphCoordinator
                         // Collected here, broadcast AFTER the transaction commits
                         // (see advance()) — never synchronously while holding the
                         // row lock.
-                        $blockedTransitions[] = [
+                        $settledTransitions[] = [
                             'nodeId' => $id,
                             'nodeType' => $node->type,
                             'sequence' => $sequenceOf[$id] ?? 0,
+                            'state' => NodeState::Blocked,
+                        ];
+                    }
+
+                    // A branch not taken: every incoming wire is dead, so the
+                    // node is skipped without running. The empty active_ports
+                    // list is what lets the NEXT pass of this loop see all of
+                    // its own wires as dead and skip what depended only on it.
+                    foreach ($decision->skipped as $id) {
+                        $node = $graph->node($id);
+
+                        if ($node === null) {
+                            continue;
+                        }
+
+                        $this->store->runNodes()->createOrUpdate($runId, $id, [
+                            'node_type' => $node->type,
+                            'sequence' => $sequenceOf[$id] ?? null,
+                            'status' => NodeState::Skipped->value,
+                            'dry_run_skipped' => false,
+                            'active_ports' => [],
+                            'finished_at' => ($this->clock)(),
+                        ]);
+
+                        $settledTransitions[] = [
+                            'nodeId' => $id,
+                            'nodeType' => $node->type,
+                            'sequence' => $sequenceOf[$id] ?? 0,
+                            'state' => NodeState::Skipped,
                         ];
                     }
 
@@ -238,8 +268,8 @@ final class QueueGraphCoordinator
         // AFTER the transaction has committed, so a subscriber never observes a
         // transition before its persisted state is durable.
         if ($this->progressBroadcaster !== null) {
-            foreach ($blockedTransitions as $blocked) {
-                $this->progressBroadcaster->nodeTransitioned($runId, $blocked['nodeId'], $blocked['nodeType'], NodeState::Blocked, $blocked['sequence']);
+            foreach ($settledTransitions as $transition) {
+                $this->progressBroadcaster->nodeTransitioned($runId, $transition['nodeId'], $transition['nodeType'], $transition['state'], $transition['sequence']);
             }
 
             if ($finalized) {
@@ -283,6 +313,33 @@ final class QueueGraphCoordinator
         }
 
         return new CoordinatorDecision($claimed, $allTerminal);
+    }
+
+    /**
+     * The output ports each settled node activated (branching nodes only). A
+     * repository that does not implement {@see BranchAwareRunNodeRepository}
+     * is read through its plain node rows instead — same data, one heavier
+     * query.
+     *
+     * @return array<string, list<string>>
+     */
+    private function activePortsFor(string $runId): array
+    {
+        $runNodes = $this->store->runNodes();
+
+        if ($runNodes instanceof BranchAwareRunNodeRepository) {
+            return $runNodes->activePorts($runId);
+        }
+
+        $ports = [];
+
+        foreach ($runNodes->forRun($runId) as $row) {
+            if (is_array($row->active_ports ?? null)) {
+                $ports[(string) $row->node_id] = array_values(array_map('strval', $row->active_ports));
+            }
+        }
+
+        return $ports;
     }
 
     /**

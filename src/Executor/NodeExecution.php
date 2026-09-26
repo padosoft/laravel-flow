@@ -7,6 +7,7 @@ namespace Padosoft\LaravelFlow\Executor;
 use Padosoft\LaravelFlow\Executor\Nodes\ApprovalGateNode;
 use Padosoft\LaravelFlow\Executor\State\NodeState;
 use Padosoft\LaravelFlow\IssuedApprovalToken;
+use Padosoft\LaravelFlow\Node\NodeResult;
 use Throwable;
 
 /**
@@ -32,5 +33,12 @@ final readonly class NodeExecution
         public array $outputs,
         public ?Throwable $error = null,
         public ?IssuedApprovalToken $issuedApprovalToken = null,
+        /**
+         * Output ports a branching node activated, or null when it did not
+         * branch (every port live). See {@see NodeResult::branch()}.
+         *
+         * @var list<string>|null
+         */
+        public ?array $activePorts = null,
     ) {}
 }

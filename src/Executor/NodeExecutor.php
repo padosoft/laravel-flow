@@ -12,6 +12,7 @@ use Padosoft\LaravelFlow\ApprovalTokenManager;
 use Padosoft\LaravelFlow\Broadcasting\GraphProgressBroadcaster;
 use Padosoft\LaravelFlow\Contracts\FlowStore;
 use Padosoft\LaravelFlow\Contracts\PayloadRedactor;
+use Padosoft\LaravelFlow\Exceptions\FlowExecutionException;
 use Padosoft\LaravelFlow\Executor\Attributes\Retry;
 use Padosoft\LaravelFlow\Executor\Nodes\ApprovalGateNode;
 use Padosoft\LaravelFlow\Executor\State\NodeState;
@@ -230,6 +231,36 @@ final class NodeExecutor
 
         $finishedAt = ($this->clock)();
 
+        // Branching (NodeResult::branch()): only a SUCCEEDED node can activate
+        // ports. Every activated port must be declared on the node (an
+        // undeclared key is a handler bug — fail it rather than silently kill
+        // a branch), and outputs of inactive ports are dropped so persisted
+        // rows, downstream routing and forensic replay all see the same map.
+        $activePorts = null;
+
+        if ($state === NodeState::Succeeded && $result->activePorts !== null) {
+            $undeclared = array_values(array_filter(
+                $result->activePorts,
+                static fn (string $port): bool => $definition->output($port) === null,
+            ));
+
+            if ($undeclared !== []) {
+                $result = NodeResult::failed(new FlowExecutionException(sprintf(
+                    'Node [%s] activated undeclared output port(s) [%s].',
+                    $node->id,
+                    implode(', ', $undeclared),
+                )));
+                $state = NodeState::Failed;
+            } else {
+                $activePorts = $result->activePorts;
+                $result = NodeResult::branch(
+                    array_intersect_key($result->outputs, array_flip($activePorts)),
+                    $activePorts,
+                    $result->businessImpact,
+                );
+            }
+        }
+
         // Approval token issuance is owned by the EXECUTOR, not the node —
         // mirrors v1, where FlowEngine (not the ApprovalGate step) detects a
         // paused ApprovalGate::class result and issues the token. Hash-only
@@ -279,6 +310,9 @@ final class NodeExecutor
             'started_at' => $startedAt,
             'finished_at' => $finishedAt,
             'duration_ms' => $this->durationMs($startedAt, $finishedAt),
+            // Only a branching node writes the column, so every other row is
+            // byte-identical to before and an unmigrated database keeps working.
+            ...($activePorts !== null ? ['active_ports' => $activePorts] : []),
         ]);
 
         // Populate the cache after a fresh success (redaction gate + skip-on-
@@ -287,7 +321,9 @@ final class NodeExecutor
         // A paused result carries `success === true` too (it awaits external
         // input); its partial outputs must NEVER be cached, or a later hit would
         // be served as a completed `succeeded`, silently skipping the pause.
-        if ($contentHash !== null && $this->cache !== null && $definition->cacheable !== null && $result->success && ! $result->paused) {
+        // A branch result is never cached either: a cache hit replays outputs
+        // only, so it could not carry which ports were activated.
+        if ($contentHash !== null && $this->cache !== null && $definition->cacheable !== null && $result->success && ! $result->paused && $activePorts === null) {
             try {
                 $this->cache->put($contentHash, $node->type, $result->outputs, $result->businessImpact, $definition->cacheable->ttl);
             } catch (Throwable $e) {
@@ -304,7 +340,7 @@ final class NodeExecutor
             }
         }
 
-        return new NodeExecution($node->id, $state, $result->success ? $result->outputs : [], $result->error, $issuedApprovalToken);
+        return new NodeExecution($node->id, $state, $result->success ? $result->outputs : [], $result->error, $issuedApprovalToken, $activePorts);
     }
 
     /**

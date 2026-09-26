@@ -73,9 +73,11 @@ final class GraphRunner
         $errors = [];
         /** @var array<string, IssuedApprovalToken> $approvalTokens */
         $approvalTokens = [];
+        /** @var array<string, list<string>> $activePorts output ports activated by branching nodes (see NodeResult::branch()) */
+        $activePorts = [];
 
         while (true) {
-            $decision = $this->readiness->resolve($graph, $states);
+            $decision = $this->readiness->resolve($graph, $states, $activePorts);
 
             if ($decision->allTerminal) {
                 break;
@@ -86,6 +88,16 @@ final class GraphRunner
             foreach ($decision->blocked as $id) {
                 $states[$id] = NodeState::Blocked;
                 $this->persistBlocked($store, $runId, $graph, $id, $sequenceOf[$id] ?? null, $dryRun);
+                $progressed = true;
+            }
+
+            // A node whose every incoming wire is dead (a branch not taken) is
+            // skipped without running; its own ports are all dead in turn, so
+            // the next resolve() pass skips everything that depended only on it.
+            foreach ($decision->skipped as $id) {
+                $states[$id] = NodeState::Skipped;
+                $activePorts[$id] = [];
+                $this->persistSkipped($store, $runId, $graph, $id, $sequenceOf[$id] ?? null, $dryRun);
                 $progressed = true;
             }
 
@@ -113,6 +125,10 @@ final class GraphRunner
 
                 if ($execution->state === NodeState::Succeeded) {
                     $outputs[$id] = $execution->outputs;
+
+                    if ($execution->activePorts !== null) {
+                        $activePorts[$id] = $execution->activePorts;
+                    }
                 }
 
                 if ($execution->error !== null) {
@@ -262,6 +278,37 @@ final class GraphRunner
         // with zero externally-observable side effects.
         if (! $dryRun && $this->progressBroadcaster !== null) {
             $this->progressBroadcaster->nodeTransitioned($runId, $nodeId, $node->type, NodeState::Blocked, $sequence ?? 0);
+        }
+    }
+
+    /**
+     * Mark a branch-skipped node (every incoming wire dead) `skipped`. Its
+     * empty `active_ports` list is what lets a resumed/queued coordinator
+     * re-derive that all of its own wires are dead.
+     */
+    private function persistSkipped(?FlowStore $store, string $runId, GraphDefinition $graph, string $nodeId, ?int $sequence, bool $dryRun): void
+    {
+        $node = $graph->node($nodeId);
+
+        if ($node === null) {
+            return;
+        }
+
+        // Persist FIRST, broadcast SECOND — same durable-before-observable
+        // ordering as persistBlocked().
+        if ($store !== null) {
+            $store->runNodes()->createOrUpdate($runId, $nodeId, [
+                'node_type' => $node->type,
+                'sequence' => $sequence,
+                'status' => NodeState::Skipped->value,
+                'dry_run_skipped' => false,
+                'active_ports' => [],
+                'finished_at' => ($this->clock)(),
+            ]);
+        }
+
+        if (! $dryRun && $this->progressBroadcaster !== null) {
+            $this->progressBroadcaster->nodeTransitioned($runId, $nodeId, $node->type, NodeState::Skipped, $sequence ?? 0);
         }
     }
 

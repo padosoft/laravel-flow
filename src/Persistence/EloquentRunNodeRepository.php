@@ -123,10 +123,18 @@ final class EloquentRunNodeRepository implements BranchAwareRunNodeRepository, R
         $limit = max(1, $limit);
         $timers = [];
 
+        // Only timers of a run that can still advance consume the limit. A cancel
+        // can race an in-flight node write and leave a `paused` timer row on an
+        // already-aborted run; TimerResumer no-ops for it, so without this filter
+        // such stale rows (oldest first) would be selected forever and starve the
+        // valid timers behind them, notably with a small --limit.
         foreach ($this->newModel()->newQuery()
             ->where('status', NodeState::Paused->value)
             ->whereNotNull('resume_at')
             ->where('resume_at', '<=', $now)
+            ->whereExists(static fn ($query) => $query->from('flow_runs as run')
+                ->whereColumn('run.id', 'flow_run_nodes.run_id')
+                ->whereIn('run.status', ['pending', 'running', 'paused']))
             ->orderBy('resume_at')
             ->limit($limit)
             ->get(['run_id', 'node_id']) as $row) {

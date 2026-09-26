@@ -293,6 +293,25 @@ final class TimerResumeTest extends PersistenceTestCase
         $this->artisan('flow:resume-due-timers')->expectsOutput('0 due timer(s) dispatched.')->assertExitCode(0);
     }
 
+    public function test_a_stale_timer_row_on_a_terminal_run_never_starves_a_valid_one(): void
+    {
+        // A cancel racing an in-flight node write can leave a `paused` timer on an
+        // aborted run; it is the OLDEST due row, so with --limit=1 it would be
+        // selected forever if terminal runs were not filtered out.
+        $stale = $this->engine()->dispatchGraph($this->timerThenProbe(60), []);
+        DB::table('flow_runs')->where('id', $stale)->update(['status' => 'aborted']);
+
+        Carbon::setTestNow(Carbon::parse(self::NOW)->addSeconds(5));
+        $valid = $this->engine()->dispatchGraph($this->timerThenProbe(60), []);
+
+        Carbon::setTestNow(Carbon::parse(self::NOW)->addSeconds(200));
+        $this->artisan('flow:resume-due-timers --limit=1')->expectsOutput('1 due timer(s) dispatched.')->assertExitCode(0);
+
+        $this->assertSame('succeeded', DB::table('flow_runs')->where('id', $valid)->value('status'));
+        $this->assertSame('paused', $this->node($stale, 't')->status);
+        $this->artisan('flow:resume-due-timers --limit=1')->expectsOutput('0 due timer(s) dispatched.')->assertExitCode(0);
+    }
+
     public function test_a_cacheable_timer_is_never_served_from_the_node_cache(): void
     {
         CacheableTimerNode::$executions = 0;

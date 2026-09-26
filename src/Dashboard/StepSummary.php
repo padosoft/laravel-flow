@@ -36,5 +36,14 @@ final readonly class StepSummary
          * hash itself.
          */
         public bool $cacheHit = false,
+        /**
+         * The output ports a branching node activated, `[]` for a node skipped
+         * because every incoming wire was dead (a branch not taken), and null
+         * for every ordinary node (all ports live). Lets a run view grey out
+         * the branch that was not taken.
+         *
+         * @var list<string>|null
+         */
+        public ?array $activePorts = null,
     ) {}
 }

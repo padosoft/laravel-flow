@@ -444,6 +444,7 @@ final class FlowDashboardReadModel
                 // The column stores the cache content hash (or null); expose
                 // only the hit/miss fact, never the hash itself.
                 cacheHit: $record->cache_hit !== null,
+                activePorts: is_array($record->active_ports) ? array_values(array_map('strval', $record->active_ports)) : null,
             );
         }
 

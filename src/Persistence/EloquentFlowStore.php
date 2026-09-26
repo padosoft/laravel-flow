@@ -17,6 +17,12 @@ use Padosoft\LaravelFlow\Contracts\RunRepository;
  */
 final class EloquentFlowStore implements FlowStore, RedactorAwareFlowStore
 {
+    // Built once per store: the run-node repository memoises its schema probes
+    // (`hasColumn`), and a fresh instance per runNodes() call would repeat that
+    // metadata query on every coordinator pass. The store is a container
+    // singleton, so this makes the probe once-per-process.
+    private ?EloquentRunNodeRepository $runNodes = null;
+
     public function __construct(
         private readonly ?string $connection,
         private readonly PayloadRedactor $redactor,
@@ -29,7 +35,7 @@ final class EloquentFlowStore implements FlowStore, RedactorAwareFlowStore
 
     public function runNodes(): RunNodeRepository
     {
-        return new EloquentRunNodeRepository($this->connection, $this->redactor);
+        return $this->runNodes ??= new EloquentRunNodeRepository($this->connection, $this->redactor);
     }
 
     public function audit(): AuditRepository

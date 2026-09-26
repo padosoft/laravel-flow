@@ -62,6 +62,110 @@ final class ReadinessResolverTest extends TestCase
         $this->assertSame(['b'], $decision->blocked);
     }
 
+    /**
+     * c --yes--> a --\
+     *   \--no--> b ---> m
+     */
+    private function branching(): GraphDefinition
+    {
+        return new GraphDefinition(
+            [new GraphNode('c', 't.c'), new GraphNode('a', 't.a'), new GraphNode('b', 't.b'), new GraphNode('m', 't.m')],
+            [
+                new Connection('c', 'yes', 'a', 'in'),
+                new Connection('c', 'no', 'b', 'in'),
+                new Connection('a', 'out', 'm', 'x'),
+                new Connection('b', 'out', 'm', 'y'),
+            ],
+        );
+    }
+
+    public function test_an_empty_active_ports_map_reproduces_the_historical_decision(): void
+    {
+        $states = ['a' => NodeState::Succeeded];
+
+        $this->assertEquals(
+            (new ReadinessResolver)->resolve($this->diamond(), $states),
+            (new ReadinessResolver)->resolve($this->diamond(), $states, []),
+        );
+        $this->assertSame([], (new ReadinessResolver)->resolve($this->diamond(), $states)->skipped);
+    }
+
+    public function test_a_dead_port_skips_its_target_and_readies_the_live_one(): void
+    {
+        $decision = (new ReadinessResolver)->resolve($this->branching(), ['c' => NodeState::Succeeded], ['c' => ['yes']]);
+
+        $this->assertSame(['b'], $decision->skipped);
+        $this->assertSame(['a'], $decision->ready);
+        $this->assertSame([], $decision->blocked);
+        // b is skipped by THIS pass but not persisted yet, so the graph is not terminal.
+        $this->assertFalse($decision->allTerminal);
+    }
+
+    public function test_skipping_propagates_transitively_within_a_single_pass(): void
+    {
+        $graph = new GraphDefinition(
+            [new GraphNode('c', 't.c'), new GraphNode('x', 't.x'), new GraphNode('y', 't.y'), new GraphNode('z', 't.z')],
+            [
+                new Connection('c', 'no', 'x', 'in'),
+                new Connection('x', 'out', 'y', 'in'),
+                new Connection('y', 'out', 'z', 'in'),
+            ],
+        );
+
+        $decision = (new ReadinessResolver)->resolve($graph, ['c' => NodeState::Succeeded], ['c' => ['yes']]);
+
+        $this->assertSame(['x', 'y', 'z'], $decision->skipped);
+        $this->assertSame([], $decision->ready);
+    }
+
+    public function test_a_node_with_a_live_and_a_dead_wire_still_runs(): void
+    {
+        $states = ['c' => NodeState::Succeeded, 'a' => NodeState::Succeeded, 'b' => NodeState::Skipped];
+        $decision = (new ReadinessResolver)->resolve($this->branching(), $states, ['c' => ['yes'], 'b' => []]);
+
+        $this->assertSame(['m'], $decision->ready);
+        $this->assertSame([], $decision->skipped);
+    }
+
+    public function test_a_poisoned_predecessor_wins_over_a_dead_wire(): void
+    {
+        $states = ['c' => NodeState::Succeeded, 'a' => NodeState::Failed, 'b' => NodeState::Skipped];
+        $decision = (new ReadinessResolver)->resolve($this->branching(), $states, ['c' => ['yes'], 'b' => []]);
+
+        $this->assertSame(['m'], $decision->blocked);
+        $this->assertSame([], $decision->skipped);
+    }
+
+    public function test_a_skipped_node_without_a_recorded_list_stays_live(): void
+    {
+        // A dry-run / cancel skip carries no active_ports, so its wires are live.
+        $decision = (new ReadinessResolver)->resolve($this->linearChain(), ['a' => NodeState::Skipped]);
+
+        $this->assertSame(['b'], $decision->ready);
+        $this->assertSame([], $decision->skipped);
+    }
+
+    public function test_a_pending_source_never_kills_its_wire(): void
+    {
+        $decision = (new ReadinessResolver)->resolve($this->branching(), [], ['c' => ['yes']]);
+
+        $this->assertSame(['c'], $decision->ready);
+        $this->assertSame([], $decision->skipped);
+    }
+
+    public function test_two_wires_from_one_source_are_judged_per_port(): void
+    {
+        $graph = new GraphDefinition(
+            [new GraphNode('c', 't.c'), new GraphNode('t', 't.t')],
+            [new Connection('c', 'yes', 't', 'p'), new Connection('c', 'no', 't', 'q')],
+        );
+
+        $decision = (new ReadinessResolver)->resolve($graph, ['c' => NodeState::Succeeded], ['c' => ['no']]);
+
+        $this->assertSame(['t'], $decision->ready);
+        $this->assertSame([], $decision->skipped);
+    }
+
     public function test_skipped_upstream_still_readies_downstream(): void
     {
         $decision = (new ReadinessResolver)->resolve($this->linearChain(), ['a' => NodeState::Skipped]);

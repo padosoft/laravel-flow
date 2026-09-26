@@ -489,6 +489,7 @@ final class LaravelFlowServiceProvider extends ServiceProvider
             __DIR__.'/../database/migrations/2026_07_09_000011_add_graph_to_laravel_flow_runs.php' => $this->app->databasePath('migrations/2026_07_09_000011_add_graph_to_laravel_flow_runs.php'),
             __DIR__.'/../database/migrations/2026_07_09_000012_create_flow_node_cache_table.php' => $this->app->databasePath('migrations/2026_07_09_000012_create_flow_node_cache_table.php'),
             __DIR__.'/../database/migrations/2026_08_23_000001_add_subject_to_flow_runs_table.php' => $this->app->databasePath('migrations/2026_08_23_000001_add_subject_to_flow_runs_table.php'),
+            __DIR__.'/../database/migrations/2026_09_28_000001_add_active_ports_to_flow_run_nodes.php' => $this->app->databasePath('migrations/2026_09_28_000001_add_active_ports_to_flow_run_nodes.php'),
         ], 'laravel-flow-migrations');
 
         $this->commands([

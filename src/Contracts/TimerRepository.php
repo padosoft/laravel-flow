@@ -36,10 +36,18 @@ interface TimerRepository
 
     /**
      * Atomically complete a due timer: a compare-and-set that flips the node
-     * `paused` -> `succeeded` (keeping its stored outputs, clearing `resume_at`
-     * and any error fields) ONLY while it is still `paused` with a `resume_at`
-     * at or before `$now`. Returns true for the single writer that won, false
-     * for a duplicate, a late job, a cancelled node or a timer not yet due.
+     * `paused` -> `succeeded` (keeping its stored outputs and its `resume_at`,
+     * clearing any error fields) ONLY while it is still `paused` with a
+     * `resume_at` at or before `$now`. Returns true for the single writer that
+     * won, false for a duplicate, a late job, a cancelled node or a timer not
+     * yet due.
      */
     public function resumeTimer(string $runId, string $nodeId, DateTimeInterface $now): bool;
+
+    /**
+     * True when the node is a timer that was already completed: `succeeded`
+     * with a `resume_at`. Lets a retry re-drive the coordinator when an
+     * earlier attempt flipped the node and then failed to enqueue it.
+     */
+    public function isResumedTimer(string $runId, string $nodeId): bool;
 }

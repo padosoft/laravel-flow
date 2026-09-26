@@ -4,13 +4,17 @@ declare(strict_types=1);
 
 namespace Padosoft\LaravelFlow\Tests\Unit\Executor;
 
+use Illuminate\Bus\Dispatcher;
 use Illuminate\Contracts\Bus\Dispatcher as BusDispatcher;
 use Illuminate\Contracts\Config\Repository as ConfigRepository;
+use Illuminate\Database\ConnectionResolverInterface;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Sleep;
+use Padosoft\LaravelFlow\Contracts\FlowStore;
 use Padosoft\LaravelFlow\Executor\GraphRunner;
+use Padosoft\LaravelFlow\Executor\Jobs\CoordinatorJob;
 use Padosoft\LaravelFlow\Executor\Jobs\ResumeTimerJob;
 use Padosoft\LaravelFlow\Executor\State\NodeState;
 use Padosoft\LaravelFlow\Executor\State\RunState;
@@ -22,6 +26,7 @@ use Padosoft\LaravelFlow\Graph\GraphNode;
 use Padosoft\LaravelFlow\Tests\Fixtures\GraphNodes\QueueProbeNode;
 use Padosoft\LaravelFlow\Tests\Fixtures\GraphNodes\TimerNode;
 use Padosoft\LaravelFlow\Tests\Unit\Persistence\PersistenceTestCase;
+use RuntimeException;
 
 /**
  * Timed pause (NodeResult::pausedUntil()) through both executors: a synchronous
@@ -150,7 +155,8 @@ final class TimerResumeTest extends PersistenceTestCase
 
         $timer = $this->node($runId, 't');
         $this->assertSame('succeeded', $timer->status);
-        $this->assertNull($timer->resume_at);
+        // The due time is kept after the resume (it is how a retry recognises a completed timer).
+        $this->assertNotNull($timer->resume_at);
         $this->assertSame(['through' => true], json_decode((string) $timer->outputs, true)['out']);
         $this->assertSame(1, QueueProbeNode::count('p'));
         $this->assertSame('succeeded', DB::table('flow_runs')->where('id', $runId)->value('status'));
@@ -158,7 +164,7 @@ final class TimerResumeTest extends PersistenceTestCase
         $this->assertSame(1, TimerNode::$executions);
     }
 
-    public function test_resuming_twice_is_a_no_op(): void
+    public function test_resuming_twice_never_re_runs_anything(): void
     {
         $runId = $this->engine()->dispatchGraph($this->timerThenProbe(60), []);
         Carbon::setTestNow(Carbon::parse(self::NOW)->addSeconds(61));
@@ -167,11 +173,59 @@ final class TimerResumeTest extends PersistenceTestCase
 
         $this->assertTrue($resumer->resume($runId, 't')->wasResumed());
         $this->assertSame(1, QueueProbeNode::count('p'));
+        $this->assertSame('succeeded', DB::table('flow_runs')->where('id', $runId)->value('status'));
 
-        $again = $resumer->resume($runId, 't');
-        $this->assertFalse($again->wasResumed());
-        $this->assertFalse($again->isNotDue());
+        // A duplicate re-enters the (idempotent) coordinator: it claims nothing,
+        // so neither the handler nor the downstream node runs again.
+        $resumer->resume($runId, 't');
+        $this->assertSame(1, TimerNode::$executions);
         $this->assertSame(1, QueueProbeNode::count('p'));
+        $this->assertSame('succeeded', DB::table('flow_runs')->where('id', $runId)->value('status'));
+    }
+
+    public function test_a_failed_coordinator_enqueue_after_the_flip_is_recovered_by_a_retry(): void
+    {
+        $runId = $this->engine()->dispatchGraph($this->timerThenProbe(60), []);
+        Carbon::setTestNow(Carbon::parse(self::NOW)->addSeconds(61));
+
+        // A queue that is down exactly once, after the timer flip has committed.
+        $bus = new class($this->app) extends Dispatcher
+        {
+            public int $failures = 1;
+
+            public function dispatch($command)
+            {
+                if ($command instanceof CoordinatorJob && $this->failures-- > 0) {
+                    throw new RuntimeException('queue backend unavailable');
+                }
+
+                return parent::dispatch($command);
+            }
+        };
+        $resumer = new TimerResumer(
+            $this->app->make(ConnectionResolverInterface::class),
+            $this->app->make(FlowStore::class),
+            static fn (): \DateTimeImmutable => Carbon::now()->toDateTimeImmutable(),
+            $bus,
+        );
+
+        try {
+            $resumer->resume($runId, 't');
+            $this->fail('the enqueue failure must surface so the job is retried');
+        } catch (RuntimeException) {
+            // expected
+        }
+
+        // The flip committed but nothing advanced the run: without a retry path it is stuck forever.
+        $this->assertSame('succeeded', $this->node($runId, 't')->status);
+        $this->assertSame(0, QueueProbeNode::count('p'));
+        $this->assertSame('running', DB::table('flow_runs')->where('id', $runId)->value('status'));
+
+        // The retry finds a completed timer and re-drives the coordinator.
+        $this->assertTrue($resumer->resume($runId, 't')->wasResumed());
+        $this->assertSame(1, QueueProbeNode::count('p'));
+        $this->assertSame('succeeded', DB::table('flow_runs')->where('id', $runId)->value('status'));
+        $this->assertSame(1, TimerNode::$executions);
     }
 
     public function test_a_timer_that_is_not_due_reports_when_it_is(): void

@@ -165,13 +165,26 @@ final class EloquentRunNodeRepository implements BranchAwareRunNodeRepository, R
             ->update([
                 'status' => NodeState::Succeeded->value,
                 'finished_at' => $now,
-                'resume_at' => null,
                 'error_class' => null,
                 'error_message' => null,
                 'updated_at' => $this->newModel()->freshTimestamp(),
             ]);
 
         return $affected === 1;
+    }
+
+    public function isResumedTimer(string $runId, string $nodeId): bool
+    {
+        if (! $this->resumeAtColumnExists()) {
+            return false;
+        }
+
+        return $this->newModel()->newQuery()
+            ->where('run_id', $runId)
+            ->where('node_id', $nodeId)
+            ->where('status', NodeState::Succeeded->value)
+            ->whereNotNull('resume_at')
+            ->exists();
     }
 
     public function claim(string $runId, string $nodeId, DateTimeInterface $startedAt): bool

@@ -61,7 +61,9 @@ php artisan flow:resume-due-timers --sync        # resume in this process
 On `queue.default=sync` a delayed job runs immediately, before the timer is due, and then stops. The timer stays `paused` until `flow:resume-due-timers` runs. In production use a real queue driver **and** schedule the command.
 :::
 
-The command is idempotent. Resuming a timer that was already resumed, or whose run was cancelled, does nothing.
+The command is idempotent. Resuming a timer whose run was cancelled does nothing, and resuming one that was already resumed never re-runs the node or the steps after it.
+
+If the queue is down at the moment the engine enqueues the follow-up coordinator, the resume job fails and is retried. Because the timer keeps its `resume_at` after it resumes, the retry recognises a completed timer and re-enqueues the coordinator, so a transient outage cannot leave the run stuck.
 
 ## Cancelling
 
@@ -69,7 +71,7 @@ The command is idempotent. Resuming a timer that was already resumed, or whose r
 
 ## Persistence
 
-A timer stores `flow_run_nodes.resume_at` (a nullable `timestampTz`, indexed with `status`). Only a timer writes it, so an approval pause is never confused with one. The migration is `2026_09_28_000002_add_resume_at_to_flow_run_nodes.php`:
+A timer stores `flow_run_nodes.resume_at` (a nullable `timestampTz`, indexed with `status`), the time it is due, and keeps it after it resumes. Only a timer writes it, so an approval pause is never confused with one. The migration is `2026_09_28_000002_add_resume_at_to_flow_run_nodes.php`:
 
 ```bash
 php artisan vendor:publish --tag=laravel-flow-migrations

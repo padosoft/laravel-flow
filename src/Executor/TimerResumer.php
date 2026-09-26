@@ -31,7 +31,9 @@ use Padosoft\LaravelFlow\Node\NodeResult;
  * late job after a cancel, a node that is not a paused timer, or a run that has
  * already ended all end in {@see TimerResumeOutcome::noop()}. The node flip is
  * a compare-and-set in {@see TimerRepository::resumeTimer()}, so at most one
- * caller ever wins.
+ * caller ever flips it. A caller that finds a timer ALREADY flipped re-enters
+ * the coordinator instead of stopping, so a transient failure to enqueue it
+ * (after the flip committed) is recovered by the job's own retry.
  *
  * @internal
  */
@@ -63,10 +65,11 @@ final class TimerResumer
 
         $outcome = TimerResumeOutcome::noop();
         $dispatch = null;
+        $announce = false;
         $sequence = 0;
         $nodeType = '';
 
-        $this->connection()->transaction(function () use ($timers, $runId, $nodeId, &$outcome, &$dispatch, &$sequence, &$nodeType): void {
+        $this->connection()->transaction(function () use ($timers, $runId, $nodeId, &$outcome, &$dispatch, &$announce, &$sequence, &$nodeType): void {
             $this->connection()->table('flow_runs')->where('id', $runId)->lockForUpdate()->first();
 
             $run = $this->store->runs()->find($runId);
@@ -85,19 +88,32 @@ final class TimerResumer
             $dueAt = $timers->pendingTimer($runId, $nodeId);
 
             if ($dueAt === null) {
-                return;
-            }
+                // No pending timer. If the node is a timer that an EARLIER attempt
+                // already completed, that attempt may have committed the flip and
+                // then failed to enqueue the coordinator (a transient queue
+                // outage): the run would be stuck for good, because nothing else
+                // ever advances it. Re-driving is safe — the coordinator is
+                // idempotent (claims are compare-and-set) — so a retry of the
+                // job, or a duplicate, just re-enters it. Anything else (a
+                // cancelled node, an approval pause, an unknown node) is a no-op.
+                if (! $timers->isResumedTimer($runId, $nodeId)) {
+                    return;
+                }
+            } else {
+                $now = ($this->clock)();
 
-            $now = ($this->clock)();
+                if ($dueAt > $now) {
+                    $outcome = TimerResumeOutcome::notDue($dueAt);
 
-            if ($dueAt > $now) {
-                $outcome = TimerResumeOutcome::notDue($dueAt);
+                    return;
+                }
 
-                return;
-            }
+                if (! $timers->resumeTimer($runId, $nodeId, $now)) {
+                    return;
+                }
 
-            if (! $timers->resumeTimer($runId, $nodeId, $now)) {
-                return;
+                // Only the attempt that actually flipped the node announces it.
+                $announce = true;
             }
 
             // A run finalized as `paused` (nothing else in flight) goes back to
@@ -135,7 +151,12 @@ final class TimerResumer
         // committed: a subscriber never sees a transition before it is durable,
         // and a coordinator never runs against an uncommitted node row.
         if ($dispatch instanceof CoordinatorJob) {
-            $this->progressBroadcaster?->nodeTransitioned($runId, $nodeId, $nodeType, NodeState::Succeeded, $sequence);
+            if ($announce) {
+                $this->progressBroadcaster?->nodeTransitioned($runId, $nodeId, $nodeType, NodeState::Succeeded, $sequence);
+            }
+
+            // If this throws, the flip is already committed; the job retry (or a
+            // duplicate) lands in the re-drive branch above rather than a no-op.
             $this->bus->dispatch($dispatch);
         }
 

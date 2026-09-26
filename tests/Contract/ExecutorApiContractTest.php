@@ -152,13 +152,13 @@ final class ExecutorApiContractTest extends TestCase
         $this->assertSame($at->getTimestamp(), $result->resumeAt?->getTimestamp());
         $this->assertNull(NodeResult::paused()->resumeAt);
 
-        // The optional timer contract is exactly these three methods.
+        // The optional timer contract is exactly these four methods.
         $methods = array_map(
             static fn (\ReflectionMethod $m): string => $m->getName(),
             (new ReflectionClass(TimerRepository::class))->getMethods(),
         );
         sort($methods);
-        $this->assertSame(['dueTimers', 'pendingTimer', 'resumeTimer'], $methods);
+        $this->assertSame(['dueTimers', 'isResumedTimer', 'pendingTimer', 'resumeTimer'], $methods);
 
         // NodeExecutor's new constructor argument is trailing and defaulted.
         $ctor = (new ReflectionClass(NodeExecutor::class))->getConstructor();

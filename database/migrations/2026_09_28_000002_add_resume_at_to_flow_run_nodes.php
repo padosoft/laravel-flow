@@ -15,9 +15,11 @@ return new class extends Migration
         }
 
         Schema::table('flow_run_nodes', function (Blueprint $table): void {
-            // When a TIMER node (NodeResult::pausedUntil()) is due to resume.
-            // NULL for every other node, including an approval pause — which is
-            // how the resume sweeper tells the two kinds of `paused` apart. This
+            // When a TIMER node (NodeResult::pausedUntil()) is due to resume, and
+            // kept after it resumed (as the time it was due) so a retry can tell a
+            // completed timer from an ordinary node. NULL for every other node,
+            // including an approval pause — which is how the resume sweeper tells
+            // the two kinds of `paused` apart. This
             // is deliberately NOT `available_at`: that column records a retry
             // backoff and is set on any node that retried before pausing.
             $table->timestampTz('resume_at')->nullable();

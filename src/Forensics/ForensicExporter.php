@@ -109,6 +109,13 @@ final class ForensicExporter
                 'duration_ms' => $row->duration_ms,
                 'started_at' => $row->started_at?->format(DateTimeInterface::ATOM),
                 'finished_at' => $row->finished_at?->format(DateTimeInterface::ATOM),
+                // The branch decision (NodeResult::branch()): without it a node
+                // that simply omitted an output and one that deactivated that
+                // port export identical output maps yet give the wire different
+                // liveness, so the bundle could not explain why descendants were
+                // skipped. Present only for branching / branch-skipped nodes, so
+                // every other bundle (and its digest) is unchanged.
+                ...(is_array($row->active_ports) ? ['active_ports' => array_values(array_map('strval', $row->active_ports))] : []),
             ], $rows),
             redacted: $applyRedaction,
             exportedAt: $exportedAt ?? new DateTimeImmutable,

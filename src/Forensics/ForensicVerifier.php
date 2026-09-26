@@ -179,6 +179,9 @@ final class ForensicVerifier
         $findings = [];
         $outputs = [];
         $checked = 0;
+        $branchChecked = 0;
+        /** @var array<string, list<string>> $activePorts the recorded branch decisions seen so far (rows are in sequence order) */
+        $activePorts = [];
 
         foreach ($bundle->nodes as $row) {
             $nodeId = is_string($row['node_id'] ?? null) ? $row['node_id'] : null;
@@ -188,6 +191,36 @@ final class ForensicVerifier
                 $findings[] = ForensicFinding::failed(self::CHECK_ROUTING, 'A recorded node is absent from the embedded graph: the record and the graph disagree about what ran.', $nodeId);
 
                 continue;
+            }
+
+            // Branch consistency: a node whose every incoming wire is dead (the
+            // recorded upstream decisions deactivated the ports it is wired to)
+            // must have been skipped by the branch, and a node recorded as
+            // branch-skipped must really have had all of its wires dead.
+            $incoming = array_values(array_filter(
+                $graph->connections,
+                static fn (Connection $c): bool => $c->targetNodeId === $nodeId,
+            ));
+            $allDead = $incoming !== [] && array_reduce(
+                $incoming,
+                static fn (bool $carry, Connection $c): bool => $carry
+                    && isset($activePorts[$c->sourceNodeId])
+                    && ! in_array($c->sourcePortKey, $activePorts[$c->sourceNodeId], true),
+                true,
+            );
+            $recordedPorts = is_array($row['active_ports'] ?? null) ? array_values(array_map('strval', $row['active_ports'])) : null;
+            $branchSkipped = $recordedPorts === [] && ($row['status'] ?? null) === 'skipped';
+
+            if ($allDead && ! $branchSkipped) {
+                $findings[] = ForensicFinding::failed(self::CHECK_ROUTING, 'This node ran although every incoming wire was dead under the recorded branch decisions: the record and the graph disagree about what was skipped.', $nodeId);
+            } elseif ($branchSkipped && ! $allDead) {
+                $findings[] = ForensicFinding::failed(self::CHECK_ROUTING, 'This node is recorded as skipped by a branch, but not every incoming wire was dead under the recorded branch decisions.', $nodeId);
+            } elseif ($allDead) {
+                $branchChecked++;
+            }
+
+            if ($recordedPorts !== null) {
+                $activePorts[$nodeId] = $recordedPorts;
             }
 
             $recordedInputs = is_array($row['inputs'] ?? null) ? $row['inputs'] : null;
@@ -224,6 +257,10 @@ final class ForensicVerifier
 
         if ($checked > 0) {
             $findings[] = ForensicFinding::ok(self::CHECK_ROUTING, sprintf('%d node input map(s) re-derived from the recorded outputs.', $checked));
+        }
+
+        if ($branchChecked > 0) {
+            $findings[] = ForensicFinding::ok(self::CHECK_ROUTING, sprintf('%d branch skip(s) confirmed against the recorded branch decisions.', $branchChecked));
         }
 
         return $findings;

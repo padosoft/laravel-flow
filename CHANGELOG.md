@@ -12,6 +12,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **Readiness API**: `ReadinessResolver::resolve()` gains an optional third argument `$activePorts` (node id => activated ports) and `ReadinessDecision` a trailing defaulted `$skipped`. With no map, every decision is identical to 2.5.
 - **`Contracts\BranchAwareRunNodeRepository` (`@api`, optional)**: `activePorts(string $runId): array`, implemented by the Eloquent repository. A custom `RunNodeRepository` that does not implement it is still read through `forRun()`.
 - **Dashboard**: `StepSummary` gains a trailing defaulted `$activePorts` so a run view can show which branch was taken.
+- **Forensics**: a forensic bundle records each branching / branch-skipped node's `active_ports` (present only for those nodes, so every non-branching bundle and its digest are unchanged), and `ForensicVerifier` now cross-checks the branch skips: a node that ran although every incoming wire was dead, or a recorded skip the decisions do not justify, is a `failed` routing finding.
 - **Migration** `2026_09_28_000001_add_active_ports_to_flow_run_nodes.php`: a nullable `flow_run_nodes.active_ports` JSON column, written only by a branching node.
 
 ### Notes

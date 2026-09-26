@@ -312,6 +312,20 @@ final class TimerResumeTest extends PersistenceTestCase
         $this->artisan('flow:resume-due-timers --limit=1')->expectsOutput('0 due timer(s) dispatched.')->assertExitCode(0);
     }
 
+    public function test_a_very_long_timer_resumes_with_a_representable_duration(): void
+    {
+        // 30 days is over the 32-bit millisecond limit of duration_ms (~24.8 days);
+        // an uncapped value would overflow the column and fail the resume forever.
+        $runId = $this->engine()->dispatchGraph($this->timerThenProbe(60), []);
+        Carbon::setTestNow(Carbon::parse(self::NOW)->addDays(30));
+
+        $this->artisan('flow:resume-due-timers')->expectsOutput('1 due timer(s) dispatched.')->assertExitCode(0);
+
+        $this->assertSame('succeeded', $this->node($runId, 't')->status);
+        $this->assertSame(2_147_483_647, (int) $this->node($runId, 't')->duration_ms);
+        $this->assertSame('succeeded', DB::table('flow_runs')->where('id', $runId)->value('status'));
+    }
+
     public function test_a_cacheable_timer_is_never_served_from_the_node_cache(): void
     {
         CacheableTimerNode::$executions = 0;

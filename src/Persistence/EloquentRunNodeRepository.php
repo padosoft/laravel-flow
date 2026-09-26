@@ -25,6 +25,9 @@ final class EloquentRunNodeRepository implements BranchAwareRunNodeRepository, R
 
     private ?bool $hasResumeAtColumn = null;
 
+    /** Largest value `duration_ms` can hold on every supported database (signed 32-bit). */
+    private const MAX_DURATION_MS = 2_147_483_647;
+
     /** A completed timer whose run made no progress for this long is re-driven by the sweeper. */
     private const STALLED_GRACE_SECONDS = 60;
 
@@ -218,7 +221,12 @@ final class EloquentRunNodeRepository implements BranchAwareRunNodeRepository, R
 
         if ($startedAt !== null) {
             $start = DateTimeImmutable::createFromInterface(is_string($startedAt) ? new DateTimeImmutable($startedAt) : $startedAt);
-            $values['duration_ms'] = max(0, (int) round(((float) $now->format('U.u') - (float) $start->format('U.u')) * 1000));
+            // `duration_ms` is a 32-bit column (signed on PostgreSQL). A timer can
+            // legitimately wait longer than 2^31-1 ms (~24.8 days), which would
+            // overflow the column, fail this update and leave the timer paused for
+            // every later job and sweep — so the value is capped to what is
+            // representable everywhere.
+            $values['duration_ms'] = min(self::MAX_DURATION_MS, max(0, (int) round(((float) $now->format('U.u') - (float) $start->format('U.u')) * 1000)));
         }
 
         $affected = $this->newModel()->newQuery()
